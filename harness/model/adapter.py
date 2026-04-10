@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from typing import Protocol
 
 import httpx
@@ -124,3 +125,49 @@ class ModelRegistry:
         if backend not in self.adapters:
             backend = "local_stub"
         return self.adapters[backend]
+
+
+def check_lmstudio_health(cfg: ConfigManager) -> dict[str, Any]:
+    """Performs endpoint check, model list check, and tiny inference check."""
+
+    base_url = str(cfg.get("model.lmstudio.base_url", "http://127.0.0.1:1234/v1")).rstrip("/")
+    model_id = str(cfg.get("model.lmstudio.model", "local-model"))
+    timeout_s = float(cfg.get("model.lmstudio.timeout_s", 45.0))
+
+    models_url = f"{base_url}/models"
+    chat_url = f"{base_url}/chat/completions"
+
+    with httpx.Client(timeout=timeout_s) as client:
+        models_resp = client.get(models_url)
+        models_resp.raise_for_status()
+        models_body = models_resp.json()
+        listed_ids = [m.get("id", "") for m in models_body.get("data", [])]
+        model_present = model_id in listed_ids
+
+        payload = {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": "You are a concise assistant."},
+                {"role": "user", "content": "Reply with exactly: CHECK_OK"},
+            ],
+            "temperature": 0.0,
+            "max_tokens": 32,
+            "reasoning": "off",
+        }
+        chat_resp = client.post(chat_url, json=payload)
+        chat_resp.raise_for_status()
+        chat_body = chat_resp.json()
+        choice0 = chat_body.get("choices", [{}])[0]
+        msg = choice0.get("message", {})
+        content = str(msg.get("content", "")).strip() or str(msg.get("reasoning_content", "")).strip()
+        finish_reason = str(choice0.get("finish_reason", ""))
+
+    return {
+        "ok": True,
+        "base_url": base_url,
+        "configured_model": model_id,
+        "model_present": model_present,
+        "available_models": listed_ids,
+        "inference_reply": content,
+        "finish_reason": finish_reason,
+    }

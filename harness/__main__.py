@@ -9,13 +9,10 @@ from pathlib import Path
 import uvicorn
 
 from harness.api.server import create_app
-from harness.memory.manager import MemoryManager
-from harness.model.adapter import ModelRegistry
-from harness.orchestrator.orchestrator import Orchestrator
+from harness.model.adapter import check_lmstudio_health
+from harness.runtime.bootstrap import build_runtime
 from harness.runtime.config import ConfigManager
-from harness.runtime.event_bus import EventBus
 from harness.runtime.types import Task
-from harness.tools.registry import PermissionPolicy, ToolRegistry
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,22 +33,19 @@ def build_parser() -> argparse.ArgumentParser:
     serve_api.add_argument("--host", default="127.0.0.1")
     serve_api.add_argument("--port", type=int, default=8000)
 
+    sub.add_parser("lmstudio-check", help="Validate LM Studio endpoint, model, and tiny inference")
+
     sub.add_parser("status", help="Show current runtime status")
     sub.add_parser("print-config", help="Print resolved defaults from config files")
     return parser
 
 
 async def run_task(prompt: str, workspace_root: Path, backend: str | None = None) -> None:
-    cfg = ConfigManager(workspace_root)
-    bus = EventBus()
-    memory = MemoryManager(cfg, workspace_root)
-    models = ModelRegistry.from_config(cfg)
-    tools = ToolRegistry(PermissionPolicy.from_config(cfg, workspace_root))
-    orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, tools=tools)
+    runtime = build_runtime(workspace_root)
 
     task_input = {"model_backend": backend} if backend else {}
     task = Task(id=str(uuid.uuid4()), description=prompt, input=task_input)
-    result = await orchestrator.run_reactive_task(task)
+    result = await runtime.orchestrator.run_reactive_task(task)
     print(json.dumps(result.output, indent=2))
 
 
@@ -79,6 +73,12 @@ def serve_api(workspace_root: Path, host: str, port: int) -> None:
     uvicorn.run(app, host=host, port=port)
 
 
+def lmstudio_check(workspace_root: Path) -> None:
+    cfg = ConfigManager(workspace_root)
+    result = check_lmstudio_health(cfg)
+    print(json.dumps(result, indent=2))
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -92,6 +92,8 @@ def main() -> None:
         print_config(workspace_root)
     elif args.command == "serve-api":
         serve_api(workspace_root, args.host, args.port)
+    elif args.command == "lmstudio-check":
+        lmstudio_check(workspace_root)
 
 
 if __name__ == "__main__":

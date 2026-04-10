@@ -66,6 +66,12 @@ Then call:
 curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"prompt\":\"hello\",\"model_backend\":\"local_stub\"}"
 ```
 
+7. Run LM Studio health check:
+
+```bash
+python -m harness --workspace . lmstudio-check
+```
+
 ## Configuration
 
 - Defaults: harness/config_defaults.json
@@ -82,3 +88,4 @@ LM Studio config keys:
 
 - This is phase 1 plus forward-compatible stubs.
 - FastAPI server and full UI are intentionally deferred to later phases.
+- Structured runtime events are logged to .harness/events.log.

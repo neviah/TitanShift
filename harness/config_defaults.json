@@ -30,5 +30,8 @@
   },
   "ingestion": {
     "enable_graphify_plugin": false
+  },
+  "logging": {
+    "file": "events.log"
   }
 }
