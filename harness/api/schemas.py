@@ -37,3 +37,20 @@ class TaskSummary(BaseModel):
 
 class TaskDetail(TaskSummary):
     output: dict
+
+
+class LogEntry(BaseModel):
+    timestamp: str
+    event_type: str
+    payload: dict
+
+
+class ConfigUpdateRequest(BaseModel):
+    key: str = Field(min_length=1)
+    value: object
+
+
+class ConfigUpdateResponse(BaseModel):
+    ok: bool
+    key: str
+    value: object

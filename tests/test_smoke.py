@@ -117,3 +117,37 @@ def test_orchestrator_failure_isolation_marks_task_failed() -> None:
     assert result.success is False
     assert "Unhandled runtime error" in (result.error or "")
 
+
+def test_logs_endpoint_returns_list() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    _ = client.post(
+        "/chat",
+        json={
+            "prompt": "log smoke",
+            "model_backend": "local_stub",
+        },
+    )
+    response = client.get("/logs?limit=5")
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list)
+    assert all("event_type" in row for row in body)
+
+
+def test_config_update_endpoint_runtime_override() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    before = client.get("/config").json()
+    assert "state_machine.default_budget.max_tokens" in before
+
+    response = client.post(
+        "/config",
+        json={"key": "state_machine.default_budget.max_tokens", "value": 2048},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["key"] == "state_machine.default_budget.max_tokens"
+    assert body["value"] == 2048
+

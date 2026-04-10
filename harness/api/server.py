@@ -5,7 +5,15 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from harness.api.schemas import ChatRequest, ChatResponse, TaskDetail, TaskSummary
+from harness.api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    ConfigUpdateRequest,
+    ConfigUpdateResponse,
+    LogEntry,
+    TaskDetail,
+    TaskSummary,
+)
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.types import Task
 
@@ -58,5 +66,41 @@ def create_app(workspace_root: Path) -> FastAPI:
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskDetail(**task)
+
+    @app.get("/logs", response_model=list[LogEntry])
+    async def get_logs(
+        event_type: str | None = None,
+        task_id: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+    ) -> list[LogEntry]:
+        clamped_limit = max(1, min(limit, 1000))
+        rows = runtime.logger.query(
+            event_type=event_type,
+            task_id=task_id,
+            source=source,
+            limit=clamped_limit,
+        )
+        return [LogEntry(**r) for r in rows]
+
+    @app.get("/config")
+    async def get_config() -> dict:
+        return {
+            "model.default_backend": runtime.config.get("model.default_backend"),
+            "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
+            "state_machine.default_budget.max_steps": runtime.config.get("state_machine.default_budget.max_steps"),
+            "state_machine.default_budget.max_tokens": runtime.config.get("state_machine.default_budget.max_tokens"),
+            "state_machine.default_budget.max_duration_ms": runtime.config.get(
+                "state_machine.default_budget.max_duration_ms"
+            ),
+            "tools.deny_all_by_default": runtime.config.get("tools.deny_all_by_default"),
+            "tools.allow_network": runtime.config.get("tools.allow_network"),
+        }
+
+    @app.post("/config", response_model=ConfigUpdateResponse)
+    async def update_config(body: ConfigUpdateRequest) -> ConfigUpdateResponse:
+        runtime.config.set(body.key, body.value)
+        runtime.logger.log("CONFIG_UPDATED", {"key": body.key})
+        return ConfigUpdateResponse(ok=True, key=body.key, value=runtime.config.get(body.key))
 
     return app

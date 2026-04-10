@@ -81,6 +81,21 @@ curl http://127.0.0.1:8000/tasks
 curl http://127.0.0.1:8000/tasks/<task_id>
 ```
 
+Logs endpoint (with filters):
+
+```bash
+curl "http://127.0.0.1:8000/logs?limit=100"
+curl "http://127.0.0.1:8000/logs?event_type=MODULE_ERROR&limit=20"
+curl "http://127.0.0.1:8000/logs?task_id=<task_id>"
+```
+
+Runtime config API (in-memory override for current process):
+
+```bash
+curl http://127.0.0.1:8000/config
+curl -X POST http://127.0.0.1:8000/config -H "Content-Type: application/json" -d "{\"key\":\"state_machine.default_budget.max_tokens\",\"value\":16000}"
+```
+
 Status now includes runtime module health:
 
 ```bash
