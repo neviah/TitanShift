@@ -23,10 +23,17 @@ class ModuleLoader:
         self.modules_root = modules_root
         self._loaded: dict[str, LoadedModule] = {}
 
-    def register_module(self, name: str, capabilities: list[str], hooks: dict[str, Any]) -> None:
+    def register_module(
+        self,
+        name: str,
+        capabilities: list[str],
+        hooks: dict[str, Any],
+        import_name: str | None = None,
+    ) -> None:
+        target = import_name or name
         self._loaded[name] = LoadedModule(
             name=name,
-            module=importlib.import_module(name),
+            module=importlib.import_module(target),
             capabilities=capabilities,
             hooks=hooks,
         )

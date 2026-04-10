@@ -10,6 +10,7 @@ from harness.model.adapter import ModelRegistry
 from harness.orchestrator.orchestrator import Orchestrator
 from harness.runtime.config import ConfigManager
 from harness.runtime.event_bus import EventBus
+from harness.runtime.module_loader import ModuleLoader
 from harness.tools.registry import PermissionPolicy, ToolRegistry
 
 
@@ -23,6 +24,7 @@ class RuntimeContext:
     orchestrator: Orchestrator
     hooks: ApiHooks
     logger: JsonLogger
+    module_loader: ModuleLoader
 
 
 def build_runtime(workspace_root: Path) -> RuntimeContext:
@@ -33,6 +35,7 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     tools = ToolRegistry(PermissionPolicy.from_config(cfg, workspace_root))
     orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, tools=tools)
     hooks = ApiHooks()
+    module_loader = ModuleLoader(modules_root=workspace_root / cfg.get("runtime.module_path", "modules"))
 
     log_root = workspace_root / cfg.get("memory.storage_dir", ".harness")
     log_file = log_root / cfg.get("logging.file", "events.log")
@@ -49,6 +52,10 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     bus.subscribe("AGENT_SPAWNED", on_agent_spawned)
     bus.subscribe("TASK_COMPLETED", on_task_completed)
 
+    for mod_name in module_loader.discover_modules():
+        module_loader.load_from_package(f"modules.{mod_name}")
+    logger.log("MODULES_LOADED", {"modules": module_loader.list_modules()})
+
     return RuntimeContext(
         config=cfg,
         event_bus=bus,
@@ -58,4 +65,5 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         orchestrator=orchestrator,
         hooks=hooks,
         logger=logger,
+        module_loader=module_loader,
     )

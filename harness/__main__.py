@@ -50,7 +50,8 @@ async def run_task(prompt: str, workspace_root: Path, backend: str | None = None
 
 
 def print_status(workspace_root: Path) -> None:
-    cfg = ConfigManager(workspace_root)
+    runtime = build_runtime(workspace_root)
+    cfg = runtime.config
     print("Harness status")
     print(f"- workspace: {workspace_root}")
     print(f"- subagents enabled: {cfg.get('orchestrator.enable_subagents')}")
@@ -58,6 +59,7 @@ def print_status(workspace_root: Path) -> None:
     print(f"- semantic backend: {cfg.get('memory.semantic_backend')}")
     print(f"- chroma enabled: {cfg.get('memory.enable_chroma')}")
     print(f"- graphify plugin enabled: {cfg.get('ingestion.enable_graphify_plugin')}")
+    print(f"- loaded modules: {runtime.module_loader.list_modules()}")
 
 
 def print_config(workspace_root: Path) -> None:
