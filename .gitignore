@@ -1,0 +1,12 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Test/cache artifacts
+.pytest_cache/
+
+# Harness local runtime storage
+.harness/
