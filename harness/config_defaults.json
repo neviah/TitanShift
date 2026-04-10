@@ -53,5 +53,9 @@
   "api": {
     "require_api_key": false,
     "api_key": ""
+  },
+  "reports": {
+    "redact_by_default": true,
+    "redacted_keys": ["api_key", "x_api_key", "authorization", "token", "secret", "password"]
   }
 }

@@ -132,6 +132,8 @@ Run history export report:
 
 ```bash
 curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50"
+curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50&redact=false"
+curl "http://127.0.0.1:8000/reports/policy"
 ```
 
 Status now includes runtime module health:
@@ -195,6 +197,11 @@ Optional API auth keys:
 - api.api_key
 
 When enabled, send `x-api-key` header on all API calls.
+
+Report export keys:
+
+- reports.redact_by_default
+- reports.redacted_keys
 
 ## Notes
 

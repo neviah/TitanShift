@@ -303,3 +303,29 @@ def test_run_history_report_endpoint() -> None:
     assert isinstance(body.get("recent_events"), list)
     assert isinstance(body.get("health"), list)
 
+
+def test_run_history_report_redacts_sensitive_keys() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    runtime.logger.log("TEST_SECRET", {"api_key": "abc123", "note": "safe"})
+    client = TestClient(app)
+
+    response = client.get("/reports/run-history?log_limit=10")
+    assert response.status_code == 200
+    events = response.json()["recent_events"]
+    assert any(e["event_type"] == "TEST_SECRET" for e in events)
+
+    secret_event = next(e for e in events if e["event_type"] == "TEST_SECRET")
+    assert secret_event["payload"]["api_key"] == "***REDACTED***"
+    assert secret_event["payload"]["note"] == "safe"
+
+
+def test_run_history_report_policy_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.get("/reports/policy")
+    assert response.status_code == 200
+    body = response.json()
+    assert "redact_by_default" in body
+    assert isinstance(body.get("redacted_keys"), list)
+

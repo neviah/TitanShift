@@ -141,3 +141,8 @@ class RunHistoryReport(BaseModel):
     recent_events: list[LogEntry]
     health: list[dict[str, Any]]
     loaded_modules: list[str]
+
+
+class RunHistoryPolicy(BaseModel):
+    redact_by_default: bool
+    redacted_keys: list[str]

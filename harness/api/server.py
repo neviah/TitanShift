@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
@@ -13,6 +14,7 @@ from harness.api.schemas import (
     ConfigUpdateRequest,
     ConfigUpdateResponse,
     LogEntry,
+    RunHistoryPolicy,
     RunHistoryReport,
     SchedulerJobToggleRequest,
     SchedulerJobToggleResponse,
@@ -45,6 +47,29 @@ def create_app(workspace_root: Path) -> FastAPI:
             raise HTTPException(status_code=500, detail="API key auth enabled but no api.api_key configured")
         if x_api_key != expected:
             raise HTTPException(status_code=401, detail="Unauthorized")
+
+    def _report_redacted_keys() -> list[str]:
+        keys = runtime.config.get("reports.redacted_keys", [])
+        if isinstance(keys, list):
+            return [str(k).lower() for k in keys]
+        return []
+
+    def _is_redacted_key(key: str, redacted_keys: set[str]) -> bool:
+        k = key.lower()
+        return any(candidate in k for candidate in redacted_keys)
+
+    def _redact_value(value: Any, redacted_keys: set[str]) -> Any:
+        if isinstance(value, dict):
+            redacted: dict[str, Any] = {}
+            for k, v in value.items():
+                if _is_redacted_key(str(k), redacted_keys):
+                    redacted[str(k)] = "***REDACTED***"
+                else:
+                    redacted[str(k)] = _redact_value(v, redacted_keys)
+            return redacted
+        if isinstance(value, list):
+            return [_redact_value(v, redacted_keys) for v in value]
+        return value
 
     @app.get("/status", dependencies=[Depends(require_api_key)])
     async def status() -> dict:
@@ -215,13 +240,25 @@ def create_app(workspace_root: Path) -> FastAPI:
         return MemoryGraphNeighbors(node_id=node_id, neighbors=neighbors)
 
     @app.get("/reports/run-history", response_model=RunHistoryReport, dependencies=[Depends(require_api_key)])
-    async def run_history_report(task_limit: int = 10, log_limit: int = 50) -> RunHistoryReport:
+    async def run_history_report(task_limit: int = 10, log_limit: int = 50, redact: bool | None = None) -> RunHistoryReport:
         clamped_task_limit = max(1, min(task_limit, 100))
         clamped_log_limit = max(1, min(log_limit, 500))
+        apply_redaction = bool(runtime.config.get("reports.redact_by_default", True)) if redact is None else redact
+        redacted_keys = set(_report_redacted_keys())
 
         all_tasks = runtime.orchestrator.list_tasks()
         recent_tasks_raw = all_tasks[:clamped_task_limit]
         recent_events_raw = runtime.logger.query(limit=clamped_log_limit)
+
+        if apply_redaction and redacted_keys:
+            recent_events_raw = [
+                {
+                    "timestamp": e.get("timestamp"),
+                    "event_type": e.get("event_type"),
+                    "payload": _redact_value(e.get("payload", {}), redacted_keys),
+                }
+                for e in recent_events_raw
+            ]
 
         failed_tasks = sum(1 for t in all_tasks if t.get("status") == "failed")
         loaded_modules = runtime.module_loader.list_modules()
@@ -234,6 +271,13 @@ def create_app(workspace_root: Path) -> FastAPI:
             recent_events=[LogEntry(**e) for e in recent_events_raw],
             health=runtime.health.as_list(),
             loaded_modules=loaded_modules,
+        )
+
+    @app.get("/reports/policy", response_model=RunHistoryPolicy, dependencies=[Depends(require_api_key)])
+    async def report_policy() -> RunHistoryPolicy:
+        return RunHistoryPolicy(
+            redact_by_default=bool(runtime.config.get("reports.redact_by_default", True)),
+            redacted_keys=_report_redacted_keys(),
         )
 
     return app
