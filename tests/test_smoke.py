@@ -182,3 +182,35 @@ def test_agents_endpoint() -> None:
     assert isinstance(body, list)
     assert body[0]["agent_id"] == "main-agent"
 
+
+def test_skills_endpoint_and_search() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.get("/skills")
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list)
+    assert any(row["skill_id"] == "reactive_chat" for row in body)
+
+    response_q = client.get("/skills?query=shell")
+    assert response_q.status_code == 200
+    body_q = response_q.json()
+    assert any(row["skill_id"] == "safe_shell_command" for row in body_q)
+
+
+def test_tools_endpoint_and_search() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.get("/tools")
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list)
+    assert any(row["name"] == "shell_command" for row in body)
+
+    response_q = client.get("/tools?query=shell")
+    assert response_q.status_code == 200
+    body_q = response_q.json()
+    assert any(row["name"] == "shell_command" for row in body_q)
+

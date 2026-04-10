@@ -85,6 +85,21 @@ class ToolRegistry:
     def get_tool(self, name: str) -> ToolDefinition | None:
         return self._tools.get(name)
 
+    def list_tools(self) -> list[ToolDefinition]:
+        return [self._tools[k] for k in sorted(self._tools.keys())]
+
+    def search_tools(self, query: str) -> list[ToolDefinition]:
+        q = query.lower()
+        return [
+            t
+            for t in self._tools.values()
+            if q in t.name.lower() or q in t.description.lower()
+        ]
+
+    def preview_policy(self, tool: ToolDefinition) -> tuple[bool, str]:
+        """Policy preview with empty args for UI/API listing."""
+        return self.policy.evaluate_tool(tool, {})
+
     async def execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         tool = self.get_tool(name)
         if tool is None:

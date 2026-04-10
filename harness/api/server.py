@@ -15,8 +15,10 @@ from harness.api.schemas import (
     SchedulerHeartbeatResponse,
     SchedulerJob,
     SchedulerTickResponse,
+    SkillSummary,
     TaskDetail,
     TaskSummary,
+    ToolSummary,
 )
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.types import Task
@@ -122,6 +124,38 @@ def create_app(workspace_root: Path) -> FastAPI:
                 memory_layers=["working", "short_term", "long_term", "semantic", "graph"],
             )
         ]
+
+    @app.get("/skills", response_model=list[SkillSummary])
+    async def skills(query: str | None = None) -> list[SkillSummary]:
+        rows = runtime.skills.search_skills(query) if query else runtime.skills.list_skills()
+        return [
+            SkillSummary(
+                skill_id=s.skill_id,
+                description=s.description,
+                tags=list(s.tags),
+                required_tools=list(s.required_tools),
+            )
+            for s in rows
+        ]
+
+    @app.get("/tools", response_model=list[ToolSummary])
+    async def tools(query: str | None = None) -> list[ToolSummary]:
+        rows = runtime.tools.search_tools(query) if query else runtime.tools.list_tools()
+        out: list[ToolSummary] = []
+        for t in rows:
+            allowed, reason = runtime.tools.preview_policy(t)
+            out.append(
+                ToolSummary(
+                    name=t.name,
+                    description=t.description,
+                    needs_network=t.needs_network,
+                    required_paths=list(t.required_paths),
+                    required_commands=list(t.required_commands),
+                    allowed_by_policy=allowed,
+                    policy_reason=reason,
+                )
+            )
+        return out
 
     @app.post("/scheduler/heartbeat", response_model=SchedulerHeartbeatResponse)
     async def scheduler_heartbeat() -> SchedulerHeartbeatResponse:

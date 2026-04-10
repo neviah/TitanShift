@@ -19,12 +19,17 @@ class SkillRegistry:
     def register_skill(self, skill: SkillDefinition) -> None:
         self._skills[skill.skill_id] = skill
 
+    def list_skills(self) -> list[SkillDefinition]:
+        return [self._skills[k] for k in sorted(self._skills.keys())]
+
     def search_skills(self, query: str) -> list[SkillDefinition]:
         q = query.lower()
         return [
             s
             for s in self._skills.values()
-            if q in s.description.lower() or any(q in tag.lower() for tag in s.tags)
+            if q in s.skill_id.lower()
+            or q in s.description.lower()
+            or any(q in tag.lower() for tag in s.tags)
         ]
 
     async def execute_skill(self, skill_id: str, _input: dict[str, Any]) -> dict[str, Any]:

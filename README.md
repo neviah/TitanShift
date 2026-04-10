@@ -110,6 +110,15 @@ Agents visibility API:
 curl http://127.0.0.1:8000/agents
 ```
 
+Skills and tools API:
+
+```bash
+curl http://127.0.0.1:8000/skills
+curl "http://127.0.0.1:8000/skills?query=shell"
+curl http://127.0.0.1:8000/tools
+curl "http://127.0.0.1:8000/tools?query=shell"
+```
+
 Status now includes runtime module health:
 
 ```bash

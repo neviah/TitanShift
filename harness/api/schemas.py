@@ -82,3 +82,20 @@ class AgentSummary(BaseModel):
     subagents_enabled: bool
     model_default_backend: str
     memory_layers: list[str]
+
+
+class SkillSummary(BaseModel):
+    skill_id: str
+    description: str
+    tags: list[str]
+    required_tools: list[str]
+
+
+class ToolSummary(BaseModel):
+    name: str
+    description: str
+    needs_network: bool
+    required_paths: list[str]
+    required_commands: list[str]
+    allowed_by_policy: bool
+    policy_reason: str

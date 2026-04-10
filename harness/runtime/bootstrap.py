@@ -16,6 +16,7 @@ from harness.runtime.event_bus import EventBus
 from harness.runtime.health import HealthRegistry
 from harness.runtime.module_loader import ModuleLoader
 from harness.scheduler.module import ScheduledJob, Scheduler
+from harness.skills.registry import SkillDefinition, SkillRegistry
 from harness.tools.builtin import register_builtin_tools
 from harness.tools.registry import PermissionPolicy, ToolRegistry
 
@@ -35,6 +36,7 @@ class RuntimeContext:
     emergency: EmergencyModule
     health: HealthRegistry
     scheduler: Scheduler
+    skills: SkillRegistry
 
 
 def build_runtime(workspace_root: Path) -> RuntimeContext:
@@ -72,6 +74,25 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     health.set("execution", "healthy")
 
     register_builtin_tools(tools, execution)
+
+    skills = SkillRegistry()
+    skills.register_skill(
+        SkillDefinition(
+            skill_id="reactive_chat",
+            description="Single-agent reactive response generation",
+            tags=["chat", "reactive", "phase1"],
+            required_tools=[],
+        )
+    )
+    skills.register_skill(
+        SkillDefinition(
+            skill_id="safe_shell_command",
+            description="Policy-constrained shell command execution wrapper",
+            tags=["tools", "execution", "safety", "phase1"],
+            required_tools=["shell_command"],
+        )
+    )
+    health.set("skills", "healthy", {"count": len(skills.list_skills())})
 
     orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, tools=tools)
     health.set("orchestrator", "healthy")
@@ -147,4 +168,5 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         emergency=emergency,
         health=health,
         scheduler=scheduler,
+        skills=skills,
     )
