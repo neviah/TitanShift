@@ -106,7 +106,8 @@ curl -X POST http://127.0.0.1:8000/scheduler/jobs/scheduler_heartbeat/enabled -H
 ```
 
 Scheduler job rows now include `max_failures`, `failure_count`, and `last_error`.
-Ticks report `failed_jobs` and `auto_disabled_jobs` so repeated failures can be detected.
+Scheduler job rows also include `timeout_s`.
+Ticks report `failed_jobs`, `timed_out_jobs`, and `auto_disabled_jobs` so repeated failures and hung jobs can be detected.
 
 Agents visibility API:
 

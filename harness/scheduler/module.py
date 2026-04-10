@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -13,6 +15,7 @@ class ScheduledJob:
     description: str = ""
     interval_seconds: int = 60
     enabled: bool = True
+    timeout_s: float | None = None
     max_failures: int = 3
     run_count: int = 0
     failure_count: int = 0
@@ -56,19 +59,36 @@ class Scheduler:
     async def tick(self) -> dict[str, Any]:
         ran: list[str] = []
         failed: list[str] = []
+        timed_out: list[str] = []
         auto_disabled: list[str] = []
         for job in self.jobs.values():
             if not job.enabled:
                 continue
             try:
                 result = job.callback()
-                if hasattr(result, "__await__"):
-                    await result
+                if inspect.isawaitable(result):
+                    execution = result
+                else:
+                    execution = asyncio.to_thread(lambda: result)
+
+                if job.timeout_s is not None:
+                    await asyncio.wait_for(execution, timeout=job.timeout_s)
+                else:
+                    await execution
                 job.run_count += 1
                 job.failure_count = 0
                 job.last_error = None
                 job.last_run_at = datetime.now(timezone.utc).isoformat()
                 ran.append(job.job_id)
+            except TimeoutError:
+                job.failure_count += 1
+                job.last_error = f"Timed out after {job.timeout_s}s"
+                job.last_run_at = datetime.now(timezone.utc).isoformat()
+                failed.append(job.job_id)
+                timed_out.append(job.job_id)
+                if job.failure_count >= max(1, job.max_failures):
+                    job.enabled = False
+                    auto_disabled.append(job.job_id)
             except Exception as exc:
                 job.failure_count += 1
                 job.last_error = str(exc)
@@ -80,6 +100,7 @@ class Scheduler:
         return {
             "ran_jobs": ran,
             "failed_jobs": failed,
+            "timed_out_jobs": timed_out,
             "auto_disabled_jobs": auto_disabled,
             "job_count": len(self.jobs),
         }
@@ -93,6 +114,7 @@ class Scheduler:
                     "description": job.description,
                     "interval_seconds": job.interval_seconds,
                     "enabled": job.enabled,
+                    "timeout_s": job.timeout_s,
                     "max_failures": job.max_failures,
                     "run_count": job.run_count,
                     "failure_count": job.failure_count,

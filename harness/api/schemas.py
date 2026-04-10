@@ -64,6 +64,7 @@ class SchedulerJob(BaseModel):
     description: str
     interval_seconds: int
     enabled: bool
+    timeout_s: float | None = None
     max_failures: int
     run_count: int
     failure_count: int
@@ -80,6 +81,7 @@ class SchedulerHeartbeatResponse(BaseModel):
 class SchedulerTickResponse(BaseModel):
     ran_jobs: list[str]
     failed_jobs: list[str]
+    timed_out_jobs: list[str]
     auto_disabled_jobs: list[str]
     job_count: int
 

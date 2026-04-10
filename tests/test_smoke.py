@@ -223,6 +223,34 @@ def test_scheduler_auto_disables_repeated_failures() -> None:
     assert job.last_error == "expected failure"
 
 
+def test_scheduler_timeout_counts_as_failure_and_auto_disables() -> None:
+    scheduler = Scheduler()
+
+    async def slow_job() -> None:
+        await asyncio.sleep(0.05)
+
+    scheduler.register_job(
+        ScheduledJob(
+            job_id="slow-job",
+            description="times out for guardrail test",
+            callback=slow_job,
+            timeout_s=0.01,
+            max_failures=1,
+        )
+    )
+
+    result = asyncio.run(scheduler.tick())
+    assert "slow-job" in result["failed_jobs"]
+    assert "slow-job" in result["timed_out_jobs"]
+    assert "slow-job" in result["auto_disabled_jobs"]
+
+    job = scheduler.get_job("slow-job")
+    assert job is not None
+    assert job.enabled is False
+    assert job.failure_count == 1
+    assert job.last_error == "Timed out after 0.01s"
+
+
 def test_scheduler_endpoint_returns_failure_guardrail_fields() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -230,6 +258,7 @@ def test_scheduler_endpoint_returns_failure_guardrail_fields() -> None:
     jobs = client.get("/scheduler/jobs")
     assert jobs.status_code == 200
     row = next(j for j in jobs.json() if j["job_id"] == "scheduler_heartbeat")
+    assert "timeout_s" in row
     assert "max_failures" in row
     assert "failure_count" in row
     assert "last_error" in row
