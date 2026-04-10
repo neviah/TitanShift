@@ -1,0 +1,393 @@
+**Clarifying UI spec**
+
+### UI Module Specification v1.0  
+*Tri‑pane, web‑app, VS‑Code‑energy, neon‑futuristic harness UI*
+
+---
+
+## 1. Overall layout & style
+
+- **App type:** Web‑app style, some IDE visual-elements (VS Code energy).
+- **Layout:** Three resizable panes:
+  - **Left:** Navigation (hideable + resizable).
+  - **Center:** Chat + visualizations.
+  - **Right:** Agent/system status (tabbed).
+- **Theme:**
+  - Default: **Dark**, neon red accents, subtle pulsing highlights.
+  - Additional themes: light, system, alt‑dark.
+- **Visual vibe:**
+  - Futuristic, but readable.
+  - Smooth transitions, no jitter.
+  - Background visualizations that react to module activity.
+
+---
+
+## 2. Left pane: navigation & context
+
+### 2.1 Behavior
+
+- Fully hideable (like VS Code sidebar).
+- Resizable via drag handle.
+- Contains **tabs**; first tab is **Chat**.
+
+### 2.2 Chat tab (single tab, multiple modes)
+
+Structure:
+
+- **New Chat** (always at top)
+- **Chat History** (list of past chats, one‑line each)
+
+Behavior:
+
+- Clicking **New Chat**:
+  - Clears center chat.
+  - Starts a fresh session.
+- Clicking a **history item**:
+  - Loads that chat into the center pane.
+  - Shows full conversation.
+- History entries:
+  - Show title (first user message or custom name).
+  - Show timestamp.
+  - Optional status (e.g., “has tasks”, “has agents”).
+
+### 2.3 Tasks vs Scheduler 
+- **Tasks:**
+  - Individual jobs: “Summarize this PDF”, “Refactor this repo”, “Generate video”.
+  - Created by user or agents.
+  - Have status: pending, running, completed, failed.
+- **Scheduler:**
+  - Manages **recurring or timed tasks**:
+    - “Run backup every night.”
+    - “Rebuild index every Sunday.”
+    - “Run health check every hour.”
+  - Uses cron/interval rules.
+
+UI approach:
+
+- **Tasks tab:**
+  - Shows all tasks (one‑off + scheduled instances).
+  - Columns: name, type, status, createdAt, duration.
+- **Scheduler tab:**
+  - Shows **rules**:
+    - “Job name”
+    - “Schedule”
+    - “Enabled/disabled”
+  - Allows editing cron/intervals.
+
+### 2.4 Other left‑pane tabs (default)
+
+- **Chat** (as above).
+- **Tasks** (task list).
+- **Scheduler** (recurring jobs).
+- **Files** (file tree for workspace).
+- **Skills** (installed skills list).
+- **Tools** (installed tools list).
+- **Memory** (opens Memory Viewer).
+- **Logs** (opens Logs Viewer).
+- **Settings** (global + project settings).
+
+All tabs are:
+
+- Clickable.
+- pane is Hideable and resizeable.
+
+---
+
+## 3. Center pane: chat + live module visualization
+
+### 3.1 Chat area
+
+Features:
+
+- Rich chat:
+  - Text, code blocks, syntax highlighting.
+  - Drag‑and‑drop files.
+  - Drag‑and‑drop screenshots (OCR tool kicks in).
+  - Image previews.
+  - Audio messages (if audio tools installed).
+- Agent‑to‑agent messages:
+  - **Collapsed by default** to avoid spam.
+  - Expandable “System activity” section per turn.
+- Status hints:
+  - Bottom‑left corner shows:
+    - “Thinking…”
+    - “Researching…”
+    - “Calling tools…”
+    - “Spawning agents…”
+  - Small, non‑intrusive, but reassuring.
+
+### 3.2 Background visualization 
+
+Behavior:
+
+- The chat content is fully readable and static.
+- Behind it, a **subtle animated visualization** shows:
+  - Modules as nodes.
+  - Active modules pulsing or glowing.
+  - Dormant modules dimmed.
+  - Lines between modules showing data flow (optional).
+- Modes:
+  - **Default:** faint, low‑opacity, non‑distracting.
+  - **On hover / click:** can expand into a full overlay (see below).
+
+### 3.3 Module‑tree overlay
+
+- Toggle button: “System View” or icon.
+- When activated:
+  - Center pane shows a **full module map**:
+    - Orchestrator
+    - State Machine
+    - Memory
+    - Tools
+    - Skills
+    - Emergency
+    - Scheduler
+    - UI
+  - Nodes light up when active.
+  - Clicking a node:
+    - Shows details (status, last errors, metrics).
+- Chat is still accessible via a tab or overlay toggle.
+
+### 3.4 Agent‑tree visualization (optional tab)
+
+- Shows:
+  - Root agent (user chat agent).
+  - Child agents (subtasks).
+  - Their status (running, waiting, completed, failed).
+- Clicking an agent:
+  - Highlights its messages in chat.
+  - Shows its config in the right pane.
+
+---
+
+## 4. Right pane: agents, skills, tools, memory, logs
+
+### 4.1 Structure
+
+- **Tabbed** interface:
+  - **Agent** (default)
+  - **Skills**
+  - **Tools**
+  - **Memory**
+  - **Logs**
+  - **Health**
+
+### 4.2 Agent tab (default)
+
+Shows:
+
+- **Active agent**:
+  - Name, role, model, status.
+- **Agent tree**:
+  - Parent → child agents.
+  - Status per agent.
+- **Current agent config**:
+  - Model (name, temp, max tokens).
+  - Memory scope (working, short‑term, long‑term, graph).
+  - Budget (steps, tokens, duration, tool calls, subtasks).
+- **Live activity**:
+  - Last action: “Called Tool X”, “Used Skill Y”, “Requested subtask”.
+
+### 4.3 Skills tab
+
+Shows:
+
+- Skills currently in use.
+- Skills available to the active agent.
+- For each skill:
+  - Name, description.
+  - Required tools.
+  - Tags.
+- Optional:
+  - “Edit skill” button (opens editor).
+
+### 4.4 Tools tab
+
+Shows:
+
+- Tools currently in use.
+- All tools available.
+- For each tool:
+  - Name, description.
+  - Category (core/productivity/optional).
+  - Risk level.
+  - Permissions (autonomous allowed?).
+- Optional:
+  - “Open in Tool Market” button.
+
+### 4.5 Memory tab (Memory Viewer)
+
+Your question: **what does the memory viewer show?**
+
+It shows **all memory layers**, with filters:
+
+- **Working memory** (per agent):
+  - Key/value pairs.
+  - Scratchpad content.
+- **Short‑term memory**:
+  - Recent notes.
+  - Intermediate results.
+- **Long‑term memory**:
+  - Facts.
+  - Preferences.
+  - Project knowledge.
+- **Semantic memory**:
+  - Search box: “Find anything we’ve seen before.”
+  - Results with source links.
+- **Graph memory**:
+  - Mini graph view:
+    - Nodes: skills, tools, modules, errors, fixes, concepts.
+    - Edges: uses, depends_on, caused_by, fixed_by.
+- **Episodic memory**:
+  - Past tasks.
+  - Past failures.
+  - Past fixes.
+  - Reflections.
+
+Actions:
+
+- Filter by agent/task/project.
+- View details.
+- (With permission) edit or delete entries.
+
+### 4.6 Logs tab (Logs Viewer)
+
+Your question: **what do the logs show?**
+
+- Structured logs:
+  - Timestamp.
+  - Source (module/agent/tool).
+  - Level (info/warn/error).
+  - Message.
+  - Context (taskId, agentId, toolId).
+- Filters:
+  - By module.
+  - By agent.
+  - By severity.
+  - By time range.
+- Use cases:
+  - Debugging.
+  - Emergency diagnostics.
+  - Understanding what happened behind the scenes.
+
+### 4.7 Health tab
+
+Shows:
+
+- Connection status for:
+  - LLMs.
+  - Graph backend.
+  - Vector store.
+  - Tool Market.
+  - Skill Market.
+  - Local runners (Python/Node).
+- Indicators:
+  - Green: OK.
+  - Amber: degraded.
+  - Red: down.
+- Optional:
+  - “Run health check” button.
+
+---
+
+## 5. Configuration & settings
+
+### 5.1 Model configuration (your Q9: what can they configure?)
+
+Users can configure:
+
+- **Global model settings:**
+  - Default chat model.
+  - Default code model.
+  - Default reasoning model (if any).
+  - Temperature, top‑p, max tokens.
+  - Fallback chain (e.g., “if model A fails, use B, then C”).
+
+- **Per‑agent model settings:**
+  - Override global model.
+  - Set stricter budgets.
+  - Set different temperature (e.g., creative vs precise).
+  - Choose local vs cloud model.
+
+UI examples:
+
+- Dropdowns for model selection.
+- Sliders for temperature.
+- Numeric inputs for max tokens.
+- Toggles for “use local only” / “allow cloud”.
+
+### 5.2 Toggles (Q11)
+
+UI toggles for:
+
+- **Autonomy mode** (on/off).
+- **Scheduler tasks** (enable/disable individual jobs).
+- **Emergency auto‑repair** (off by default, can enable low‑risk).
+- **Tool permissions** (allow/deny specific tools).
+- **Skill permissions** (allow/deny specific skills).
+
+---
+
+## 6. Markets: tools & skills
+top right user can choose between Mission Control or Marketplace. if they choose marketplace, current screen scrolls left offscreen and marketplace screen scroll from the right, onscreen as it moves left to fit the dashboard. this way, the user can switch between marketplace, and the dashboard (Mission Control)
+
+### 6.1 Tool Market
+
+- List of available tools:
+  - Name, description, tags, risk level.
+  - Install/uninstall/update buttons.
+- Dependency graph:
+  - Shows which skills depend on which tools.
+- Trusted publisher badges.
+
+### 6.2 Skill Market
+
+- List of skills:
+  - Name, description, required tools.
+  - Install/uninstall/update.
+- Shows:
+  - Which tools are needed.
+  - Which agents can use them.
+
+---
+
+## 7. UX extras
+
+### 7.1 Command palette
+
+- Keyboard shortcut (e.g., `Ctrl+P` / `Cmd+P`).
+- Actions:
+  - “New chat”
+  - “Open task”
+  - “Run health check”
+  - “Toggle autonomy”
+  - “Open logs”
+  - “Install tool X”
+  - “Install skill Y”
+
+### 7.2 Keyboard shortcuts
+
+- Hide/show left pane.
+- Hide/show right pane.
+- Switch tabs.
+- Focus chat input.
+- Open command palette.
+
+### 7.3 Multi‑tab chat & split view
+
+- Multiple chat sessions open as tabs.
+- Optional split view:
+  - Two chats side‑by‑side.
+  - Or chat + logs.
+  - Or chat + memory viewer.
+
+---
+
+This spec gives Copilot a **clear, opinionated blueprint** for the UI:
+
+- Left: navigation + chat history.
+- Center: chat + animated module background + overlays.
+- Right: agents, skills, tools, memory, logs, health.
+- Full control over models, autonomy, tools, skills.
+- Visual feedback for everything the harness is doing.
+

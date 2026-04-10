@@ -1,0 +1,398 @@
+**Planning spec document**
+
+### Universal Harness Specification v1.0  
+*(High‑level architecture + phases, ready for Copilot to scaffold from)*  
+
+---
+
+## 1. Core goals
+
+- **General‑purpose harness** others can build on (e.g., HiveForge later, but not baked in).
+- **Modular, failure‑isolated architecture**—no single module can take the system down.
+- **Skill‑centric and graph‑aware** so the system can understand its own capabilities.
+- **Self‑diagnosing and optionally self‑healing** via an Emergency module.
+- **UI‑driven configuration** so non‑experts can still use it.
+
+---
+
+## 2. Runtime and module architecture
+
+### 2.1 Core runtime layer
+
+- **Module Loader**
+  - **Responsibility:** Discover, load, and hot‑reload modules.
+  - **Key behaviors:**
+    - Load modules from a `modules/` directory or config.
+    - Provide a registration API: `registerModule(name, capabilities, hooks)`.
+    - Support versioning and feature flags.
+
+- **Config Manager**
+  - **Responsibility:** Central configuration.
+  - **Sources:** YAML/JSON config files, env vars, UI overrides.
+  - **Scopes:** global, per‑project, per‑agent, per‑module.
+
+- **Event Bus**
+  - **Responsibility:** Decoupled communication between modules.
+  - **Pattern:** pub/sub with typed events.
+  - **Examples:**
+    - `MODULE_ERROR`, `AGENT_SPAWNED`, `TASK_COMPLETED`, `HEARTBEAT_TICK`.
+
+---
+
+## 3. Model module (LLM adapter)
+
+- **Responsibility:** Unified interface to all models.
+- **Features:**
+  - Multiple backends (OpenAI, Claude, DeepSeek, local GGUF, etc.).
+  - Retry logic, rate limiting, truncation, system prompt injection.
+  - VRAM‑aware model selection and fallback chains.
+
+- **Core interface (conceptual):**
+  - `generate(request: ModelRequest) -> ModelResponse`
+  - `estimateTokens(text) -> int`
+  - `selectModel(taskMetadata) -> ModelId`
+
+---
+
+## 4. Tool module (tool registry)
+
+- **Responsibility:** Register and safely execute tools.
+- **Tool definition:**
+  - **Metadata:** name, description, tags, required permissions.
+  - **Schema:** input/output types.
+  - **Implementation:** function, script, or external call.
+
+- **Core interface:**
+  - `registerTool(tool: ToolDefinition)`
+  - `getTool(name: string) -> ToolDefinition | null`
+  - `executeTool(name, args, context) -> ToolResult`
+
+---
+
+## 5. Skill module (skill registry)
+
+- **Responsibility:** Define, store, search, and execute skills.
+
+- **Skill structure:**
+  - **Metadata:** name, description, tags, domain, author, version.
+  - **Behavior:**
+    - Prompt template (for LLM‑driven skills).
+    - Optional code implementation (for procedural skills).
+  - **Dependencies:**
+    - Required tools.
+    - Required models.
+    - Optional other skills.
+  - **I/O:**
+    - Input schema.
+    - Output schema.
+
+- **Core interface:**
+  - `registerSkill(skill: SkillDefinition)`
+  - `searchSkills(query: SkillQuery) -> SkillMatch[]`
+  - `executeSkill(skillId, input, context) -> SkillResult`
+
+- **Skill Market:**
+  - **Local registry:** `skills/` folder + `skills.json` index.
+  - **Cloud registry:** optional remote index (API/GitHub).
+  - **Capabilities:**
+    - Install/uninstall skills.
+    - Sync/update skills.
+    - Show dependencies and ratings.
+
+---
+
+## 6. Memory module (multi‑layer + graph)
+
+### 6.1 Layers
+
+- **Working Memory**
+  - Per‑agent scratchpad.
+  - Not persisted; used for step‑by‑step reasoning.
+
+- **Short‑Term Memory**
+  - Per‑session notes.
+  - Stored in lightweight DB or files.
+
+- **Long‑Term Memory**
+  - Facts, preferences, project knowledge.
+  - Stored as Markdown/JSON + index.
+
+- **Semantic Memory**
+  - Embeddings + vector search.
+  - Backend: SQLite FTS / Chroma‑lite / similar.
+
+- **Graph Memory**
+  - **Core:** lightweight in‑process graph backend.
+  - **Nodes:** skills, tools, modules, agents, tasks, errors, fixes, user prefs.
+  - **Edges:** “uses”, “depends_on”, “caused_by”, “fixed_by”, “belongs_to”, etc.
+  - **Graphify integration (ingestion layer):**
+    - Input: text (logs, chats, docs).
+    - Output: entities + relationships → inserted into graph.
+  - **Optional Neo4j backend:**
+    - Same graph API, different storage.
+
+- **Episodic Memory**
+  - Task history, outcomes, error logs.
+
+### 6.2 Core interfaces
+
+- `saveFact(scope, fact)`
+- `queryFacts(query) -> Fact[]`
+- `embedAndStore(text, metadata)`
+- `semanticSearch(query, filters) -> MemoryHit[]`
+- `graph.addNode(node)`
+- `graph.addEdge(edge)`
+- `graph.query(pattern) -> GraphResult[]`
+
+---
+
+## 7. State machine module
+
+- **Responsibility:** Define the agent loop and behavior modes.
+
+- **Modes:**
+  - **Reactive:** only acts when prompted (default).
+  - **Autonomous:** can run tasks/loops when enabled.
+  - **Hybrid:** reactive base + optional scheduled/autonomous tasks.
+
+- **Core concepts:**
+  - Step limit per task.
+  - Error handling strategy.
+  - Hooks for planning and reflection.
+
+- **Core interface:**
+  - `runTask(task: TaskDefinition, context) -> TaskResult`
+  - `nextStep(state: AgentState) -> AgentAction`
+
+---
+
+## 8. Orchestrator module (supervisor / agent spawner)
+
+- **Responsibility:** Manage agents, assign skills/tools, coordinate multi‑agent workflows.
+
+- **Agent definition:**
+  - Role (e.g., “Developer”, “Researcher”, “Diagnostics Specialist”).
+  - Assigned skills.
+  - Allowed tools.
+  - Model profile.
+  - Memory scope.
+  - Budget (tokens, steps, time).
+
+- **Spawning logic (high‑level):**
+  - Input: task description + context.
+  - Query Skill Registry + graph memory:
+    - Find relevant skills.
+    - Find required tools.
+    - Optionally match to “personality profiles” (predefined agent templates).
+  - Create agent instance with:
+    - Role prompt.
+    - Skills.
+    - Tools.
+    - Memory scope.
+    - Budget.
+
+- **Personality vs generic:**
+  - **Base design:** generic agents with roles derived from task + skills.
+  - **Optional extension:** personality templates (e.g., from GitHub persona repos) that:
+    - Specialize in domains (code, research, UX, infra).
+    - Are just structured prompts + skill/tool presets.
+  - Orchestrator can:
+    - Use generic agents by default.
+    - Use personality templates when configured.
+
+- **Core interface:**
+  - `spawnAgent(config: AgentConfig) -> AgentId`
+  - `assignTask(agentId, task) -> TaskHandle`
+  - `getAgentState(agentId) -> AgentState`
+  - `collectResults(taskHandle) -> TaskResult`
+
+---
+
+## 9. Execution module
+
+- **Responsibility:** Safely run code and external processes.
+
+- **Backends:**
+  - Python runner.
+  - Node runner.
+  - Shell runner.
+  - Browser automation (optional).
+  - File system sandbox.
+
+- **Core interface:**
+  - `runCode(language, code, context) -> ExecutionResult`
+  - `runCommand(command, args, context) -> ExecutionResult`
+
+---
+
+## 10. Logging + persistence module
+
+- **Responsibility:** Central logging and audit trail.
+
+- **Features:**
+  - Structured logs (JSON).
+  - Per‑agent, per‑task, per‑module logs.
+  - Session recording.
+  - Error tracking.
+
+- **Core interface:**
+  - `log(eventType, payload, context)`
+  - `getLogs(filter) -> LogEntry[]`
+
+---
+
+## 11. Emergency module (self‑healing system)
+
+- **Responsibility:** Detect failures, diagnose, propose fixes, optionally auto‑repair.
+
+- **Trigger sources:**
+  - Event bus (`MODULE_ERROR`, `AGENT_CRASHED`, `TASK_TIMEOUT`).
+  - Heartbeat failures (from Scheduler).
+
+- **Flow:**
+  1. Receive failure event + context (module, stack trace, logs).
+  2. Spawn multiple diagnostic agents with different roles:
+     - Error Analyst, System Architect, Tool Specialist, Memory Specialist, etc.
+  3. Each agent:
+     - Reads logs + graph memory.
+     - Produces diagnosis + confidence + proposed fix.
+  4. Emergency module:
+     - Aggregates responses.
+     - Ranks by confidence + consistency.
+  5. Present to user:
+     - Best explanation.
+     - Best fix.
+     - Confidence.
+  6. If user approves auto‑repair:
+     - Execute repair actions (restart module, rebuild index, disable skill, etc.).
+
+- **Core interface:**
+  - `onFailure(event: FailureEvent)`
+  - `runDiagnostics(event) -> Diagnosis[]`
+  - `proposeFixes(diagnoses) -> FixPlan`
+  - `applyFix(fixPlan)`
+
+---
+
+## 12. Scheduler module (heartbeats, cron, loops)
+
+- **Responsibility:** Time‑based and periodic tasks.
+
+- **Features:**
+  - Heartbeats (per module / per agent).
+  - Cron‑like schedules (e.g., “every 10 minutes”).
+  - Maintenance tasks (reindex memory, clean logs).
+  - Background agents (if enabled).
+
+- **Default:** enabled, but **no tasks registered** until user/skills add them.
+
+- **Core interface:**
+  - `registerJob(job: ScheduledJob)`
+  - `removeJob(jobId)`
+  - `onTick()` (internal, triggers due jobs)
+
+---
+
+## 13. API / UI layer
+
+### 13.1 API
+
+- **Responsibility:** Expose harness capabilities to external clients and UI.
+
+- **Endpoints (conceptual):**
+  - `/chat` — send/receive messages.
+  - `/tasks` — create/list task runs.
+  - `/agents` — list active agents, states.
+  - `/skills` — list/search/install/uninstall.
+  - `/tools` — list tools.
+  - `/memory` — inspect memory (with permissions).
+  - `/config` — read/update config.
+  - `/scheduler` — list/manage jobs.
+  - `/status` — module health.
+
+### 13.2 UI layout
+
+- **Left pane (navigation):**
+  - Tabs/icons:
+    - Chat history / New chat.
+    - File tree.
+    - Tasks / Jobs.
+    - Skills.
+    - Tools.
+    - Scheduler.
+    - Settings.
+
+- **Center pane (primary):**
+  - Chat with active agent.
+  - Optional **module tree visualization** as a faint, animated background:
+    - Nodes = modules.
+    - Active modules “light up” (opacity/brightness).
+    - Gives users a sense of what’s happening.
+
+- **Right pane (status / agents):**
+  - Active agent details.
+  - Spawned sub‑agents (tree/list).
+  - Tabs/icons:
+    - Agent state.
+    - Skills in use.
+    - Tools in use.
+    - Memory view (what context is loaded).
+    - Logs/errors (per agent).
+
+- **Config from UI:**
+  - Model selection (global/per agent).
+  - Connection status (LLM, DB, graph backend, Skill Market).
+  - Toggles:
+    - Autonomy mode.
+    - Scheduler jobs.
+    - Emergency auto‑repair.
+  - Health indicators:
+    - Green/amber/red per module.
+    - Hover for last error/status.
+
+---
+
+## 14. Phased implementation plan
+
+### Phase 1 — Core + single‑agent MVP
+
+- Implement:
+  - Core runtime (Module Loader, Config Manager, Event Bus).
+  - Model module (one backend).
+  - Tool module (basic registry).
+  - Memory (working + short‑term + long‑term + simple semantic).
+  - State machine (reactive only).
+  - Logging module.
+  - Minimal CLI or simple UI (single chat).
+
+### Phase 2 — Skills + orchestrator + basic graph
+
+- Implement:
+  - Skill module (prompt+code skills, metadata, local registry).
+  - Orchestrator (spawn agents, assign skills/tools).
+  - Graph memory (lightweight backend).
+  - Basic skill search (text + tags + simple graph).
+  - Emergency module (logging‑only diagnostics).
+
+### Phase 3 — Emergency system + scheduler
+
+- Implement:
+  - Full Emergency module (diagnostic agents, consensus, user‑approved fixes).
+  - Scheduler (heartbeats, cron, maintenance tasks).
+
+### Phase 4 — Advanced memory + Skill Market
+
+- Implement:
+  - Graphify ingestion for graph memory.
+  - Optional Neo4j backend.
+  - Skill Market (local + cloud registry, install/uninstall from UI).
+
+### Phase 5 — Full UI
+
+- Implement:
+  - Left/center/right pane layout.
+  - Module tree visualization.
+  - Agent tree view.
+  - Config panels.
+  - Status/health indicators.
+

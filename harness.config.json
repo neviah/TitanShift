@@ -1,0 +1,27 @@
+{
+  "orchestrator": {
+    "enable_subagents": false
+  },
+  "model": {
+    "default_backend": "local_stub",
+    "allow_cloud_adapters": true,
+    "lmstudio": {
+      "base_url": "http://127.0.0.1:1234/v1",
+      "model": "local-model",
+      "timeout_s": 45.0
+    }
+  },
+  "memory": {
+    "semantic_backend": "sqlite",
+    "enable_chroma": false,
+    "graph_backend": "networkx"
+  },
+  "tools": {
+    "deny_all_by_default": true,
+    "allow_network": false,
+    "allowed_paths": []
+  },
+  "ingestion": {
+    "enable_graphify_plugin": false
+  }
+}

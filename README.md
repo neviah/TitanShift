@@ -1,0 +1,84 @@
+# TitantShift Universal Harness (Phase 1 Scaffold)
+
+Python-first, modular, local-first harness scaffold.
+
+## Included in this scaffold
+
+- Runtime core: module loader, config manager, event bus.
+- Model module: local stub + cloud adapter stub.
+- Tool module: deny-all default permission policy.
+- Memory module:
+  - Working, short-term, long-term in manager.
+  - Semantic storage via SQLite FTS + embeddings table.
+  - Graph backend adapter defaulting to NetworkX.
+- State machine: reactive single-agent loop.
+- Orchestrator: reactive path + sub-agent toggle stub.
+- Execution, emergency, scheduler, API hooks, graphify plugin stubs.
+- CLI entrypoint runnable via python -m harness.
+
+## Design decisions applied from your constraints
+
+- Cloud model adapters exist but are optional.
+- NetworkX-first graph backend behind adapter.
+- SQLite semantic default; Chroma behind feature flag/stub.
+- Graphify integrated as optional ingestion plugin.
+- Custom memory engine inspired by MemPalace patterns.
+- CLI-first MVP with API hook surface for future UI.
+- Sub-agent spawning behind toggle only.
+- Tool execution deny-all by default.
+
+## Quick start
+
+1. Create and activate a virtual environment.
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Print runtime status:
+
+```bash
+python -m harness --workspace . status
+```
+
+4. Run a simple reactive task:
+
+```bash
+python -m harness --workspace . run-task "Summarize current harness mode"
+```
+
+5. Run a task against LM Studio (requires local server running):
+
+```bash
+python -m harness --workspace . run-task "Explain this codebase briefly" --backend lmstudio
+```
+
+6. Start API server:
+
+```bash
+python -m harness --workspace . serve-api --host 127.0.0.1 --port 8000
+```
+
+Then call:
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"prompt\":\"hello\",\"model_backend\":\"local_stub\"}"
+```
+
+## Configuration
+
+- Defaults: harness/config_defaults.json
+- Project overrides: harness.config.json
+- Environment overrides: HARNESS_<SECTION>_<KEY>
+
+LM Studio config keys:
+
+- model.lmstudio.base_url (default: http://127.0.0.1:1234/v1)
+- model.lmstudio.model (default: local-model)
+- model.lmstudio.timeout_s (default: 45.0)
+
+## Notes
+
+- This is phase 1 plus forward-compatible stubs.
+- FastAPI server and full UI are intentionally deferred to later phases.

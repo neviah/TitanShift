@@ -1,0 +1,440 @@
+**Planning tool module spec**
+
+I need to create a detailed spec for the Tool Module, incorporating repositories, but I can't browse tools directly. The user provided URLs, so I can reference them generically. I want to keep the spec concise but thorough, with a clear structure. I'll cover sections like goals, tool schema, registry, permissions, execution, and integration with orchestrators, skills, and memory. I'll also mention inspirations like CLI-Anything and OpenCLI for API and web crawling. No citations needed, just focusing on clarity and completeness.
+### Tool Module Specification v1.0  
+*Universal tool layer + registry + marketplace, with CLI/API/web automation hooks*
+
+---
+
+## 1. Goals
+
+The Tool Module must:
+
+- Provide a **unified, safe interface** for all tools (local, remote, CLI, browser, etc.).
+- Power **skills and agents** without hard‑coding specific tools.
+- Support:
+  - **Core system tools** (filesystem, shell, runners, logging, config, graph, memory).
+  - **Productivity tools** (code, text, PDF, archive, git, ffmpeg, OCR, etc.).
+  - **Optional tools** (Playwright, Lightpanda, Postgres, model runners, etc.).
+- Be compatible with:
+  - **CLI‑Anything** style tools: `https://github.com/HKUDS/CLI-Anything`
+  - **OpenCLI** style tools: `https://github.com/jackwener/OpenCLI`
+  - **crawl4ai** style web crawling: `https://github.com/unclecode/crawl4ai`
+- Integrate with:
+  - Orchestrator  
+  - Skills  
+  - Memory/Graph  
+  - Emergency Module  
+  - Tool Market / Skill Market  
+
+---
+
+## 2. Tool model and schema
+
+### 2.1 ToolDefinition
+
+```ts
+type ToolDefinition = {
+  id: string
+  name: string
+  description: string
+  category: 'core' | 'productivity' | 'optional' | 'external'
+  tags: string[]                 // ['filesystem', 'cli', 'http', 'ocr', 'browser', ...]
+  inputSchema: any               // JSON schema
+  outputSchema: any              // JSON schema
+  implementation: ToolImplementation
+  permissions: ToolPermissions
+  sandbox: ToolSandboxConfig
+  metadata?: ToolMetadata
+}
+```
+
+### 2.2 ToolImplementation
+
+```ts
+type ToolImplementation =
+  | { type: 'builtin'; handler: (input: any, context: ToolContext) => Promise<any> }
+  | { type: 'cli'; command: string; argsTemplate?: string[] }
+  | { type: 'http'; url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string> }
+  | { type: 'script'; language: 'python' | 'node'; code: string }
+```
+
+### 2.3 ToolPermissions
+
+```ts
+type ToolPermissions = {
+  requiresUserConsent: boolean
+  allowedInAutonomousMode: boolean
+  allowedDomains?: string[]      // ['code', 'research', 'automation', ...]
+  forbiddenForRoles?: string[]   // ['guest', ...]
+}
+```
+
+### 2.4 ToolSandboxConfig
+
+```ts
+type ToolSandboxConfig = {
+  filesystemAccess: 'none' | 'read' | 'readwrite'
+  networkAccess: boolean
+  maxRuntimeMs: number
+  maxOutputSize: number
+}
+```
+
+### 2.5 ToolMetadata
+
+```ts
+type ToolMetadata = {
+  version?: string
+  author?: string
+  repoUrl?: string
+  installCommand?: string
+  requiresBinary?: boolean
+}
+```
+
+### 2.6 ToolContext
+
+```ts
+type ToolContext = {
+  agentId?: string
+  taskId?: string
+  userId?: string
+  memoryApi: MemoryAPI
+  logger: Logger
+  config: ConfigManager
+}
+```
+
+---
+
+## 3. Tool Registry
+
+### 3.1 Responsibilities
+
+- Register tools.
+- Look up tools by ID/name/tags.
+- Enforce permissions and sandboxing.
+- Provide discovery for skills and orchestrator.
+- Support local + marketplace tools.
+
+### 3.2 API
+
+```ts
+type ToolRegistryAPI = {
+  registerTool(tool: ToolDefinition): void
+  unregisterTool(toolId: string): void
+  getTool(toolId: string): ToolDefinition | null
+  listTools(filter?: ToolFilter): ToolDefinition[]
+  executeTool(toolId: string, input: any, context: ToolContext): Promise<any>
+}
+```
+
+```ts
+type ToolFilter = {
+  category?: 'core' | 'productivity' | 'optional' | 'external'
+  tags?: string[]
+  allowedForDomain?: string
+}
+```
+
+### 3.3 Execution flow
+
+1. Orchestrator/agent/skill calls `executeTool(toolId, input, context)`.
+2. Registry:
+   - Fetches `ToolDefinition`.
+   - Checks permissions.
+   - Applies sandbox config.
+   - Dispatches to implementation.
+3. Logs:
+   - toolId, input summary, output summary, errors.
+4. Emergency Module can hook into failures.
+
+---
+
+## 4. Default tool set
+
+### 4.1 Core system tools (included by default)
+
+**1. FileSystemTool**
+
+- **Tags:** `['filesystem']`
+- **Capabilities:** read/write files, list directories, create/delete files (sandboxed).
+- **Implementation:** builtin.
+
+**2. ShellTool**
+
+- **Tags:** `['cli', 'shell']`
+- **Capabilities:** run shell commands in sandbox.
+- **Implementation:** builtin CLI runner (inspired by CLI‑Anything / OpenCLI patterns).
+
+**3. PythonRunner**
+
+- **Tags:** `['runner', 'python']`
+- **Capabilities:** run Python code in sandbox.
+- **Implementation:** script runner.
+
+**4. NodeRunner**
+
+- **Tags:** `['runner', 'node']`
+- **Capabilities:** run Node.js code in sandbox.
+
+**5. LoggingTool**
+
+- **Tags:** `['logging']`
+- **Capabilities:** structured logs, query logs.
+
+**6. GraphQueryTool**
+
+- **Tags:** `['graph', 'memory']`
+- **Capabilities:** query graph memory (nodes, edges, patterns).
+
+**7. ConfigTool**
+
+- **Tags:** `['config']`
+- **Capabilities:** read/update config values (with safety).
+
+**8. MemoryInspectorTool**
+
+- **Tags:** `['memory']`
+- **Capabilities:** inspect memory layers (short‑term, long‑term, semantic, graph, episodic).
+
+**9. HttpFetchTool**
+
+- **Tags:** `['http', 'api']`
+- **Capabilities:** generic HTTP client (API‑anything style).
+
+---
+
+### 4.2 Productivity tools (included by default)
+
+**1. TextProcessingTool**
+
+- **Tags:** `['text']`
+- **Capabilities:** search/replace, regex, chunking, basic transforms.
+
+**2. CodeAnalysisTool**
+
+- **Tags:** `['code', 'analysis']`
+- **Capabilities:** static analysis, structure extraction, linting (where possible).
+
+**3. CodeExecutionTool**
+
+- **Tags:** `['code', 'execution']`
+- **Capabilities:** run code via PythonRunner/NodeRunner, capture stdout/stderr.
+
+**4. FFmpegTool**
+
+- **Tags:** `['media', 'video', 'audio']`
+- **Capabilities:** transcode, extract audio, image→video, compression.
+- **RequiresBinary:** true.
+
+**5. ImageProcessingTool**
+
+- **Tags:** `['image']`
+- **Capabilities:** resize, crop, convert, metadata.
+
+**6. PdfExtractionTool**
+
+- **Tags:** `['pdf', 'text']`
+- **Capabilities:** extract text/metadata from PDFs.
+
+**7. ArchiveTool**
+
+- **Tags:** `['archive']`
+- **Capabilities:** zip/unzip, tar/gzip.
+
+**8. GitTool**
+
+- **Tags:** `['git', 'vcs']`
+- **Capabilities:** clone, status, diff, commit (with safety prompts).
+
+**9. OCRTool**
+
+- **Tags:** `['ocr', 'image', 'text']`
+- **Capabilities:** extract text from images/screenshots.
+
+---
+
+## 5. Optional tools & marketplace integration
+
+These are not installed by default but are first‑class citizens.
+
+### 5.1 Browser automation tools
+
+**PlaywrightTool**
+
+- **Tags:** `['browser', 'automation']`
+- **Capabilities:** run Playwright scripts.
+- **Implementation:** script or CLI.
+- **Notes:** heavy dependency → marketplace.
+
+**LightpandaBrowserTool**
+
+- **Tags:** `['browser', 'automation', 'upload']`
+- **Capabilities:** automation optimized for uploads (TikTok, YouTube, etc.).
+- **Implementation:** wraps Lightpanda browser + Playwright.
+
+**crawl4aiTool**
+
+- **Tags:** `['web', 'crawl', 'scrape']`
+- **Repo inspiration:** `https://github.com/unclecode/crawl4ai`
+- **Capabilities:** structured crawling/scraping with AI assistance.
+
+### 5.2 CLI‑anything / OpenCLI style tools
+
+**CLIAnythingTool**
+
+- **Tags:** `['cli', 'automation']`
+- **Repo inspiration:** `https://github.com/HKUDS/CLI-Anything`
+- **Capabilities:** generic CLI orchestration with LLM‑friendly interface.
+
+**OpenCLITool**
+
+- **Tags:** `['cli', 'automation']`
+- **Repo inspiration:** `https://github.com/jackwener/OpenCLI`
+- **Capabilities:** open, extensible CLI orchestration.
+
+These can be wrapped as tools that:
+
+- accept a high‑level command description  
+- map to actual CLI commands  
+- run them via ShellTool / sandbox  
+
+### 5.3 Audio tools
+
+- **AudioTranscriptionTool** (Whisper or similar).
+- **AudioPlaybackTool**.
+- **AudioRecordingTool**.
+
+### 5.4 Model runner tools
+
+- **LMStudioTool** (local LLM via LM Studio).
+- **OllamaTool**.
+- **Other local runner tools**.
+
+### 5.5 Database tools
+
+- **SQLiteTool** (default DB).
+- **PostgresTool** (optional connector).
+
+---
+
+## 6. Tool selection logic (orchestrator + skills)
+
+### 6.1 For a given task
+
+1. Orchestrator analyzes task → `TaskProfile`.
+2. Skill selector picks skills.
+3. Tool selector:
+   - Collects tools required by skills.
+   - Adds supporting tools (logging, filesystem, etc.).
+   - Filters by:
+     - availability  
+     - permissions  
+     - sandbox rules  
+
+### 6.2 API‑anything & CLI‑anything skills
+
+We define **skills** that wrap generic tools:
+
+- `ApiAnythingSkill` → uses `HttpFetchTool`.
+- `CliAnythingSkill` → uses `ShellTool` / `CLIAnythingTool` / `OpenCLITool`.
+- `WebCrawlSkill` → uses `crawl4aiTool` / PlaywrightTool.
+
+Agents don’t need to know the internals—they just call the skill.
+
+---
+
+## 7. Permissions, safety, and sandboxing
+
+- Tools are **not equal**—each has:
+  - permissions  
+  - sandbox config  
+  - risk level  
+
+- Autonomous mode:
+  - Some tools are disabled unless explicitly allowed (e.g., ShellTool, GitTool, PlaywrightTool).
+
+- Emergency Module:
+  - Can disable tools that repeatedly fail or cause issues.
+  - Can suggest disabling risky tools.
+
+---
+
+## 8. Integration with other modules
+
+### 8.1 Skills
+
+- Skills declare required tools by ID.
+- Tool Registry ensures they exist.
+- If missing:
+  - Skill is degraded or disabled.
+  - Emergency Module can suggest installing tools.
+
+### 8.2 Orchestrator
+
+- Uses Tool Registry to:
+  - select tools for agents.
+  - enforce tool budgets (maxToolCalls).
+  - log tool usage.
+
+### 8.3 Memory/Graph
+
+- Tool usage is recorded:
+  - Episodic memory: “Tool X used in Task Y.”
+  - Graph memory:
+    - `skill --uses--> tool`
+    - `tool --failed_with--> pattern`
+- This enables:
+  - better tool selection over time.
+  - avoiding tools that fail in similar contexts.
+
+### 8.4 Emergency Module
+
+- On tool failure:
+  - Receives `TOOL_ERROR`.
+  - Runs diagnostics.
+  - May propose:
+    - disabling tool  
+    - updating config  
+    - switching to alternative tool  
+
+---
+
+## 9. Tool Market / installation
+
+### 9.1 Local registry
+
+- `tools/` folder.
+- `tools.json` index.
+- Each tool has:
+  - metadata  
+  - install instructions  
+  - dependencies  
+
+### 9.2 Marketplace
+
+- Optional remote index (GitHub, API).
+- Users can:
+  - browse tools  
+  - install/uninstall  
+  - update  
+
+### 9.3 UI
+
+- Tool list with:
+  - name  
+  - description  
+  - tags  
+  - risk level  
+  - install status  
+
+---
+
+This spec gives GitHub Copilot everything it needs to:
+
+- scaffold the Tool Registry  
+- implement default tools  
+- wrap CLI‑Anything / OpenCLI / crawl4ai / Playwright / Lightpanda as optional tools  
+- integrate tools with skills, orchestrator, memory, and emergency  

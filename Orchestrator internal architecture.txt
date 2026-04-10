@@ -1,0 +1,934 @@
+### Orchestrator internal architecture v1.0  
+
+---
+
+## 1. Purpose and responsibilities
+
+The orchestrator is the **supervisor** of the harness. It does **not** think like an LLM; it **routes, configures, and manages** agents.
+
+**Core responsibilities:**
+
+- **Task intake:** receive tasks from UI/API/other agents.
+- **Task analysis:** understand what kind of work is needed (code, research, diagnostics, etc.).
+- **Skill selection:** find relevant skills for the task.
+- **Tool selection:** find tools required by those skills.
+- **Agent creation:** build agent configs and spawn agents.
+- **Coordination:** route tasks, messages, and results.
+- **Budget enforcement:** tokens, steps, time, tool usage.
+- **Lifecycle management:** spawn, monitor, escalate, terminate agents.
+
+No personalities. Everything is **role + skills + tools + constraints**.
+
+---
+
+## 2. High-level data structures
+
+### 2.1 Task
+
+```ts
+type Task = {
+  id: string
+  type: 'user_request' | 'system_maintenance' | 'diagnostic' | 'subtask'
+  description: string
+  input?: any
+  priority: 'low' | 'normal' | 'high'
+  requestedRole?: string        // optional hint: "developer", "researcher", etc.
+  constraints?: {
+    maxSteps?: number
+    maxTokens?: number
+    maxDurationMs?: number
+    allowedTools?: string[]
+  }
+  metadata?: Record<string, any> // tags, project, user, etc.
+}
+```
+
+### 2.2 AgentConfig
+
+```ts
+type AgentConfig = {
+  id: string
+  roleName: string              // e.g. "Developer Agent", "Research Agent"
+  rolePrompt: string            // system prompt built from role + task
+  skills: string[]              // skill IDs
+  tools: string[]               // tool IDs
+  modelId: string
+  memoryScope: {
+    working: boolean
+    shortTerm: boolean
+    longTerm: boolean
+    graph: boolean
+  }
+  budget: {
+    maxSteps: number
+    maxTokens: number
+    maxDurationMs: number
+  }
+  parentAgentId?: string        // for sub-agents
+  taskId: string
+}
+```
+
+### 2.3 AgentState
+
+```ts
+type AgentState = {
+  id: string
+  config: AgentConfig
+  status: 'idle' | 'running' | 'waiting' | 'completed' | 'failed' | 'terminated'
+  stepsTaken: number
+  tokensUsed: number
+  startedAt: number
+  lastUpdatedAt: number
+  result?: any
+  error?: {
+    message: string
+    stack?: string
+  }
+}
+```
+
+---
+
+## 3. Orchestrator components
+
+### 3.1 Task intake & router
+
+**Responsibility:**  
+Entry point for all tasks.
+
+**Behavior:**
+
+- Accept tasks from:
+  - UI/API (`/tasks`)
+  - Scheduler (maintenance jobs)
+  - Other agents (subtasks)
+- Normalize into `Task` objects.
+- Push into a **task queue** (in-memory or pluggable).
+
+**Core functions:**
+
+- `submitTask(task: Task) -> TaskId`
+- `getTaskStatus(taskId) -> TaskStatus`
+- `getTaskResult(taskId) -> TaskResult | null`
+
+---
+
+### 3.2 Task analyzer
+
+**Responsibility:**  
+Figure out what kind of work is needed.
+
+**Inputs:**
+
+- `Task`
+- Skill registry (for tags/domains)
+- Graph memory (for relationships)
+- Optional heuristics (keywords, tags, metadata)
+
+**Outputs:**
+
+- `TaskProfile`:
+
+```ts
+type TaskProfile = {
+  domain: 'code' | 'research' | 'writing' | 'diagnostics' | 'maintenance' | 'general'
+  requiredSkills: string[]      // skill IDs
+  suggestedTools: string[]      // tool IDs
+  suggestedRoleName: string     // e.g. "Developer Agent"
+}
+```
+
+**Logic (high-level):**
+
+1. Use keywords + metadata to infer `domain`.
+2. Query Skill Registry:
+   - skills tagged with that domain
+   - skills whose descriptions match the task
+3. Query Graph Memory:
+   - skills connected to relevant tools/modules
+4. Build `TaskProfile`.
+
+---
+
+### 3.3 Skill selector
+
+**Responsibility:**  
+Pick the best skills for the task.
+
+**Inputs:**
+
+- `Task`
+- `TaskProfile`
+- Skill registry
+- Graph memory
+
+**Outputs:**
+
+- `SelectedSkill[]` (ordered list)
+
+**Behavior:**
+
+- Filter skills by:
+  - domain
+  - tags
+  - input/output compatibility (if known)
+- Rank by:
+  - relevance to task description
+  - graph connections (e.g., skills often used with similar tasks)
+  - user preferences (if stored in memory)
+- Limit to a reasonable number (e.g., 3–7 skills per agent).
+
+---
+
+### 3.4 Tool selector
+
+**Responsibility:**  
+Pick tools required by the selected skills.
+
+**Inputs:**
+
+- Selected skills
+- Tool registry
+- Graph memory
+
+**Outputs:**
+
+- `SelectedTool[]`
+
+**Behavior:**
+
+- Collect all tools required by selected skills.
+- Filter by:
+  - availability (installed/connected)
+  - permissions (allowed for this user/task)
+- Optionally add supporting tools (e.g., logging, file access) based on graph relationships.
+
+---
+
+### 3.5 Agent factory
+
+**Responsibility:**  
+Build `AgentConfig` objects and spawn agents.
+
+**Inputs:**
+
+- `Task`
+- `TaskProfile`
+- Selected skills
+- Selected tools
+- Config (defaults, budgets, model preferences)
+
+**Outputs:**
+
+- `AgentConfig`
+- `AgentState` (initial)
+
+**Behavior:**
+
+- Determine `roleName`:
+  - From `TaskProfile.suggestedRoleName` or fallback (e.g., “General Agent”).
+- Build `rolePrompt`:
+  - Template: “You are a {roleName}. Your task: {task.description}…”
+- Set `budget`:
+  - From task constraints or defaults.
+- Set `memoryScope`:
+  - Usually: working + short-term + graph.
+  - Long-term only if needed (e.g., user preferences, project context).
+- Choose `modelId`:
+  - From config + domain (e.g., code model for dev tasks).
+
+**Core functions:**
+
+- `createAgentConfig(task: Task, profile: TaskProfile, skills, tools) -> AgentConfig`
+- `spawnAgent(config: AgentConfig) -> AgentId`
+
+---
+
+### 3.6 Agent lifecycle manager
+
+**Responsibility:**  
+Track and control agents.
+
+**Behavior:**
+
+- Maintain a registry of `AgentState`.
+- Start agents by invoking the **State Machine** with `AgentConfig + Task`.
+- Update:
+  - `status`
+  - `stepsTaken`
+  - `tokensUsed`
+  - `result` or `error`
+- Enforce budgets:
+  - If `stepsTaken` or `tokensUsed` exceed budget → stop agent, mark as failed, emit event.
+- Terminate agents:
+  - On completion.
+  - On failure.
+  - On user request.
+  - On Emergency module intervention.
+
+**Core functions:**
+
+- `getAgentState(agentId) -> AgentState`
+- `terminateAgent(agentId, reason)`
+- `listAgents(filter) -> AgentState[]`
+
+---
+
+### 3.7 Coordination & messaging
+
+**Responsibility:**  
+Route messages and subtasks between agents and back to the orchestrator.
+
+**Patterns:**
+
+- Agents do **not** talk directly to each other.
+- All communication goes through the orchestrator (or event bus).
+
+**Examples:**
+
+- Agent A requests a subtask:
+  - Orchestrator creates a new `Task` of type `subtask`.
+  - Spawns Agent B for that subtask.
+  - When B completes, orchestrator returns result to A.
+
+**Core functions:**
+
+- `requestSubtask(parentAgentId, task: Task) -> SubtaskHandle`
+- `getSubtaskResult(handle) -> TaskResult`
+
+---
+
+## 4. Failure handling and Emergency integration
+
+- If:
+  - an agent crashes,
+  - a tool fails repeatedly,
+  - a task times out,
+- The orchestrator:
+  - updates `AgentState` to `failed`.
+  - emits a `MODULE_ERROR` or `AGENT_FAILED` event on the Event Bus.
+
+The **Emergency module** listens and then:
+
+- Runs diagnostics (via diagnostic agents).
+- Proposes fixes.
+- Optionally applies them (with user permission).
+
+The orchestrator itself stays **simple and deterministic**—it doesn’t “self-heal,” it just reports and cooperates.
+
+---
+
+## 5. Interaction with other modules
+
+- **State Machine:**
+  - Orchestrator calls `runTask(config, task)` to actually execute.
+  - Receives step-by-step updates or final result.
+
+- **Skill Module:**
+  - Used by Task Analyzer + Skill Selector.
+
+- **Tool Module:**
+  - Used by Tool Selector.
+
+- **Memory Module:**
+  - Used by Task Analyzer (to understand context).
+  - Used by Skill/Tool selectors (via graph memory).
+  - Used to store relationships:
+    - Task → Agent
+    - Agent → Skills/Tools
+    - Task → Result
+
+- **Scheduler:**
+  - Can submit tasks to orchestrator (maintenance, background jobs).
+
+- **UI/API:**
+  - Shows:
+    - Active agents.
+    - Their roles, skills, tools.
+    - Their status and budgets.
+    - Their parent/child relationships.
+
+---
+
+
+*****************************************************
+
+---
+
+# **B. Full AgentConfig Schema (Hybrid Model)**
+This is the **canonical definition** of an agent in the universal harness.
+
+It has:
+
+- **Static Core** → cannot change after spawn  
+- **Dynamic Extras** → can be modified by orchestrator or agent  
+- **Metadata** → for UI, logging, and introspection  
+
+Everything below is designed to be language‑agnostic (TypeScript/Python friendly).
+
+---
+
+# **1. AgentConfig (Top-Level Structure)**
+
+```ts
+type AgentConfig = {
+  id: string
+  taskId: string
+  parentAgentId?: string
+
+  // Static core (immutable after spawn)
+  core: AgentCoreConfig
+
+  // Dynamic extras (mutable)
+  dynamic: AgentDynamicConfig
+
+  // Metadata (optional)
+  meta?: AgentMetaConfig
+}
+```
+
+---
+
+# **2. Static Core (Immutable After Spawn)**  
+These fields define the **identity and boundaries** of the agent.  
+They **cannot** be changed mid‑task.
+
+```ts
+type AgentCoreConfig = {
+  roleName: string
+  rolePrompt: string
+
+  model: ModelProfile
+  memory: MemoryScope
+  budget: BudgetConfig
+  safety: SafetyConfig
+  environment: ExecutionEnvironment
+}
+```
+
+### **2.1 roleName**
+Human‑readable functional role:
+- “Developer Agent”
+- “Research Agent”
+- “Diagnostics Agent”
+- “General Agent”
+
+### **2.2 rolePrompt**
+The system prompt that defines:
+- behavior  
+- constraints  
+- task context  
+- tone  
+- allowed actions  
+
+### **2.3 model**
+```ts
+type ModelProfile = {
+  modelId: string
+  temperature: number
+  topP: number
+  maxTokens: number
+  fallbackChain: string[]   // ordered list of model IDs
+  vramLimitMB?: number      // optional for local models
+}
+```
+
+### **2.4 memory**
+```ts
+type MemoryScope = {
+  working: boolean
+  shortTerm: boolean
+  longTerm: boolean
+  semantic: boolean
+  graph: boolean
+  isolationLevel: 'strict' | 'task' | 'project' | 'global'
+}
+```
+
+### **2.5 budget**
+```ts
+type BudgetConfig = {
+  maxSteps: number
+  maxTokens: number
+  maxDurationMs: number
+  maxToolCalls: number
+  maxSubtasks: number
+}
+```
+
+### **2.6 safety**
+```ts
+type SafetyConfig = {
+  allowedDomains?: string[]     // e.g., ['code', 'research']
+  forbiddenTools?: string[]
+  forbiddenSkills?: string[]
+  escalationPolicy: 'none' | 'orchestrator' | 'emergency'
+}
+```
+
+### **2.7 environment**
+```ts
+type ExecutionEnvironment = {
+  sandbox: 'none' | 'filesystem' | 'container'
+  allowedLanguages: string[]     // ['python', 'node']
+  filesystemAccess: 'none' | 'read' | 'readwrite'
+  networkAccess: boolean
+}
+```
+
+---
+
+# **3. Dynamic Extras (Mutable During Task)**  
+These fields **can** be modified by the orchestrator or the agent (with permission).
+
+```ts
+type AgentDynamicConfig = {
+  skills: string[]          // skill IDs
+  tools: string[]           // tool IDs
+  contextVars: Record<string, any>
+  notes: string[]           // agent-generated notes
+}
+```
+
+### **3.1 skills**
+- List of skill IDs.
+- Can be added/removed mid‑task.
+- Orchestrator ensures compatibility.
+
+### **3.2 tools**
+- List of tool IDs.
+- Must respect safety constraints.
+- Can be expanded if needed.
+
+### **3.3 contextVars**
+- Arbitrary key/value pairs.
+- Used for:
+  - intermediate results  
+  - task metadata  
+  - agent‑specific state  
+
+### **3.4 notes**
+- Agent’s own notes.
+- Saved to short‑term memory at end of task.
+
+---
+
+# **4. Metadata (Optional)**  
+Used for UI, logging, and debugging.
+
+```ts
+type AgentMetaConfig = {
+  displayName?: string
+  icon?: string
+  color?: string
+  description?: string
+  createdAt: number
+  expiresAt?: number
+}
+```
+
+---
+
+# **5. Example AgentConfig (Concrete Example)**
+
+```ts
+{
+  id: "agent_42",
+  taskId: "task_17",
+
+  core: {
+    roleName: "Developer Agent",
+    rolePrompt: "You are a precise, detail-oriented developer...",
+
+    model: {
+      modelId: "deepseek-coder",
+      temperature: 0.2,
+      topP: 0.9,
+      maxTokens: 2048,
+      fallbackChain: ["qwen2.5-coder", "claude-code"],
+      vramLimitMB: 6000
+    },
+
+    memory: {
+      working: true,
+      shortTerm: true,
+      longTerm: false,
+      semantic: true,
+      graph: true,
+      isolationLevel: "task"
+    },
+
+    budget: {
+      maxSteps: 12,
+      maxTokens: 8000,
+      maxDurationMs: 60000,
+      maxToolCalls: 10,
+      maxSubtasks: 3
+    },
+
+    safety: {
+      allowedDomains: ["code"],
+      forbiddenTools: ["browser"],
+      forbiddenSkills: [],
+      escalationPolicy: "orchestrator"
+    },
+
+    environment: {
+      sandbox: "filesystem",
+      allowedLanguages: ["python", "node"],
+      filesystemAccess: "readwrite",
+      networkAccess: false
+    }
+  },
+
+  dynamic: {
+    skills: ["refactorCode", "analyzeErrors"],
+    tools: ["pythonRunner", "fileSystem"],
+    contextVars: {},
+    notes: []
+  },
+
+  meta: {
+    displayName: "Dev Agent",
+    icon: "🧑‍💻",
+    color: "#4A90E2",
+    createdAt: 1712345678901
+  }
+}
+```
+
+---
+
+# **6. Why this schema is perfect for the universal harness**
+
+### ✔ Predictable  
+Core is immutable → no chaos.
+
+### ✔ Flexible  
+Dynamic extras allow skills/tools to evolve mid‑task.
+
+### ✔ Safe  
+Safety constraints + budgets prevent runaway behavior.
+
+### ✔ Extensible  
+New fields can be added without breaking the system.
+
+### ✔ UI‑friendly  
+Metadata supports rich visualization.
+
+### ✔ Orchestrator‑friendly  
+Everything the orchestrator needs is explicit.
+
+
+*********************************************************************
+
+
+This is the *canonical lifecycle* every agent in the universal harness will follow.  
+It is deterministic, debuggable, modular, and compatible with the Emergency Module.
+
+---
+
+# **C. Agent Lifecycle Specification (v1.0)**  
+This defines how an agent is created, initialized, runs, escalates, and terminates.
+
+The lifecycle has **8 phases**:
+
+1. **Spawn**  
+2. **Initialize**  
+3. **Run Loop**  
+4. **Subtasks**  
+5. **Error Handling**  
+6. **Escalation**  
+7. **Completion**  
+8. **Termination & Cleanup**
+
+Each phase is described in detail below.
+
+---
+
+# **1. SPAWN PHASE**  
+Triggered by the Orchestrator.
+
+### **Inputs**
+- `Task`
+- `TaskProfile`
+- Selected skills
+- Selected tools
+- AgentConfig (constructed by Orchestrator)
+
+### **Actions**
+1. Orchestrator generates a unique `agentId`.
+2. Creates an `AgentConfig` object (static core + dynamic extras).
+3. Creates an initial `AgentState`:
+   - `status = 'idle'`
+   - `stepsTaken = 0`
+   - `tokensUsed = 0`
+   - `startedAt = now()`
+4. Registers the agent in the **Agent Registry**.
+5. Emits `AGENT_SPAWNED` on the Event Bus.
+
+### **Outputs**
+- Agent exists in registry.
+- Ready for initialization.
+
+---
+
+# **2. INITIALIZE PHASE**  
+Handled by the **State Machine**.
+
+### **Actions**
+1. Load the agent’s **rolePrompt**.
+2. Load **skills**:
+   - Validate skill existence.
+   - Load skill metadata.
+   - Prepare skill execution wrappers.
+3. Load **tools**:
+   - Validate tool existence.
+   - Check safety constraints.
+   - Prepare tool wrappers.
+4. Initialize **memory scopes**:
+   - Working memory (empty).
+   - Short-term memory (session context).
+   - Long-term memory (if enabled).
+   - Semantic memory (embedding index).
+   - Graph memory (task-relevant nodes/edges).
+5. Initialize **execution environment**:
+   - Sandbox (filesystem/container).
+   - Allowed languages.
+   - Network access rules.
+6. Validate **budgets**:
+   - Steps
+   - Tokens
+   - Duration
+   - Tool calls
+   - Subtasks
+
+### **Outputs**
+- Agent is fully initialized.
+- `status = 'running'`.
+
+---
+
+# **3. RUN LOOP PHASE**  
+This is the core of agent behavior.
+
+### **Loop Structure**
+The State Machine executes:
+
+```
+PLAN → ACT → REFLECT → (repeat)
+```
+
+Unless in reactive mode, where it executes:
+
+```
+ACT (single step)
+```
+
+### **3.1 PLAN**
+- Agent analyzes the task.
+- Determines next action:
+  - Use a skill
+  - Call a tool
+  - Request a subtask
+  - Produce output
+  - Ask for clarification
+  - Update contextVars
+
+### **3.2 ACT**
+- Executes the chosen action.
+- Updates:
+  - `stepsTaken`
+  - `tokensUsed`
+  - `lastUpdatedAt`
+
+### **3.3 REFLECT**
+- Agent evaluates:
+  - Did the action succeed?
+  - Should it revise its plan?
+  - Should it escalate?
+  - Should it terminate?
+
+### **3.4 Budget Enforcement**
+If any budget is exceeded:
+- State Machine stops the agent.
+- Marks as failed.
+- Emits `AGENT_FAILED`.
+
+### **3.5 Loop Termination Conditions**
+The loop ends when:
+- Agent produces a final result.
+- Agent hits a budget limit.
+- Agent encounters a fatal error.
+- Orchestrator terminates it.
+- Emergency module intervenes.
+
+---
+
+# **4. SUBTASK PHASE**  
+Agents can request subtasks via:
+
+```
+requestSubtask(description, input)
+```
+
+### **Actions**
+1. State Machine pauses the parent agent (or continues, depending on config).
+2. Orchestrator creates a new `Task` of type `subtask`.
+3. Orchestrator spawns a **child agent** with:
+   - Its own AgentConfig
+   - Its own budgets
+   - Its own memory scope
+4. Parent agent waits for:
+   - Child result  
+   - Or timeout  
+   - Or failure  
+
+### **Outputs**
+- Parent receives child result.
+- Parent resumes run loop.
+
+---
+
+# **5. ERROR HANDLING PHASE**  
+Errors can occur in:
+
+- Skill execution  
+- Tool execution  
+- Model generation  
+- Memory access  
+- Sandbox execution  
+- Budget enforcement  
+
+### **Error Types**
+- `RecoverableError`
+- `NonRecoverableError`
+- `BudgetExceededError`
+- `ToolFailureError`
+- `ModelFailureError`
+- `MemoryError`
+- `SandboxError`
+
+### **Actions**
+1. State Machine logs the error.
+2. Updates `AgentState.error`.
+3. Depending on error type:
+   - Retry (if allowed)
+   - Skip action
+   - Escalate to orchestrator
+   - Escalate to Emergency module
+   - Terminate agent
+
+### **Outputs**
+- Error is recorded.
+- Agent either recovers or escalates.
+
+---
+
+# **6. ESCALATION PHASE**  
+Triggered when:
+- Agent cannot proceed.
+- Error is non-recoverable.
+- Safety constraints are violated.
+- Budget is exceeded.
+- Agent explicitly requests escalation.
+
+### **Escalation Targets**
+- **Orchestrator** (default)
+- **Emergency Module** (if configured)
+- **Parent Agent** (for subtasks)
+
+### **Escalation Actions**
+- Provide:
+  - Error details
+  - Context
+  - Memory snapshot
+  - Last actions
+  - Proposed next steps
+
+### **Orchestrator Response**
+- Retry with new config
+- Spawn diagnostic agent
+- Spawn helper agent
+- Terminate agent
+- Forward to Emergency module
+
+---
+
+# **7. COMPLETION PHASE**  
+Triggered when the agent produces a final result.
+
+### **Actions**
+1. State Machine marks `status = 'completed'`.
+2. Saves:
+   - Result
+   - Notes
+   - Memory updates (short-term, semantic, graph)
+3. Emits `AGENT_COMPLETED`.
+4. Orchestrator:
+   - Stores result in Task Registry.
+   - Returns result to parent agent or user.
+
+### **Outputs**
+- Task result is available.
+- Agent is ready for termination.
+
+---
+
+# **8. TERMINATION & CLEANUP PHASE**
+
+### **Actions**
+1. Release working memory.
+2. Close sandbox processes.
+3. Flush logs.
+4. Remove agent from active registry.
+5. Optionally archive:
+   - AgentConfig
+   - AgentState
+   - Memory snapshot
+   - Logs
+
+### **Termination Types**
+- **Normal termination**
+- **Forced termination**
+- **Emergency termination**
+- **Timeout termination**
+
+### **Outputs**
+- Agent is fully cleaned up.
+- No lingering processes or memory.
+
+---
+
+# **Why this lifecycle is powerful**
+
+### ✔ Deterministic  
+Every agent follows the same phases.
+
+### ✔ Modular  
+Each phase maps to a module:
+- Orchestrator  
+- State Machine  
+- Memory  
+- Tools  
+- Skills  
+- Emergency  
+
+### ✔ Debuggable  
+Every transition emits events.
+
+### ✔ Safe  
+Budgets + safety constraints + escalation rules.
+
+### ✔ Extensible  
+You can add:
+- new agent types  
+- new run modes  
+- new memory scopes  
+- new error types  
+
+Without breaking the lifecycle.
+
+
+

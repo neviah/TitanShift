@@ -1,0 +1,2354 @@
+**Full System Overview Document v1.0 (Python Edition)** — formatted for Copilot Pages, with diagrams, TOC, and the philosophy section you requested.
+
+When we finish Part 1, I’ll continue with Part 2 exactly as you want.
+
+---
+
+# **Full System Overview Document v1.0 (Python Edition)**  
+*A complete architectural blueprint for the Universal Harness — Python‑native, modular, and extensible.*
+
+---
+
+# **Table of Contents**
+
+1. [Philosophy](#philosophy)  
+2. [Executive Summary](#executive-summary)  
+3. [High‑Level Architecture](#high-level-architecture)  
+   - 3.1 Module Map  
+   - 3.2 Data Flow Diagram  
+   - 3.3 Agent Lifecycle Diagram  
+   - 3.4 Memory Ingestion Pipeline Diagram  
+   - 3.5 UI Layout Diagram  
+4. [Module Overviews](#module-overviews)  
+   - Runtime Layer  
+   - Model Module  
+   - Tool Module  
+   - Skill Module  
+   - Memory Module  
+   - State Machine  
+   - Orchestrator  
+   - Execution Module  
+   - Emergency Module  
+   - Scheduler  
+   - API Layer  
+   - UI Layer  
+5. [Cross‑Module Flows](#cross-module-flows)  
+6. [Data Models](#data-models)  
+7. [UI Specification](#ui-specification)  
+8. [Phased Implementation Plan](#phased-implementation-plan)  
+9. [Appendices](#appendices)  
+
+---
+
+# **1. Philosophy**
+
+The Universal Harness is designed around a set of principles that ensure it remains:
+
+- modular  
+- resilient  
+- extensible  
+- Python‑native  
+- graph‑aware  
+- skill‑centric  
+- user‑friendly  
+- self‑diagnosing  
+
+These principles guide every module, interface, and design decision.
+
+---
+
+## **1.1 Python‑First Architecture**
+The entire harness is built around Python’s strengths:
+
+- dynamic module loading (`importlib`)  
+- async orchestration (`asyncio`)  
+- plugin systems  
+- rich ecosystem (FastAPI, APScheduler, networkx, sqlite3)  
+- easy tool wrapping (CLI, HTTP, Python scripts)  
+- perfect for LLM workflows  
+
+Python is the backbone of the runtime, orchestrator, skills, tools, memory, and emergency systems.
+
+---
+
+## **1.2 Modularity Above All**
+Every component — tools, skills, agents, memory layers, UI panels — is a module.
+
+Modules can be:
+
+- added  
+- removed  
+- replaced  
+- upgraded  
+
+…without breaking the system.
+
+---
+
+## **1.3 Failure Isolation**
+No single module can take down the system.
+
+If a tool crashes → isolate it.  
+If a skill misbehaves → disable it.  
+If an agent loops → terminate it.  
+If a module fails → Emergency Module intervenes.
+
+The harness must **never** crash as a whole.
+
+---
+
+## **1.4 Skill‑Centric Intelligence**
+The harness does not rely on “magic prompts.”
+
+It relies on **skills**:
+
+- reusable  
+- composable  
+- testable  
+- discoverable  
+- graph‑indexed  
+
+Agents become powerful because skills are powerful.
+
+---
+
+## **1.5 Graph‑Aware Reasoning**
+The system understands itself.
+
+Everything becomes a graph node:
+
+- skills  
+- tools  
+- modules  
+- agents  
+- tasks  
+- errors  
+- fixes  
+- preferences  
+
+Edges represent:
+
+- uses  
+- depends_on  
+- caused_by  
+- fixed_by  
+- belongs_to  
+
+This enables:
+
+- smarter tool selection  
+- better skill matching  
+- pattern recognition  
+- self‑improvement  
+
+---
+
+## **1.6 Local‑First, Cloud‑additional**
+The harness works with local models via ollama and lmstudio.
+
+Cloud models and APIs are additional enhancements, not dependencies.
+must work with claude code, openai compatible, openrouter, etc.
+
+Local‑first means:
+
+- local LLMs (LM Studio, Ollama, GGUF)  
+- local vector DB  
+- local graph backend  
+- local tools  
+- local skills  
+
+---
+
+## **1.7 Reproducibility**
+Every task, agent, skill, tool call, and memory update is logged and traceable.
+
+Users can:
+
+- replay workflows  
+- audit decisions  
+- inspect memory  
+- view agent reasoning  
+
+---
+
+## **1.8 UI‑Driven Accessibility**
+Non‑technical users can configure:
+
+- models  
+- tools  
+- skills  
+- autonomy  
+- emergency behavior  
+- memory scopes  
+
+…all from a clean, modern web UI.
+
+---
+
+## **1.9 Self‑Diagnosis and Optional Self‑Healing**
+The Emergency Module acts like a “fire department”:
+
+- detects failures  
+- spawns diagnostic agents  
+- proposes fixes  
+- optionally auto‑repairs  
+
+---
+
+## **1.10 Human‑Centered Design**
+The system is built for:
+
+- creators  
+- developers  
+- researchers  
+- automation builders  
+- non‑technical users  
+
+It must feel intuitive, powerful, and safe.
+
+---
+
+# **2. Executive Summary**
+
+The Universal Harness is a Python‑native, modular, agent‑driven runtime designed to orchestrate:
+
+- tools  
+- skills  
+- memory  
+- agents  
+- tasks  
+- UI  
+- diagnostics  
+- automation  
+
+It provides:
+
+- a unified interface for LLMs  
+- a graph‑aware memory system  
+- a robust orchestrator  
+- a self‑healing emergency system  
+- a full UI with visualization  
+- a tool/skill marketplace  
+- a scheduler for recurring jobs  
+
+It is designed to be:
+
+- local‑first  
+- reproducible  
+- extensible  
+- failure‑resistant  
+- developer‑friendly  
+- non‑technical‑friendly  
+
+This document defines the entire architecture.
+
+---
+
+# **3. High‑Level Architecture**
+
+Below are the core diagrams that define the system’s structure and flow.
+
+---
+
+## **3.1 Module Map**
+
+```
+ ┌───────────────────────────────────────────────────────────────┐
+ │                         UI Layer                               │
+ │   (Chat, Visualization, Agent Tree, Memory Viewer, Markets)    │
+ └───────────────────────────────────────────────────────────────┘
+                 │
+                 ▼
+ ┌───────────────────────────────────────────────────────────────┐
+ │                         API Layer                              │
+ │     (FastAPI / WebSocket endpoints for UI + external clients)  │
+ └───────────────────────────────────────────────────────────────┘
+                 │
+                 ▼
+ ┌───────────────────────────────────────────────────────────────┐
+ │                        Orchestrator                            │
+ │   (Agent spawning, skill/tool assignment, task coordination)   │
+ └───────────────────────────────────────────────────────────────┘
+        │                 │                 │
+        ▼                 ▼                 ▼
+ ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐
+ │ State Machine │  │ Skill Module │  │       Tool Module        │
+ │ (async loop)  │  │ (registry)   │  │ (registry + sandboxing)  │
+ └──────────────┘  └──────────────┘  └──────────────────────────┘
+        │                 │                 │
+        └──────────────┬──┴────────────────┘
+                       ▼
+             ┌───────────────────────┐
+             │     Memory Module     │
+             │ (working/ST/LT/sem/graph/episodic) │
+             └───────────────────────┘
+                       │
+                       ▼
+             ┌───────────────────────┐
+             │   Emergency Module     │
+             │ (diagnostics + fixes)  │
+             └───────────────────────┘
+                       │
+                       ▼
+             ┌───────────────────────┐
+             │     Scheduler          │
+             │ (cron + heartbeats)    │
+             └───────────────────────┘
+```
+
+---
+
+## **3.2 Data Flow Diagram**
+
+```
+User → UI → API → Orchestrator → Agent → State Machine
+       ↑        ↓               ↓
+       │        Skills ←→ Tools ←→ Python Execution Module
+       │        ↓
+       │        Memory (all layers)
+       │
+       Emergency Module ← Scheduler (heartbeats)
+```
+
+---
+
+## **3.3 Agent Lifecycle Diagram**
+
+```
+SPAWN → INITIALIZE → PLAN → ACT → REFLECT → (loop)
+   │         │         │       │        │
+   │         │         │       │        └──→ update memory
+   │         │         │       └────────────→ call tools/skills
+   │         │         └────────────────────→ choose next action
+   │         └──────────────────────────────→ load skills/tools/memory
+   └────────────────────────────────────────→ orchestrator builds config
+
+Loop ends when:
+- result produced
+- budget exceeded
+- error escalated
+- emergency intervention
+```
+
+---
+
+## **3.4 Memory Ingestion Pipeline Diagram**
+
+```
+Text (logs, chats, reflections, docs)
+        │
+        ▼
+   Graphify (Python wrapper)
+        │
+        ▼
+Entities + Relationships
+        │
+        ▼
+Graph Memory (Python backend)
+        │
+        ├──→ Semantic Memory (embeddings + SQLite)
+        ├──→ Long‑Term Memory (Markdown/JSON)
+        └──→ Episodic Memory (SQLite)
+```
+
+---
+
+## **3.5 UI Layout Diagram**
+
+```
+┌───────────────┬──────────────────────────────────────────────┬───────────────┐
+│   Left Pane    │                Center Pane                   │   Right Pane   │
+│ (Navigation)   │ (Chat + Background Visualization + Overlays) │ (Agents/Tools) │
+└───────────────┴──────────────────────────────────────────────┴───────────────┘
+```
+
+
+---
+
+# **4. Module Overviews (Python Edition)**
+
+This section defines each module in the harness at a high level, with:
+
+- Responsibilities  
+- Python‑native behaviors  
+- Interfaces (Python‑style)  
+- Dependencies  
+- Failure isolation behavior  
+- How the module interacts with others  
+
+This is the section Copilot will use to scaffold the codebase.
+
+---
+
+# **4.1 Runtime Layer**
+
+The Runtime Layer is the foundation of the harness.  
+It provides:
+
+- dynamic module loading  
+- configuration  
+- event routing  
+- lifecycle management  
+
+Everything else sits on top of it.
+
+---
+
+## **4.1.1 Module Loader (Python Plugin System)**
+
+### **Responsibilities**
+- Discover Python modules in `modules/` directory.
+- Load them dynamically using `importlib`.
+- Hot‑reload modules using `watchdog`.
+- Register modules with the system.
+
+### **Python‑Native Behavior**
+- Each module is a Python package with:
+  - `__init__.py`
+  - `module.py` exporting:
+    ```python
+    def register(runtime): ...
+    ```
+
+### **Interfaces**
+```python
+class ModuleLoader:
+    def register_module(self, name: str, capabilities: list[str], hooks: dict): ...
+    def list_modules(self) -> list[ModuleInfo]: ...
+    def reload_module(self, name: str): ...
+```
+
+### **Failure Isolation**
+- If a module fails to load:
+  - Log error
+  - Notify Emergency Module
+  - Continue running without that module
+
+---
+
+## **4.1.2 Config Manager**
+
+### **Responsibilities**
+- Central configuration store.
+- Merge config from:
+  - YAML/JSON files
+  - environment variables
+  - UI overrides
+
+### **Python‑Native Behavior**
+- Uses `pydantic` or `dataclasses` for typed config.
+- Supports hierarchical scopes.
+
+### **Interfaces**
+```python
+class ConfigManager:
+    def get(self, key: str): ...
+    def set(self, key: str, value): ...
+    def get_scoped(self, scope: str, key: str): ...
+```
+
+---
+
+## **4.1.3 Event Bus**
+
+### **Responsibilities**
+- Decoupled communication between modules.
+- Async pub/sub.
+
+### **Python‑Native Behavior**
+- Uses `asyncio.Queue` or custom event loop.
+- Handlers are async functions.
+
+### **Interfaces**
+```python
+class EventBus:
+    async def publish(self, event_type: str, payload: dict): ...
+    def subscribe(self, event_type: str, handler: Callable): ...
+```
+
+---
+
+# **4.2 Model Module (LLM Adapter)**
+
+### **Responsibilities**
+- Unified interface to all LLMs.
+- Support multiple backends:
+  - OpenAI
+  - Claude
+  - DeepSeek
+  - Local GGUF (via llama.cpp bindings)
+  - LM Studio
+  - Ollama
+
+### **Python‑Native Behavior**
+- Async model calls.
+- Automatic retries.
+- Token estimation via Python tokenizer libs.
+- Fallback chains defined in config.
+
+### **Interfaces**
+```python
+class ModelAdapter:
+    async def generate(self, request: ModelRequest) -> ModelResponse: ...
+    def estimate_tokens(self, text: str) -> int: ...
+    def select_model(self, task_metadata: dict) -> str: ...
+```
+
+### **Failure Isolation**
+- If a model fails:
+  - Try fallback chain
+  - Log error
+  - Notify Emergency Module
+
+---
+
+# **4.3 Tool Module (Tool Registry)**
+
+### **Responsibilities**
+- Register tools.
+- Execute tools safely.
+- Enforce sandboxing.
+- Provide discovery for skills and agents.
+
+### **Python‑Native Behavior**
+Tools are Python classes:
+
+```python
+class Tool:
+    id: str
+    description: str
+    input_schema: dict
+    output_schema: dict
+    permissions: dict
+    sandbox: dict
+
+    async def run(self, input: dict, context: ToolContext) -> dict:
+        ...
+```
+
+Tools can be:
+
+- builtin Python functions  
+- wrappers around CLI commands  
+- wrappers around HTTP APIs  
+- wrappers around Python scripts  
+
+### **Interfaces**
+```python
+class ToolRegistry:
+    def register_tool(self, tool: Tool): ...
+    def get_tool(self, tool_id: str) -> Tool | None: ...
+    async def execute_tool(self, tool_id: str, input: dict, context: ToolContext): ...
+```
+
+### **Failure Isolation**
+- Tool errors do not crash agents.
+- Errors are routed to Emergency Module.
+
+---
+
+# **4.4 Skill Module (Skill Registry)**
+
+### **Responsibilities**
+- Store and manage skills.
+- Search skills by:
+  - tags
+  - domain
+  - graph relationships
+  - metadata
+- Execute skills.
+
+### **Python‑Native Behavior**
+Skills are Python classes:
+
+```python
+class Skill:
+    id: str
+    description: str
+    prompt_template: str
+    required_tools: list[str]
+    required_models: list[str]
+
+    async def execute(self, input: dict, context: SkillContext) -> dict:
+        ...
+```
+
+### **Interfaces**
+```python
+class SkillRegistry:
+    def register_skill(self, skill: Skill): ...
+    def search_skills(self, query: SkillQuery) -> list[SkillMatch]: ...
+    async def execute_skill(self, skill_id: str, input: dict, context: SkillContext): ...
+```
+
+### **Failure Isolation**
+- Skill failures are contained to the agent.
+- Emergency Module can disable problematic skills.
+
+---
+
+# **4.5 Memory Module (Multi‑Layer + Graph)**
+
+### **Responsibilities**
+Provide six memory layers:
+
+1. Working memory  
+2. Short‑term memory  
+3. Long‑term memory  
+4. Semantic memory  
+5. Graph memory  
+6. Episodic memory  
+
+### **Python‑Native Behavior**
+- Working memory → dict  
+- Short‑term → SQLite or JSON  
+- Long‑term → Markdown/JSON  
+- Semantic → embeddings + SQLite  
+- Graph → networkx or custom Python graph backend  
+- Episodic → SQLite  
+
+### **Interfaces**
+```python
+class Memory:
+    def save_fact(self, scope: str, fact: dict): ...
+    def query_facts(self, query: dict) -> list[dict]: ...
+    async def embed_and_store(self, text: str, metadata: dict) -> str: ...
+    async def semantic_search(self, query: str, filters: dict) -> list[dict]: ...
+```
+
+Graph memory:
+
+```python
+class GraphMemory:
+    def add_node(self, node: GraphNode): ...
+    def add_edge(self, edge: GraphEdge): ...
+    def query(self, pattern: GraphQuery) -> list[GraphResult]: ...
+```
+
+### **Failure Isolation**
+- Memory corruption triggers Emergency diagnostics.
+- Graph backend can fall back to lightweight mode.
+
+---
+
+# **4.6 State Machine Module**
+
+### **Responsibilities**
+- Define agent loop:
+  - PLAN → ACT → REFLECT
+- Enforce budgets:
+  - steps
+  - tokens
+  - duration
+  - tool calls
+  - subtasks
+- Handle errors.
+
+### **Python‑Native Behavior**
+Async agent loop:
+
+```python
+async def run_agent(self, agent):
+    while not agent.done:
+        action = await self.plan(agent)
+        result = await self.act(agent, action)
+        await self.reflect(agent, result)
+```
+
+### **Interfaces**
+```python
+class StateMachine:
+    async def run_task(self, task: TaskDefinition, context) -> TaskResult: ...
+    async def next_step(self, state: AgentState) -> AgentAction: ...
+```
+
+### **Failure Isolation**
+- If agent exceeds budget:
+  - terminate agent
+  - notify orchestrator
+
+---
+
+# **4.7 Orchestrator Module**
+
+### **Responsibilities**
+- Spawn agents.
+- Assign skills and tools.
+- Coordinate multi‑agent workflows.
+- Manage task lifecycle.
+
+### **Python‑Native Behavior**
+Agents are Python objects:
+
+```python
+class Agent:
+    id: str
+    role: str
+    skills: list[str]
+    tools: list[str]
+    memory_scope: dict
+    model_profile: dict
+    budget: dict
+```
+
+### **Interfaces**
+```python
+class Orchestrator:
+    async def spawn_agent(self, config: AgentConfig) -> Agent: ...
+    async def assign_task(self, agent: Agent, task: Task) -> TaskHandle: ...
+    def get_agent_state(self, agent_id: str) -> AgentState: ...
+    async def collect_results(self, handle: TaskHandle) -> TaskResult: ...
+```
+
+### **Failure Isolation**
+- If an agent fails:
+  - Orchestrator escalates to Emergency Module
+
+---
+
+********************************************************
+
+This section covers the remaining core modules:
+
+- Execution Module  
+- Emergency Module  
+- Scheduler  
+- API Layer  
+- UI Layer  
+
+After this, **Part 4** will cover Cross‑Module Flows, Data Models, and the full UI spec.
+
+Just say **continue** when you’re ready for the next part.
+
+---
+
+# **4.8 Execution Module (Python Execution Layer)**
+
+The Execution Module is responsible for safely running:
+
+- Python code  
+- Node.js code  
+- Shell commands  
+- Browser automation (optional)  
+- Any external process  
+
+It is the “hands” of the harness — the part that actually performs actions in the real world.
+
+---
+
+## **4.8.1 Responsibilities**
+
+- Provide a unified interface for executing code and commands.
+- Enforce sandboxing and resource limits.
+- Capture stdout, stderr, exit codes, and exceptions.
+- Support async execution.
+- Integrate with the Tool Module (tools call into this module).
+- Provide safe wrappers around:
+  - Python execution  
+  - Node execution  
+  - Shell commands  
+  - Browser automation (Playwright/Lightpanda)  
+
+---
+
+## **4.8.2 Python‑Native Behavior**
+
+### **Python Execution**
+Uses:
+- `asyncio.create_subprocess_exec`
+- or direct `exec()` inside a sandboxed namespace
+
+### **Shell Execution**
+Uses:
+- `asyncio.create_subprocess_shell`
+
+### **Node Execution**
+Uses:
+- `node` binary via subprocess
+
+### **Browser Automation**
+Optional tools wrap:
+- Playwright Python bindings  
+- Lightpanda browser  
+
+---
+
+## **4.8.3 Interfaces**
+
+```python
+class ExecutionModule:
+    async def run_code(self, language: str, code: str, context) -> ExecutionResult: ...
+    async def run_command(self, command: str, args: list[str], context) -> ExecutionResult: ...
+    async def run_python(self, code: str, context) -> ExecutionResult: ...
+    async def run_node(self, code: str, context) -> ExecutionResult: ...
+```
+
+---
+
+## **4.8.4 Failure Isolation**
+
+- Timeouts enforced via `asyncio.wait_for`
+- Memory limits enforced via subprocess flags
+- Crashes do not propagate to agents
+- Errors routed to Emergency Module
+
+---
+
+# **4.9 Emergency Module (Diagnostics + Self‑Healing)**
+
+The Emergency Module is the harness’s **fire department**.
+
+It detects failures, diagnoses them, and proposes fixes.
+
+---
+
+## **4.9.1 Responsibilities**
+
+- Detect failures from:
+  - Event Bus  
+  - Scheduler heartbeats  
+  - Tool errors  
+  - Agent crashes  
+  - Module exceptions  
+- Spawn diagnostic agents
+- Aggregate diagnoses
+- Propose fixes
+- Optionally auto‑repair (user‑approved)
+
+---
+
+## **4.9.2 Python‑Native Behavior**
+
+- Diagnostic agents are spawned via the Orchestrator.
+- Each diagnostic agent receives:
+  - logs  
+  - memory context  
+  - graph nodes  
+  - failure event  
+- Agents produce:
+  - hypothesis  
+  - probable cause  
+  - confidence  
+  - suggested fixes  
+
+---
+
+## **4.9.3 Interfaces**
+
+```python
+class EmergencyModule:
+    async def on_failure(self, event: FailureEvent): ...
+    async def run_diagnostics(self, event: FailureEvent) -> list[Diagnosis]: ...
+    def propose_fixes(self, diagnoses: list[Diagnosis]) -> FixPlan: ...
+    async def apply_fix(self, fix_plan: FixPlan): ...
+```
+
+---
+
+## **4.9.4 Failure Isolation**
+
+- Emergency Module is the last line of defense.
+- If Emergency Module fails:
+  - Log critical error
+  - System enters “safe mode”
+  - Only minimal chat agent remains active
+
+---
+
+# **4.10 Scheduler Module (Cron + Heartbeats)**
+
+The Scheduler is responsible for:
+
+- recurring jobs  
+- timed tasks  
+- heartbeats  
+- maintenance tasks  
+
+---
+
+## **4.10.1 Responsibilities**
+
+- Run cron‑like jobs:
+  - “every 10 minutes”
+  - “every day at 3am”
+- Send heartbeats to:
+  - modules  
+  - agents  
+  - tools  
+- Trigger Emergency Module if heartbeats fail
+- Run background tasks (if autonomy enabled)
+
+---
+
+## **4.10.2 Python‑Native Behavior**
+
+Uses:
+
+- `asyncio` loops  
+- or `APScheduler` for cron syntax  
+
+---
+
+## **4.10.3 Interfaces**
+
+```python
+class Scheduler:
+    def register_job(self, job: ScheduledJob): ...
+    def remove_job(self, job_id: str): ...
+    async def on_tick(self): ...
+```
+
+---
+
+## **4.10.4 Failure Isolation**
+
+- If a job fails:
+  - Log error
+  - Notify Emergency Module
+- If Scheduler fails:
+  - System continues without scheduled tasks
+
+---
+
+# **4.11 API Layer (FastAPI + WebSockets)**
+
+The API Layer exposes the harness to:
+
+- the UI  
+- external clients  
+- automation scripts  
+
+---
+
+## **4.11.1 Responsibilities**
+
+- Provide REST endpoints for:
+  - chat  
+  - tasks  
+  - agents  
+  - skills  
+  - tools  
+  - memory  
+  - config  
+  - scheduler  
+  - system status  
+- Provide WebSocket endpoints for:
+  - live logs  
+  - agent updates  
+  - module health  
+  - UI events  
+
+---
+
+## **4.11.2 Python‑Native Behavior**
+
+Uses:
+
+- **FastAPI** for REST  
+- **WebSockets** for real‑time updates  
+- **Pydantic** for request/response models  
+
+---
+
+## **4.11.3 Interfaces (Conceptual)**
+
+```
+POST /chat
+GET  /tasks
+POST /tasks
+GET  /agents
+GET  /skills
+POST /skills/install
+GET  /tools
+POST /tools/install
+GET  /memory
+POST /config
+GET  /scheduler
+POST /scheduler/jobs
+GET  /status
+WS   /events
+```
+
+---
+
+# **4.12 UI Layer (Web App)**
+
+The UI is a modern web application with:
+
+- left navigation pane  
+- center chat pane  
+- right agent/system pane  
+- animated background visualization  
+- markets  
+- settings  
+- logs  
+- memory viewer  
+
+---
+
+## **4.12.1 Responsibilities**
+
+- Provide a clean, intuitive interface for:
+  - chatting  
+  - viewing agents  
+  - inspecting memory  
+  - managing tools/skills  
+  - configuring models  
+  - viewing logs  
+  - monitoring system health  
+- Display real‑time updates via WebSockets
+- Render animated module visualization in background
+
+---
+
+## **4.12.2 Python‑Native Behavior**
+
+Backend: FastAPI  
+Frontend: React/Vue/Svelte (your choice)  
+Communication: WebSockets  
+
+---
+
+## **4.12.3 UI Structure**
+
+```
+┌───────────────┬──────────────────────────────────────────────┬───────────────┐
+│   Left Pane    │                Center Pane                   │   Right Pane   │
+│ (Navigation)   │ (Chat + Background Visualization + Overlays) │ (Agents/Tools) │
+└───────────────┴──────────────────────────────────────────────┴───────────────┘
+```
+
+---
+
+## **4.12.4 Failure Isolation**
+
+- If UI fails:
+  - Backend continues running
+  - User can reconnect
+- If WebSocket fails:
+  - UI falls back to polling
+
+---
+
+********************************************************
+
+
+This section covers:
+
+- **Cross‑Module Flows**  
+- **Data Models**  
+- **Full UI Specification**  
+- **Phased Implementation Plan**  
+
+After this, we’ll move into the **Appendices** in Part 5.
+
+Just say **continue** when you’re ready for the next part.
+
+---
+
+# **5. Cross‑Module Flows**
+
+This section explains how the modules interact during real operations.  
+These flows are essential for Copilot to scaffold correct integrations.
+
+---
+
+# **5.1 Flow: User Sends a Chat Message**
+
+```
+User → UI → API → Orchestrator → Agent → State Machine
+                                   ↓
+                              Skill Module
+                                   ↓
+                              Tool Module
+                                   ↓
+                              Execution Module
+                                   ↓
+                                Memory
+                                   ↓
+                             UI (response)
+```
+
+### **Step‑by‑step**
+
+1. **User types a message** in the UI.  
+2. UI sends it to **FastAPI** (`POST /chat`).  
+3. API forwards it to the **Orchestrator**.  
+4. Orchestrator:
+   - selects or spawns an agent  
+   - loads skills/tools  
+   - builds an `AgentConfig`  
+5. Agent enters the **State Machine** loop:
+   - PLAN → ACT → REFLECT  
+6. Skills may be invoked.  
+7. Skills may call tools.  
+8. Tools may call the Execution Module.  
+9. Memory is updated:
+   - working  
+   - short‑term  
+   - episodic  
+   - graph  
+10. Final response is returned to the UI.  
+11. UI displays the message and updates the visualization.
+
+---
+
+# **5.2 Flow: Tool Execution**
+
+```
+Skill → Tool Module → Execution Module → Tool Module → Skill → Agent
+```
+
+### **Step‑by‑step**
+
+1. Skill calls `execute_tool()`.  
+2. Tool Module:
+   - validates input schema  
+   - checks permissions  
+   - applies sandbox rules  
+3. Execution Module runs:
+   - Python code  
+   - Node code  
+   - shell commands  
+   - browser automation  
+4. Output is returned to the Skill.  
+5. Skill returns result to Agent.  
+6. Agent continues loop.
+
+---
+
+# **5.3 Flow: Emergency Detection**
+
+```
+Event Bus → Emergency Module → Diagnostic Agents → Fix Plan → User Approval → Apply Fix
+```
+
+### **Step‑by‑step**
+
+1. A failure event is published:
+   - tool crash  
+   - agent crash  
+   - heartbeat failure  
+   - module exception  
+2. Emergency Module receives event.  
+3. It spawns diagnostic agents.  
+4. Each agent:
+   - reads logs  
+   - queries memory  
+   - inspects graph  
+   - produces diagnosis  
+5. Emergency Module aggregates results.  
+6. Proposes a fix plan.  
+7. User approves fix.  
+8. Fix is applied.
+
+---
+
+# **5.4 Flow: Scheduled Job**
+
+```
+Scheduler → Orchestrator → Agent → Tools/Skills → Memory → Logs
+```
+
+### **Step‑by‑step**
+
+1. Scheduler triggers a job.  
+2. Orchestrator spawns an agent.  
+3. Agent executes task.  
+4. Tools/skills run as needed.  
+5. Memory/logs updated.  
+6. Results stored or sent to UI.
+
+---
+
+# **6. Data Models (Python Edition)**
+
+These models define the core data structures used across the harness.
+
+---
+
+# **6.1 AgentConfig**
+
+```python
+@dataclass
+class AgentConfig:
+    role: str
+    skills: list[str]
+    tools: list[str]
+    model_profile: dict
+    memory_scope: dict
+    budget: dict
+```
+
+---
+
+# **6.2 Task**
+
+```python
+@dataclass
+class Task:
+    id: str
+    description: str
+    input: dict
+    created_at: datetime
+```
+
+---
+
+# **6.3 SkillDefinition**
+
+```python
+@dataclass
+class SkillDefinition:
+    id: str
+    description: str
+    prompt_template: str
+    required_tools: list[str]
+    required_models: list[str]
+    input_schema: dict
+    output_schema: dict
+```
+
+---
+
+# **6.4 ToolDefinition**
+
+```python
+@dataclass
+class ToolDefinition:
+    id: str
+    description: str
+    input_schema: dict
+    output_schema: dict
+    permissions: dict
+    sandbox: dict
+```
+
+---
+
+# **6.5 Memory Models**
+
+### **Working Memory**
+```python
+dict[str, Any]
+```
+
+### **Short‑Term Memory**
+```python
+@dataclass
+class ShortTermEntry:
+    key: str
+    value: Any
+    timestamp: datetime
+```
+
+### **Long‑Term Memory**
+Markdown/JSON files.
+
+### **Semantic Memory**
+```python
+@dataclass
+class SemanticEntry:
+    id: str
+    embedding: list[float]
+    metadata: dict
+```
+
+### **Graph Memory**
+```python
+@dataclass
+class GraphNode:
+    id: str
+    type: str
+    properties: dict
+
+@dataclass
+class GraphEdge:
+    source: str
+    target: str
+    type: str
+    properties: dict
+```
+
+### **Episodic Memory**
+```python
+@dataclass
+class Episode:
+    id: str
+    task_id: str
+    agent_id: str
+    event: str
+    timestamp: datetime
+```
+
+---
+
+# **7. Full UI Specification**
+
+This is the complete UI spec based on your preferences.
+
+---
+
+# **7.1 UI Layout**
+
+```
+┌───────────────┬──────────────────────────────────────────────┬───────────────┐
+│   Left Pane    │                Center Pane                   │   Right Pane   │
+│ (Navigation)   │ (Chat + Background Visualization + Overlays) │ (Agents/Tools) │
+└───────────────┴──────────────────────────────────────────────┴───────────────┘
+```
+
+---
+
+# **7.2 Left Pane (Navigation)**
+
+### **Structure**
+- **Chat**
+  - New Chat
+  - Chat History (one‑line entries)
+- **Tasks**
+- **Scheduler**
+- **Files**
+- **Skills**
+- **Tools**
+- **Memory**
+- **Logs**
+- **Settings**
+
+### **Behavior**
+- Fully hideable  
+- Resizable  
+- Chat history loads full chat on click  
+
+---
+
+# **7.3 Center Pane (Chat + Visualization)**
+
+### **Chat Features**
+- Drag‑and‑drop files  
+- Drag‑and‑drop screenshots (OCR auto‑runs)  
+- Audio messages (if tools installed)  
+- Image previews  
+- Code blocks  
+- Agent‑to‑agent messages collapsed by default  
+- Status hints (“thinking”, “researching”, etc.)  
+
+### **Background Visualization**
+- Animated module map  
+- Active modules glow  
+- Dormant modules dim  
+- Toggleable full overlay  
+
+---
+
+# **7.4 Right Pane (Agent/System Status)**
+
+### **Tabbed Interface**
+- Agent  
+- Skills  
+- Tools  
+- Memory  
+- Logs  
+- Health  
+
+### **Agent Tab**
+- Active agent  
+- Agent tree  
+- Config  
+- Live activity  
+
+### **Memory Tab**
+- Working memory  
+- Short‑term  
+- Long‑term  
+- Semantic  
+- Graph  
+- Episodic  
+
+### **Logs Tab**
+- Structured logs  
+- Filters  
+- Real‑time updates  
+
+### **Health Tab**
+- LLM status  
+- Graph backend  
+- Vector store  
+- Tool/Skill Market  
+- Local runners  
+
+---
+
+# **7.5 Markets**
+
+### **Tool Market**
+- Install/uninstall/update  
+- Dependency graph  
+- Trusted publisher badges  
+
+### **Skill Market**
+- Install/uninstall/update  
+- Required tools shown  
+
+---
+
+# **7.6 Settings**
+
+### **Model Configuration**
+- Global model  
+- Per‑agent model  
+- Temperature  
+- Max tokens  
+- Fallback chain  
+
+### **Toggles**
+- Autonomy mode  
+- Scheduler  
+- Emergency auto‑repair  
+- Tool permissions  
+- Skill permissions  
+
+---
+
+# **8. Phased Implementation Plan**
+
+This plan ensures the harness can be built incrementally.
+
+---
+
+# **Phase 1 — Core + Single‑Agent MVP**
+
+Implement:
+
+- Runtime (Module Loader, Config Manager, Event Bus)  
+- Model Module (one backend)  
+- Tool Module (basic registry)  
+- Memory (working + short‑term + long‑term + simple semantic)  
+- State Machine (reactive only)  
+- Logging module  
+- Minimal UI (single chat)  
+
+---
+
+# **Phase 2 — Skills + Orchestrator + Graph**
+
+Implement:
+
+- Skill Module  
+- Orchestrator  
+- Graph Memory  
+- Basic skill search  
+- Emergency Module (logging‑only diagnostics)  
+
+---
+
+# **Phase 3 — Emergency System + Scheduler**
+
+Implement:
+
+- Full Emergency Module  
+- Scheduler (cron + heartbeats)  
+
+---
+
+# **Phase 4 — Advanced Memory + Markets**
+
+Implement:
+
+- Graphify ingestion  
+- Optional Neo4j backend  
+- Skill Market  
+- Tool Market  
+
+---
+
+# **Phase 5 — Full UI**
+
+Implement:
+
+- Left/center/right pane layout  
+- Module visualization  
+- Agent tree  
+- Config panels  
+- Health indicators  
+
+---
+
+*********************************************************
+
+This section contains the **Appendices**, which are the deep‑dive technical documents for each major subsystem.
+
+
+---
+
+# **9. Appendices (Deep Dives)**  
+*Detailed specifications for each major subsystem.*
+
+---
+
+# **Appendix A — Orchestrator Deep Dive**
+
+The Orchestrator is the “brain” of the harness.  
+It decides:
+
+- which agent to spawn  
+- which skills to use  
+- which tools to allow  
+- how to allocate memory  
+- how to enforce budgets  
+- how to coordinate multi‑agent workflows  
+
+This appendix defines its internal architecture.
+
+---
+
+## **A.1 Responsibilities**
+
+1. Interpret tasks  
+2. Select or spawn agents  
+3. Assign skills and tools  
+4. Manage agent lifecycles  
+5. Coordinate subtasks  
+6. Enforce budgets  
+7. Communicate with the State Machine  
+8. Integrate with Memory, Tools, Skills, and Emergency modules  
+
+---
+
+## **A.2 Python Architecture**
+
+```
+orchestrator/
+    __init__.py
+    orchestrator.py
+    agent_factory.py
+    task_manager.py
+    planner.py
+```
+
+---
+
+## **A.3 Agent Creation Flow**
+
+```
+Task → Orchestrator → AgentFactory → AgentConfig → Agent
+```
+
+### **Step‑by‑step**
+
+1. Orchestrator receives a task.  
+2. It queries the Skill Registry for relevant skills.  
+3. It queries the Tool Registry for required tools.  
+4. It builds an `AgentConfig`.  
+5. It calls `AgentFactory.create_agent(config)`.  
+6. Agent is returned and passed to the State Machine.
+
+---
+
+## **A.4 AgentConfig Construction**
+
+```python
+config = AgentConfig(
+    role="Researcher",
+    skills=["web_search", "summarize"],
+    tools=["http_fetch", "browser_automation"],
+    model_profile={"model": "deepseek-chat", "temperature": 0.2},
+    memory_scope={"working": True, "short_term": True, "long_term": False},
+    budget={"steps": 20, "tokens": 8000, "tool_calls": 10}
+)
+```
+
+---
+
+## **A.5 Multi‑Agent Coordination**
+
+Agents can spawn subtasks:
+
+```
+Parent Agent → Orchestrator → Child Agent
+```
+
+The Orchestrator:
+
+- creates child agents  
+- tracks dependencies  
+- merges results  
+- updates graph memory  
+
+---
+
+## **A.6 Failure Handling**
+
+If an agent fails:
+
+- Orchestrator logs the failure  
+- Publishes `AGENT_CRASHED` event  
+- Emergency Module takes over  
+
+---
+
+# **Appendix B — Agent Lifecycle Deep Dive**
+
+This appendix defines the internal loop of every agent.
+
+---
+
+## **B.1 Lifecycle Overview**
+
+```
+SPAWN → INITIALIZE → PLAN → ACT → REFLECT → LOOP/END
+```
+
+---
+
+## **B.2 Python Implementation Sketch**
+
+```python
+class AgentRunner:
+    async def run(self, agent):
+        await self.initialize(agent)
+        while not agent.done:
+            action = await self.plan(agent)
+            result = await self.act(agent, action)
+            await self.reflect(agent, result)
+```
+
+---
+
+## **B.3 PLAN Phase**
+
+Agent decides what to do next:
+
+- call a skill  
+- call a tool  
+- ask the model  
+- spawn a subtask  
+- query memory  
+- return final answer  
+
+Uses:
+
+- model adapter  
+- skill registry  
+- memory  
+
+---
+
+## **B.4 ACT Phase**
+
+Executes the chosen action:
+
+- skill execution  
+- tool execution  
+- model generation  
+- subtask creation  
+
+---
+
+## **B.5 REFLECT Phase**
+
+Agent:
+
+- evaluates results  
+- updates memory  
+- logs reasoning  
+- decides next step  
+
+Reflection is stored in:
+
+- episodic memory  
+- graph memory  
+- short‑term memory  
+
+---
+
+## **B.6 Termination Conditions**
+
+Agent stops when:
+
+- result is produced  
+- budget exceeded  
+- error escalated  
+- emergency intervention  
+- user cancels task  
+
+---
+
+# **Appendix C — Memory & Graph Deep Dive**
+
+This appendix defines the full memory architecture.
+
+---
+
+# **C.1 Memory Layers**
+
+1. **Working Memory**  
+2. **Short‑Term Memory**  
+3. **Long‑Term Memory**  
+4. **Semantic Memory**  
+5. **Graph Memory**  
+6. **Episodic Memory**
+
+---
+
+## **C.2 Python Architecture**
+
+```
+memory/
+    working.py
+    short_term.py
+    long_term.py
+    semantic.py
+    graph.py
+    episodic.py
+    memory_manager.py
+```
+
+---
+
+## **C.3 Working Memory**
+
+- Per‑agent  
+- In‑memory dict  
+- Cleared after task  
+
+```python
+agent.working_memory["current_goal"] = "summarize document"
+```
+
+---
+
+## **C.4 Short‑Term Memory**
+
+- Per‑session  
+- Stored in SQLite or JSON  
+- Used for multi‑turn context  
+
+---
+
+## **C.5 Long‑Term Memory**
+
+- Facts  
+- Preferences  
+- Project knowledge  
+- Stored as Markdown/JSON  
+
+---
+
+## **C.6 Semantic Memory**
+
+- Embeddings stored in SQLite  
+- Vector search for retrieval  
+
+```python
+results = await semantic.search("how to deploy docker")
+```
+
+---
+
+## **C.7 Graph Memory**
+
+Graph nodes represent:
+
+- skills  
+- tools  
+- modules  
+- agents  
+- tasks  
+- errors  
+- fixes  
+- preferences  
+
+Edges represent:
+
+- uses  
+- depends_on  
+- caused_by  
+- fixed_by  
+- belongs_to  
+
+Python backend:
+
+- `networkx`  
+- or custom adjacency lists  
+
+---
+
+## **C.8 Graphify Integration**
+
+Text → Graphify → entities/relations → graph memory
+
+Graphify is wrapped in a Python tool.
+
+---
+
+## **C.9 Episodic Memory**
+
+Stores:
+
+- task history  
+- agent actions  
+- tool calls  
+- errors  
+- reflections  
+
+---
+
+# **Appendix D — Tool Module Deep Dive**
+
+Tools are the “hands” of the harness.
+
+---
+
+## **D.1 Tool Definition**
+
+```python
+class Tool:
+    id: str
+    description: str
+    input_schema: dict
+    output_schema: dict
+    permissions: dict
+    sandbox: dict
+
+    async def run(self, input: dict, context: ToolContext) -> dict:
+        ...
+```
+
+---
+
+## **D.2 Tool Types**
+
+- Python tools  
+- CLI tools  
+- HTTP tools  
+- Browser automation tools  
+- Node tools  
+
+---
+
+## **D.3 Sandbox Rules**
+
+- filesystem access  
+- network access  
+- max runtime  
+- max output size  
+
+---
+
+## **D.4 Tool Execution Flow**
+
+```
+Skill → ToolRegistry → Tool → ExecutionModule → ToolRegistry → Skill
+```
+
+---
+
+# **Appendix E — Emergency Module Deep Dive**
+
+The Emergency Module is the system’s self‑healing engine.
+
+---
+
+## **E.1 Failure Sources**
+
+- tool crash  
+- agent crash  
+- module exception  
+- heartbeat failure  
+- memory corruption  
+
+---
+
+## **E.2 Diagnostic Agents**
+
+Each diagnostic agent specializes in:
+
+- error analysis  
+- system architecture  
+- tool behavior  
+- memory integrity  
+- graph patterns  
+
+---
+
+## **E.3 Fix Plan**
+
+Fixes may include:
+
+- restart module  
+- rebuild index  
+- disable skill  
+- disable tool  
+- clear memory scope  
+- patch config  
+
+---
+
+## **E.4 Safe Mode**
+
+If Emergency Module fails:
+
+- system enters safe mode  
+- only minimal chat agent remains active  
+
+---
+
+# **Appendix F — UI Deep Dive**
+
+This appendix defines the UI in detail.
+
+---
+
+## **F.1 Left Pane**
+
+- Chat  
+- Tasks  
+- Scheduler  
+- Files  
+- Skills  
+- Tools  
+- Memory  
+- Logs  
+- Settings  
+
+---
+
+## **F.2 Center Pane**
+
+- Chat  
+- Background visualization  
+- Module overlay  
+- Agent overlay  
+- File previews  
+- Code previews  
+
+---
+
+## **F.3 Right Pane**
+
+- Agent  
+- Skills  
+- Tools  
+- Memory  
+- Logs  
+- Health  
+
+---
+
+## **F.4 Background Visualization**
+
+Animated module map:
+
+- active modules glow  
+- dormant modules dim  
+- data flow lines animate  
+- toggleable full‑screen overlay  
+
+---
+
+## **F.5 Markets**
+
+- Tool Market  
+- Skill Market  
+- Dependency graphs  
+- Trusted publisher badges  
+
+---
+
+*************************************************************
+
+**Integration Notes** that assume:
+
+- The harness is **open**, like OpenClaw  
+- Anyone can run it locally  
+- Anyone can extend it  
+- Anyone can port it to Pinokio, Docker, or anything else *if they want*  
+- But **we don’t depend on Pinokio** or any specific environment  
+
+This section will explain how the harness integrates with:
+
+- Python environments  
+- Local LLM runners  
+- Browser automation  
+- CLI tools  
+- HTTP APIs  
+- Embedding providers  
+- Vector stores  
+- Graph backends  
+- UI frameworks  
+- OS‑level capabilities  
+
+All without locking users into a specific ecosystem.
+
+Here is **Part 6 — Integration Notes (Python Edition)**.
+
+---
+
+# **Part 6 — Integration Notes (Python Edition)**  
+*How the harness integrates with real‑world systems, tools, and environments.*
+
+The Universal Harness is designed to be:
+
+- **portable**  
+- **environment‑agnostic**  
+- **local‑first**  
+- **easy to install**  
+- **easy to extend**  
+- **easy to embed**  
+
+This section explains how the harness integrates with common components without depending on any specific platform (like Pinokio).
+
+---
+
+# **6.1 Python Environment Integration**
+
+The harness runs in **any Python 3.10+ environment**:
+
+- Windows  
+- macOS  
+- Linux  
+- WSL  
+- Virtualenv  
+- Conda  
+- System Python  
+
+### **Key design choices**
+
+- No global installs required  
+- No system‑level dependencies required  
+- Everything lives inside the harness folder  
+- Tools and skills are Python modules  
+- Execution Module uses subprocesses for isolation  
+
+### **Recommended structure**
+
+```
+harness/
+    venv/
+    modules/
+    tools/
+    skills/
+    memory/
+    ui/
+    api/
+    orchestrator/
+    emergency/
+    scheduler/
+```
+
+Users can clone the repo and run:
+
+```
+python -m harness
+```
+
+No special environment needed.
+
+---
+
+# **6.2 Local LLM Integration**
+
+The harness supports **multiple local LLM runners**, including:
+
+- LM Studio  
+- Ollama  
+- llama.cpp Python bindings  
+- GPT4All  
+- Custom GGUF runners  
+
+### **How integration works**
+
+The Model Module uses **adapters**:
+
+```python
+class ModelBackend:
+    async def generate(self, request): ...
+```
+
+Each backend is a plugin:
+
+```
+models/
+    openai_backend.py
+    deepseek_backend.py
+    lmstudio_backend.py
+    ollama_backend.py
+    gguf_backend.py
+```
+
+Users can enable/disable backends in config.
+
+### **Why this matters**
+
+- No vendor lock‑in  
+- No cloud requirement  
+- Users choose their own models  
+- Offline‑first workflows  
+
+---
+
+# **6.3 Browser Automation Integration**
+
+The harness supports browser automation via **optional tools**:
+
+- Playwright (Python)  
+- Lightpanda (Python wrapper)  
+- Selenium (optional)  
+
+### **How integration works**
+
+Browser automation is a **Tool**, not a core module.
+
+Example:
+
+```python
+class PlaywrightTool(Tool):
+    async def run(self, input, context):
+        from playwright.async_api import async_playwright
+        ...
+```
+
+### **Why this matters**
+
+- Browser automation is optional  
+- Users can install it only if needed  
+- No forced dependencies  
+- Works on any OS  
+
+---
+
+# **6.4 CLI Tool Integration**
+
+The harness integrates with CLI tools through the Execution Module:
+
+- ffmpeg  
+- git  
+- curl  
+- yt‑dlp  
+- imagemagick  
+- custom scripts  
+
+### **How integration works**
+
+Tools wrap CLI commands:
+
+```python
+class FFmpegTool(Tool):
+    async def run(self, input, context):
+        return await execution.run_command("ffmpeg", input["args"])
+```
+
+### **Sandboxing**
+
+- max runtime  
+- max output size  
+- restricted working directory  
+
+---
+
+# **6.5 HTTP API Integration**
+
+The harness integrates with any HTTP API via:
+
+- Tool Module  
+- Skill Module  
+- Model Module  
+
+### **HTTP Tool Example**
+
+```python
+class HttpFetchTool(Tool):
+    async def run(self, input, context):
+        async with aiohttp.ClientSession() as session:
+            async with session.get(input["url"]) as resp:
+                return await resp.text()
+```
+
+### **Why this matters**
+
+- Skills can call APIs  
+- Agents can fetch data  
+- Tools can wrap entire API clients  
+
+---
+
+# **6.6 Embedding Providers**
+
+Semantic Memory supports:
+
+- local embedding models  
+- cloud embedding APIs  
+- sentence‑transformers  
+- llama.cpp embeddings  
+- HuggingFace embeddings  
+
+### **Integration pattern**
+
+```python
+class EmbeddingBackend:
+    async def embed(self, text: str) -> list[float]: ...
+```
+
+Backends are plugins.
+
+---
+
+# **6.7 Vector Store Integration**
+
+Semantic Memory uses:
+
+- SQLite (default)  
+- Chroma (optional)  
+- FAISS (optional)  
+- LanceDB (optional)  
+
+### **Why SQLite by default?**
+
+- Zero dependencies  
+- Works everywhere  
+- Fast enough for local use  
+- Easy to ship  
+
+---
+
+# **6.8 Graph Backend Integration**
+
+Graph Memory supports:
+
+- networkx (default)  
+- custom adjacency lists  
+- Neo4j (optional)  
+- Memgraph (optional)  
+
+### **Integration pattern**
+
+```python
+class GraphBackend:
+    def add_node(self, node): ...
+    def add_edge(self, edge): ...
+    def query(self, pattern): ...
+```
+
+Backends are swappable.
+
+---
+
+# **6.9 UI Integration**
+
+The UI is a **web app**, not tied to any platform.
+
+Backend: FastAPI  
+Frontend: React/Vue/Svelte  
+Transport: WebSockets  
+
+### **Why this matters**
+
+- Works on localhost  
+- Works on servers  
+- Works in containers  
+- Works in VS Code dev servers  
+- Works in GitHub Codespaces  
+
+No dependency on:
+
+- Pinokio  
+- Electron  
+- Docker  
+- Proprietary runtimes  
+
+Users can port it anywhere.
+
+---
+
+# **6.10 OS‑Level Integration**
+
+The harness interacts with the OS through:
+
+- subprocess  
+- Python stdlib  
+- optional tools  
+
+### **Supported OS features**
+
+- file system  
+- environment variables  
+- networking  
+- process execution  
+- scheduling (via Python)  
+
+### **Not required**
+
+- admin privileges  
+- system‑level installs  
+- kernel modules  
+- virtualization  
+
+---
+
+# **6.11 Distribution & Installation**
+
+The harness can be distributed as:
+
+- a GitHub repo  
+- a pip package  
+- a zip file  
+- a Python wheel  
+- a standalone folder  
+
+### **Installation command**
+
+```
+pip install -r requirements.txt
+python -m harness
+```
+
+### **Optional extras**
+
+```
+pip install harness[playwright]
+pip install harness[neo4j]
+pip install harness[faiss]
+```
+
+---
+
+# **6.12 Extensibility Model**
+
+Users can add:
+
+- tools  
+- skills  
+- models  
+- memory backends  
+- graph backends  
+- UI panels  
+- agent templates  
+
+All via:
+
+```
+tools/
+skills/
+models/
+memory/
+ui/
+```
+
+No special build system required.
+
+---
+
+# **6.13 Why This Matters**
+
+This integration strategy ensures:
+
+- **everyone can run the harness**  
+- **everyone can extend it**  
+- **no one is locked into a platform**  
+- **no one needs Pinokio, Docker, or cloud services**  
+- **the harness remains portable and open**  
+
+It becomes a **universal agent runtime**, not tied to any ecosystem.
+
+---

@@ -1,0 +1,427 @@
+**Planning memory/graph spec**
+
+### Universal Memory & Graph Module Specification v1.0  
+*(Graphify + MemPalace–aware, ready for Copilot to scaffold from)*  
+
+---
+
+## 1. Goals
+
+The Memory & Graph module must:
+
+- Support **agent self‑improvement** via persistent knowledge.
+- Eliminate common pain points: forgetting, opacity, contamination, context loss.
+- Provide a **unified API** over:
+  - Working, short‑term, long‑term, semantic, graph, and episodic memory.
+- Use **Graphify** as the graph ingestion layer:
+  - `https://github.com/safishamsi/graphify`
+- Be compatible with **MemPalace‑style strategies**:
+  - `https://github.com/milla-jovovich/mempalace`
+- Offer:
+  - A **built‑in lightweight graph backend** (default).
+  - Optional **Neo4j** backend for large graphs.
+
+---
+
+## 2. Memory layers
+
+```ts
+type MemoryLayer =
+  | 'working'
+  | 'shortTerm'
+  | 'longTerm'
+  | 'semantic'
+  | 'graph'
+  | 'episodic'
+```
+
+### 2.1 Working memory (volatile)
+
+- **Scope:** per agent, per task.
+- **Usage:** scratchpad, chain‑of‑thought, temporary variables.
+- **Storage:** in‑memory only, not persisted.
+
+API (conceptual):
+
+```ts
+setWorkingMemory(agentId: string, key: string, value: any): void
+getWorkingMemory(agentId: string, key: string): any
+clearWorkingMemory(agentId: string): void
+```
+
+---
+
+### 2.2 Short‑term memory (session)
+
+- **Scope:** per session / per task.
+- **Usage:** notes, intermediate results, local context.
+- **Storage:** lightweight DB or JSON files.
+
+API:
+
+```ts
+appendShortTerm(agentId: string, entry: ShortTermEntry): void
+getShortTerm(agentId: string): ShortTermEntry[]
+```
+
+---
+
+### 2.3 Long‑term memory (persistent)
+
+- **Scope:** user, project, global.
+- **Usage:** facts, preferences, project knowledge.
+- **Storage:** Markdown/JSON + index.
+
+API:
+
+```ts
+saveFact(scope: 'user' | 'project' | 'global', fact: Fact): void
+queryFacts(query: FactQuery): Fact[]
+```
+
+---
+
+### 2.4 Semantic memory (vector search)
+
+- **Scope:** global or per project.
+- **Usage:** RAG, similarity search.
+- **Backend:** SQLite FTS / Chroma‑lite / similar.
+
+API:
+
+```ts
+embedAndStore(text: string, metadata: Record<string, any>): string // returns id
+semanticSearch(query: string, filters?: Record<string, any>): SemanticHit[]
+```
+
+---
+
+### 2.5 Graph memory (structured knowledge)
+
+- **Scope:** global or per project.
+- **Usage:** entities, relationships, dependencies, error/fix links, skill/tool/module graph.
+- **Backends:**
+  - Default: in‑process lightweight graph (e.g., adjacency lists).
+  - Optional: Neo4j.
+
+- **Graphify integration:**  
+  `https://github.com/safishamsi/graphify`  
+  Used as **ingestion layer** to extract nodes/edges from text.
+
+API:
+
+```ts
+type GraphNode = {
+  id: string
+  type: string          // 'skill' | 'tool' | 'module' | 'agent' | 'task' | 'error' | 'fix' | 'concept' | ...
+  label: string
+  properties: Record<string, any>
+}
+
+type GraphEdge = {
+  id: string
+  from: string          // node id
+  to: string            // node id
+  type: string          // 'uses' | 'depends_on' | 'caused_by' | 'fixed_by' | ...
+  properties: Record<string, any>
+}
+
+addNode(node: GraphNode): string
+addEdge(edge: GraphEdge): string
+getNode(id: string): GraphNode | null
+getNeighbors(id: string, edgeType?: string): GraphNode[]
+queryGraph(pattern: GraphQuery): GraphResult[]
+```
+
+---
+
+### 2.6 Episodic memory (history)
+
+- **Scope:** per agent, per task, global log.
+- **Usage:** past tasks, failures, successes, reflections.
+- **Storage:** DB or log files.
+
+API:
+
+```ts
+recordEpisode(entry: EpisodeEntry): void
+getEpisodes(filter: EpisodeFilter): EpisodeEntry[]
+```
+
+---
+
+## 3. Graphify‑based ingestion pipeline
+
+**Repo:** `https://github.com/safishamsi/graphify`  
+
+Graphify is used to turn unstructured text into structured graph data.
+
+### 3.1 Ingestion sources
+
+- Agent reflections.
+- Error logs.
+- Task summaries.
+- Skill descriptions.
+- Tool usage logs.
+- User notes.
+
+### 3.2 Pipeline steps
+
+1. **Collect text:**
+
+```ts
+type IngestionItem = {
+  source: 'agent_reflection' | 'error_log' | 'task_summary' | 'user_note' | 'skill_doc'
+  text: string
+  metadata: Record<string, any>
+}
+```
+
+2. **Call Graphify:**
+
+- Either as:
+  - Local library (if integrated directly).
+  - Separate service (HTTP call).
+- Input: `text`.
+- Output: entities + relations.
+
+3. **Map to GraphNode / GraphEdge:**
+
+Example mapping:
+
+- Entity → `GraphNode` with `type = 'concept' | 'tool' | 'skill' | ...`
+- Relation → `GraphEdge` with `type = 'caused_by' | 'uses' | 'depends_on' | ...`
+
+4. **Insert into graph memory:**
+
+```ts
+ingestWithGraphify(item: IngestionItem): void {
+  const graphData = graphify.extract(item.text)
+  for (const entity of graphData.entities) {
+    const nodeId = addNode({
+      id: entity.id,
+      type: entity.type,
+      label: entity.label,
+      properties: { ...entity.properties, source: item.source, ...item.metadata }
+    })
+  }
+  for (const rel of graphData.relations) {
+    addEdge({
+      id: rel.id,
+      from: rel.fromId,
+      to: rel.toId,
+      type: rel.type,
+      properties: { ...rel.properties, source: item.source, ...item.metadata }
+    })
+  }
+}
+```
+
+---
+
+## 4. MemPalace‑style strategies
+
+**Repo:** `https://github.com/milla-jovovich/mempalace`  
+
+MemPalace is not a backend; it’s a **strategy** for:
+
+- chunking  
+- compressing  
+- organizing  
+- retrieving  
+
+### 4.1 Where MemPalace ideas apply
+
+- **Long‑term memory:**
+  - Chunk related facts into “rooms” (topics/projects).
+- **Semantic memory:**
+  - Group embeddings by domain.
+- **Graph memory:**
+  - Organize nodes into “regions” (subgraphs).
+- **Episodic memory:**
+  - Group episodes into “chapters” (time ranges / projects).
+
+### 4.2 Implementation approach
+
+- Implement a **MemoryStrategy** interface:
+
+```ts
+type MemoryStrategy = {
+  shouldStore(item: IngestionItem): boolean
+  howToChunk(item: IngestionItem): ChunkPlan
+  howToCompress(entries: any[]): any
+  howToRetrieve(query: MemoryQuery): MemoryRetrievalPlan
+}
+```
+
+- Provide a **MemPalaceStrategy** inspired by the repo:
+  - Chunk by topic/project.
+  - Compress older entries into summaries.
+  - Prefer recent + highly connected nodes.
+
+---
+
+## 5. Unified memory API
+
+The orchestrator, agents, and other modules should not care about backends. They use a unified API:
+
+```ts
+type MemoryAPI = {
+  // Working
+  setWorkingMemory(agentId: string, key: string, value: any): void
+  getWorkingMemory(agentId: string, key: string): any
+  clearWorkingMemory(agentId: string): void
+
+  // Short-term
+  appendShortTerm(agentId: string, entry: ShortTermEntry): void
+  getShortTerm(agentId: string): ShortTermEntry[]
+
+  // Long-term
+  saveFact(scope: 'user' | 'project' | 'global', fact: Fact): void
+  queryFacts(query: FactQuery): Fact[]
+
+  // Semantic
+  embedAndStore(text: string, metadata: Record<string, any>): string
+  semanticSearch(query: string, filters?: Record<string, any>): SemanticHit[]
+
+  // Graph
+  addNode(node: GraphNode): string
+  addEdge(edge: GraphEdge): string
+  getNode(id: string): GraphNode | null
+  getNeighbors(id: string, edgeType?: string): GraphNode[]
+  queryGraph(pattern: GraphQuery): GraphResult[]
+
+  // Episodic
+  recordEpisode(entry: EpisodeEntry): void
+  getEpisodes(filter: EpisodeFilter): EpisodeEntry[]
+
+  // Ingestion
+  ingestWithGraphify(item: IngestionItem): void
+}
+```
+
+---
+
+## 6. How agents self‑improve using memory
+
+### 6.1 Reflection + ingestion
+
+At the end of a task, agents write a reflection:
+
+- What worked.
+- What failed.
+- What they’d do differently.
+- Any new facts or patterns.
+
+This reflection is:
+
+1. Stored as **episodic memory**.
+2. Embedded into **semantic memory**.
+3. Passed through **Graphify** into **graph memory**.
+
+---
+
+### 6.2 Error → Fix graph
+
+When an error occurs and is resolved:
+
+- Error is recorded as a node: `type = 'error'`.
+- Fix is recorded as a node: `type = 'fix'`.
+- Edge: `error --fixed_by--> fix`.
+- Edge: `fix --applies_to--> skill/tool/module`.
+
+Next time:
+
+- Orchestrator or Emergency module queries graph:
+  - “Given error X, what fixes exist?”
+- Suggests or auto‑applies the fix.
+
+---
+
+### 6.3 Skill evolution
+
+Agents can propose skill updates:
+
+1. Agent notices a pattern:
+   - “Skill `refactorCode` fails on large files unless we chunk them.”
+2. Agent writes a **Skill Improvement Proposal**:
+   - New pre‑step.
+   - New constraints.
+   - New examples.
+3. This proposal is:
+   - Stored in long‑term memory.
+   - Added to graph memory:
+     - `skill --improved_by--> proposal`.
+4. A **Skill Maintainer** process (could be a scheduled agent) periodically:
+   - Reviews proposals.
+   - Updates skill definitions.
+   - Marks old behavior as deprecated.
+
+This is how skills “learn” from experience.
+
+---
+
+## 7. How orchestrator uses memory
+
+### 7.1 Better skill selection
+
+- Query graph:
+  - “Skills that successfully solved similar tasks.”
+- Query episodic memory:
+  - “Past tasks with similar description.”
+- Query semantic memory:
+  - “Similar task descriptions and their outcomes.”
+
+### 7.2 Better tool selection
+
+- Graph edges:
+  - `skill --uses--> tool`
+  - `tool --failed_with--> pattern`
+- Orchestrator avoids tools that frequently fail in similar contexts.
+
+### 7.3 Better agent configuration
+
+- Use memory to:
+  - Adjust budgets.
+  - Adjust model choices.
+  - Adjust safety constraints.
+  - Pre‑load relevant context.
+
+---
+
+## 8. Backends and configuration
+
+### 8.1 Default (no external deps)
+
+- Working: in‑memory.
+- Short‑term: JSON/SQLite.
+- Long‑term: Markdown/JSON.
+- Semantic: SQLite FTS / simple vector store.
+- Graph: in‑process adjacency lists.
+- Episodic: log files / SQLite.
+
+### 8.2 Optional backends
+
+- Graph:
+  - Neo4j (config: `memory.graph.backend = 'neo4j'`).
+- Semantic:
+  - Chroma / Qdrant / other vector DB.
+- Episodic:
+  - Time‑series DB.
+
+---
+
+## 9. Repos to reference (for Copilot)
+
+- **Graphify (graph ingestion):**  
+  `https://github.com/safishamsi/graphify`
+
+- **MemPalace (memory strategies inspiration):**  
+  `https://github.com/milla-jovovich/mempalace`
+
+Copilot should:
+
+- Use Graphify patterns for entity/relation extraction.
+- Use MemPalace patterns for chunking/compression strategies.
+- Implement the unified MemoryAPI and plug in these behaviors behind it.
+

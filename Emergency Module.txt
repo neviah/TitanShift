@@ -1,0 +1,514 @@
+**Planning emergency module spec**
+
+I need to create a big spec document for the Emergency module. It should be detailed enough to cover all the necessary aspects but still concise. I’m thinking about breaking it down into sections that cover the core functionality, user requirements, and any edge cases. I’ll also need to make sure it’s clear and easy to follow, so I’ll avoid unnecessary jargon. Let’s get started on outlining the key points!
+### Emergency Module Specification v1.0  
+*(Self‑diagnosing, self‑healing layer for the universal harness)*  
+
+---
+
+## 1. Goals
+
+The Emergency Module must:
+
+- Detect **failures and anomalies** across modules, agents, tools, and tasks.
+- Spawn **diagnostic agents** to analyze problems from multiple angles.
+- Use **memory + graph** to understand causes, patterns, and prior fixes.
+- Propose **clear explanations and fixes** to the user.
+- Optionally **auto‑repair**, but **only with explicit user permission**.
+- Integrate cleanly with:
+  - Orchestrator  
+  - Memory/Graph module  
+  - Scheduler (heartbeats)  
+  - Logging  
+
+This is the “fire department” of the harness.
+
+---
+
+## 2. Scope and responsibilities
+
+The Emergency Module is responsible for:
+
+- **Failure detection**
+  - Module crashes
+  - Agent failures
+  - Tool failures
+  - Task timeouts
+  - Heartbeat failures
+- **Diagnostics**
+  - Root cause analysis
+  - Context gathering
+  - Pattern matching via graph memory
+- **Remediation planning**
+  - Propose fixes
+  - Rank options
+  - Estimate risk/impact
+- **User communication**
+  - Explain what went wrong
+  - Explain why
+  - Explain how to fix it
+- **Optional auto‑repair**
+  - Execute safe, reversible actions
+  - Log everything
+
+It does **not** replace the orchestrator or state machine; it **augments** them.
+
+---
+
+## 3. Core concepts and data structures
+
+### 3.1 FailureEvent
+
+```ts
+type FailureEvent = {
+  id: string
+  timestamp: number
+  sourceType: 'module' | 'agent' | 'tool' | 'task' | 'scheduler'
+  sourceId: string              // module name, agentId, toolId, taskId
+  severity: 'warning' | 'error' | 'critical'
+  errorType: string             // 'ToolFailureError', 'TimeoutError', etc.
+  message: string
+  stack?: string
+  context: Record<string, any>  // extra info (task, config, last action, etc.)
+}
+```
+
+### 3.2 Diagnosis
+
+```ts
+type Diagnosis = {
+  id: string
+  failureId: string
+  agentId: string               // diagnostic agent
+  hypothesis: string            // natural language explanation
+  probableCause: string         // concise cause
+  confidence: number            // 0–1
+  supportingEvidence: string[]  // references to logs, graph nodes, etc.
+  suggestedFixes: FixSuggestion[]
+}
+```
+
+### 3.3 FixSuggestion
+
+```ts
+type FixSuggestion = {
+  id: string
+  description: string           // natural language description
+  actions: FixAction[]          // concrete steps
+  riskLevel: 'low' | 'medium' | 'high'
+  requiresUserApproval: boolean
+}
+```
+
+### 3.4 FixAction
+
+```ts
+type FixAction = {
+  type:
+    | 'restart_module'
+    | 'restart_agent'
+    | 'rebuild_index'
+    | 'disable_skill'
+    | 'disable_tool'
+    | 'update_config'
+    | 'clear_cache'
+    | 'regenerate_resource'
+  targetId?: string             // moduleId, agentId, skillId, toolId
+  params?: Record<string, any>
+}
+```
+
+### 3.5 FixPlan
+
+```ts
+type FixPlan = {
+  failureId: string
+  selectedDiagnosisId: string
+  selectedFixId: string
+  actions: FixAction[]
+  estimatedRisk: 'low' | 'medium' | 'high'
+}
+```
+
+---
+
+## 4. Architecture and components
+
+The Emergency Module consists of:
+
+1. **Failure Detector**
+2. **Diagnostic Orchestrator**
+3. **Diagnostic Agents**
+4. **Consensus Engine**
+5. **Fix Planner**
+6. **Repair Executor**
+7. **User Interface Integration**
+
+---
+
+### 4.1 Failure Detector
+
+**Responsibility:**  
+Listen for failures and anomalies.
+
+**Inputs:**
+
+- Event Bus:
+  - `MODULE_ERROR`
+  - `AGENT_FAILED`
+  - `TOOL_ERROR`
+  - `TASK_TIMEOUT`
+  - `HEARTBEAT_MISSED`
+- Direct calls from orchestrator/state machine.
+
+**Behavior:**
+
+- Normalize into `FailureEvent`.
+- Store in episodic memory.
+- Optionally add to graph memory:
+  - Node: `type = 'error'`
+  - Edges: `error --affects--> module/agent/tool`
+
+**API:**
+
+```ts
+onFailure(event: FailureEvent): void
+```
+
+---
+
+### 4.2 Diagnostic Orchestrator
+
+**Responsibility:**  
+Coordinate diagnostic agents to analyze a failure.
+
+**Steps:**
+
+1. Receive `FailureEvent`.
+2. Gather context:
+   - Logs (Logging module)
+   - AgentConfig / AgentState (Orchestrator)
+   - Memory (short‑term, episodic, graph)
+3. Build a **DiagnosticContext**:
+
+```ts
+type DiagnosticContext = {
+  failure: FailureEvent
+  logs: LogEntry[]
+  agentState?: AgentState
+  moduleConfig?: any
+  relatedGraphNodes: GraphNode[]
+}
+```
+
+4. Spawn multiple **diagnostic agents** with different roles:
+   - Error Analyst
+   - System Architect
+   - Tool Specialist
+   - Memory Specialist
+   - State Machine Auditor
+
+5. Each diagnostic agent receives the same `DiagnosticContext`.
+
+---
+
+### 4.3 Diagnostic Agents
+
+These are **special agents** spawned by the Emergency Module via the Orchestrator.
+
+**Config:**
+
+- RoleName: e.g., “Diagnostics Agent – Error Analyst”
+- Skills:
+  - `analyzeLogs`
+  - `traceDependencies`
+  - `queryGraphForPatterns`
+  - `proposeFixes`
+- Tools:
+  - Log viewer
+  - Graph query tool
+  - Config inspector
+
+**Behavior:**
+
+- Read `DiagnosticContext`.
+- Query graph memory:
+  - Similar past errors.
+  - Known fixes.
+  - Related skills/tools/modules.
+- Produce a `Diagnosis`.
+
+**API (conceptual):**
+
+```ts
+runDiagnostics(context: DiagnosticContext) -> Diagnosis[]
+```
+
+---
+
+### 4.4 Consensus Engine
+
+**Responsibility:**  
+Combine multiple diagnoses into a single, best explanation.
+
+**Inputs:**
+
+- `Diagnosis[]`
+
+**Behavior:**
+
+- Rank by:
+  - confidence
+  - agreement (similar hypotheses)
+  - evidence richness
+- Optionally use an LLM to:
+  - compare diagnoses
+  - synthesize a unified explanation
+
+**Output:**
+
+- Selected `Diagnosis`
+- Ranked list of `FixSuggestion`s
+
+**API:**
+
+```ts
+selectBestDiagnosis(diagnoses: Diagnosis[]): Diagnosis
+```
+
+---
+
+### 4.5 Fix Planner
+
+**Responsibility:**  
+Turn a `Diagnosis` into a concrete `FixPlan`.
+
+**Inputs:**
+
+- `Diagnosis`
+- System capabilities (what actions are allowed)
+- Safety policies
+
+**Behavior:**
+
+- Filter `FixSuggestion`s by:
+  - risk level
+  - allowed actions
+  - user preferences
+- Build a `FixPlan` with:
+  - ordered `FixAction`s
+  - estimated risk
+
+**API:**
+
+```ts
+buildFixPlan(diagnosis: Diagnosis): FixPlan
+```
+
+---
+
+### 4.6 Repair Executor
+
+**Responsibility:**  
+Execute a `FixPlan` **only after user approval** (per your decision).
+
+**Inputs:**
+
+- `FixPlan`
+- User approval (from UI/API)
+
+**Behavior:**
+
+- Execute each `FixAction` in order:
+  - `restart_module` → ask Module Loader
+  - `restart_agent` → ask Orchestrator
+  - `rebuild_index` → ask Memory module
+  - `disable_skill` → ask Skill module
+  - `disable_tool` → ask Tool module
+  - `update_config` → ask Config Manager
+  - `clear_cache` → ask relevant module
+- Log every action.
+- Update graph memory:
+  - Node: `type = 'fix'`
+  - Edges:
+    - `error --fixed_by--> fix`
+    - `fix --applies_to--> module/agent/tool`
+
+**API:**
+
+```ts
+applyFixPlan(plan: FixPlan): RepairResult
+```
+
+---
+
+## 5. Integration with memory & graph
+
+The Emergency Module heavily uses the Memory/Graph system:
+
+### 5.1 On failure
+
+- Record `FailureEvent` as:
+  - Episodic memory entry.
+  - Graph node: `type = 'error'`.
+- Link:
+  - `error --affects--> module/agent/tool`.
+
+### 5.2 During diagnostics
+
+- Query graph:
+  - Similar errors.
+  - Known fixes.
+  - Related skills/tools/modules.
+- Query episodic memory:
+  - Past failures with similar context.
+- Query semantic memory:
+  - Similar error messages.
+
+### 5.3 On successful fix
+
+- Record `FixSuggestion` / `FixPlan` as:
+  - Graph node: `type = 'fix'`.
+  - Edges:
+    - `error --fixed_by--> fix`
+    - `fix --applies_to--> module/agent/tool`.
+- Record episode:
+  - “Error X fixed by Y with Z confidence.”
+
+This enables **self‑improvement over time**.
+
+---
+
+## 6. Integration with orchestrator & agents
+
+### 6.1 Orchestrator → Emergency
+
+- On agent failure:
+  - Orchestrator emits `AGENT_FAILED`.
+  - Emergency receives it as `FailureEvent`.
+
+- On module/tool failure:
+  - Orchestrator or module emits `MODULE_ERROR` / `TOOL_ERROR`.
+
+### 6.2 Emergency → Orchestrator
+
+- Requests:
+  - Spawn diagnostic agents.
+  - Restart agents.
+  - Disable skills/tools.
+- Orchestrator executes these actions under policy.
+
+---
+
+## 7. Integration with scheduler (heartbeats)
+
+The Scheduler sends **heartbeats** for:
+
+- Modules
+- Agents
+- Tools
+- External services
+
+If a heartbeat is missed:
+
+- Scheduler emits `HEARTBEAT_MISSED`.
+- Emergency treats it as a `FailureEvent` with:
+  - `errorType = 'HeartbeatTimeout'`.
+
+Diagnostic agents can then:
+
+- Check logs.
+- Check last known state.
+- Propose:
+  - restart
+  - backoff
+  - disable
+  - notify user
+
+---
+
+## 8. User experience (UI/API)
+
+### 8.1 When something breaks
+
+User sees:
+
+- A clear banner / notification:
+  - “Something went wrong with: [Module/Agent/Tool].”
+- A summary:
+  - What failed.
+  - When.
+  - Severity.
+
+### 8.2 Diagnostics view
+
+User can open a **Diagnostics panel** showing:
+
+- Selected diagnosis:
+  - Explanation in plain language.
+  - Probable cause.
+  - Confidence.
+- Evidence:
+  - Logs.
+  - Related graph nodes.
+  - Past similar incidents.
+
+### 8.3 Fix options
+
+User sees:
+
+- Proposed fixes (FixSuggestions):
+  - Description.
+  - Risk level.
+  - Actions to be taken.
+- Buttons:
+  - “Apply Fix”
+  - “Ignore”
+  - “View Details”
+
+If user clicks “Apply Fix”:
+
+- Emergency runs `applyFixPlan`.
+- Shows progress + result.
+
+---
+
+## 9. Events and logging
+
+The Emergency Module emits:
+
+- `EMERGENCY_TRIGGERED`
+- `DIAGNOSTICS_STARTED`
+- `DIAGNOSTICS_COMPLETED`
+- `FIX_PLAN_PROPOSED`
+- `FIX_PLAN_APPLIED`
+- `FIX_PLAN_FAILED`
+
+All actions are logged with:
+
+- timestamps  
+- actors (which module/agent)  
+- results  
+
+This makes the system **auditable** and **debuggable**.
+
+---
+
+## 10. Safety and constraints
+
+Per your decision:
+
+- **No auto‑repair without user approval.**
+- Emergency can:
+  - Diagnose automatically.
+  - Propose fixes automatically.
+- But **cannot**:
+  - Apply fixes silently.
+  - Change config without consent.
+  - Restart modules/agents without logging.
+
+Optional future toggle:
+
+- “Allow low‑risk auto‑repair” (but default is **off**).
+
+---
