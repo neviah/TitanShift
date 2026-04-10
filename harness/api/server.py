@@ -20,6 +20,8 @@ from harness.api.schemas import (
     RunHistoryExportResponse,
     RunHistoryPolicy,
     RunHistoryReport,
+    RunHistoryVerifyRequest,
+    RunHistoryVerifyResponse,
     SchedulerJobToggleRequest,
     SchedulerJobToggleResponse,
     SchedulerHeartbeatResponse,
@@ -75,6 +77,29 @@ def create_app(workspace_root: Path) -> FastAPI:
             return [_redact_value(v, redacted_keys) for v in value]
         return value
 
+    def _compute_report_hash_from_payload(payload: dict[str, Any]) -> str:
+        digest = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return f"sha256:{digest}"
+
+    def _signature_payload_from_report(report_data: dict[str, Any]) -> dict[str, Any]:
+        generated_at = report_data.get("generated_at")
+        if isinstance(generated_at, str) and generated_at.endswith("Z"):
+            generated_at = generated_at[:-1] + "+00:00"
+        return {
+            "generated_at": generated_at,
+            "signing_version": report_data.get("signing_version"),
+            "redaction_applied": report_data.get("redaction_applied"),
+            "total_tasks": report_data.get("total_tasks"),
+            "failed_tasks": report_data.get("failed_tasks"),
+            "recent_tasks": report_data.get("recent_tasks"),
+            "recent_events": report_data.get("recent_events"),
+            "health": report_data.get("health"),
+            "loaded_modules": report_data.get("loaded_modules"),
+            "config_snapshot": report_data.get("config_snapshot"),
+        }
+
     def _build_run_history_report(task_limit: int, log_limit: int, redact: bool | None) -> RunHistoryReport:
         clamped_task_limit = max(1, min(task_limit, 100))
         clamped_log_limit = max(1, min(log_limit, 500))
@@ -98,6 +123,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         failed_tasks = sum(1 for t in all_tasks if t.get("status") == "failed")
         loaded_modules = runtime.module_loader.list_modules()
         generated_at = datetime.now(timezone.utc)
+        recent_tasks = [TaskSummary(**t) for t in recent_tasks_raw]
+        recent_events = [LogEntry(**e) for e in recent_events_raw]
         config_snapshot = {
             "model.default_backend": runtime.config.get("model.default_backend"),
             "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
@@ -112,16 +139,13 @@ def create_app(workspace_root: Path) -> FastAPI:
             "redaction_applied": apply_redaction,
             "total_tasks": len(all_tasks),
             "failed_tasks": failed_tasks,
-            "recent_tasks": recent_tasks_raw,
-            "recent_events": recent_events_raw,
+            "recent_tasks": [r.model_dump(mode="json") for r in recent_tasks],
+            "recent_events": [r.model_dump(mode="json") for r in recent_events],
             "health": runtime.health.as_list(),
             "loaded_modules": loaded_modules,
             "config_snapshot": config_snapshot,
         }
-        digest = hashlib.sha256(
-            json.dumps(signature_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        report_hash = f"sha256:{digest}"
+        report_hash = _compute_report_hash_from_payload(signature_payload)
 
         return RunHistoryReport(
             generated_at=generated_at,
@@ -130,8 +154,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             redaction_applied=apply_redaction,
             total_tasks=len(all_tasks),
             failed_tasks=failed_tasks,
-            recent_tasks=[TaskSummary(**t) for t in recent_tasks_raw],
-            recent_events=[LogEntry(**e) for e in recent_events_raw],
+            recent_tasks=recent_tasks,
+            recent_events=recent_events,
             health=runtime.health.as_list(),
             loaded_modules=loaded_modules,
             config_snapshot=config_snapshot,
@@ -318,9 +342,16 @@ def create_app(workspace_root: Path) -> FastAPI:
         report = _build_run_history_report(task_limit=body.task_limit, log_limit=body.log_limit, redact=body.redact)
         payload = report.model_dump(mode="json")
         text = json.dumps(payload, indent=2, sort_keys=True)
+        export_bytes = (text + "\n").encode("utf-8")
+        max_export_bytes = int(runtime.config.get("reports.max_export_bytes", 262144))
+        if len(export_bytes) > max_export_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Export payload exceeds limit ({len(export_bytes)} > {max_export_bytes})",
+            )
 
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text + "\n", encoding="utf-8")
+        target.write_bytes(export_bytes)
 
         runtime.logger.log(
             "REPORT_EXPORTED",
@@ -330,8 +361,48 @@ def create_app(workspace_root: Path) -> FastAPI:
         return RunHistoryExportResponse(
             ok=True,
             path=str(target),
-            bytes_written=target.stat().st_size,
+            bytes_written=len(export_bytes),
             report_hash=report.report_hash,
+        )
+
+    @app.post("/reports/run-history/verify", response_model=RunHistoryVerifyResponse, dependencies=[Depends(require_api_key)])
+    async def run_history_verify(body: RunHistoryVerifyRequest) -> RunHistoryVerifyResponse:
+        target = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(target.parent):
+            raise HTTPException(status_code=403, detail="Verify path blocked by execution policy")
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="Report file not found")
+
+        try:
+            loaded = json.loads(target.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid report JSON: {exc}") from exc
+
+        if not isinstance(loaded, dict):
+            raise HTTPException(status_code=400, detail="Invalid report format")
+
+        stored_hash = str(loaded.get("report_hash", ""))
+        computed_hash = _compute_report_hash_from_payload(_signature_payload_from_report(loaded))
+        valid = stored_hash == computed_hash
+
+        runtime.logger.log(
+            "REPORT_VERIFIED",
+            {
+                "path": str(target),
+                "valid": valid,
+                "stored_hash": stored_hash,
+                "computed_hash": computed_hash,
+                "source": "api",
+            },
+        )
+
+        return RunHistoryVerifyResponse(
+            ok=True,
+            path=str(target),
+            valid=valid,
+            stored_hash=stored_hash,
+            computed_hash=computed_hash,
+            signing_version=str(loaded.get("signing_version")) if loaded.get("signing_version") is not None else None,
         )
 
     @app.get("/reports/policy", response_model=RunHistoryPolicy, dependencies=[Depends(require_api_key)])
@@ -339,6 +410,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         return RunHistoryPolicy(
             redact_by_default=bool(runtime.config.get("reports.redact_by_default", True)),
             redacted_keys=_report_redacted_keys(),
+            max_export_bytes=int(runtime.config.get("reports.max_export_bytes", 262144)),
         )
 
     return app

@@ -46,6 +46,7 @@
   },
   "reports": {
     "redact_by_default": true,
-    "redacted_keys": ["api_key", "x_api_key", "authorization", "token", "secret", "password"]
+    "redacted_keys": ["api_key", "x_api_key", "authorization", "token", "secret", "password"],
+    "max_export_bytes": 262144
   }
 }

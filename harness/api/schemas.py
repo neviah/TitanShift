@@ -150,6 +150,7 @@ class RunHistoryReport(BaseModel):
 class RunHistoryPolicy(BaseModel):
     redact_by_default: bool
     redacted_keys: list[str]
+    max_export_bytes: int
 
 
 class RunHistoryExportRequest(BaseModel):
@@ -164,3 +165,16 @@ class RunHistoryExportResponse(BaseModel):
     path: str
     bytes_written: int
     report_hash: str
+
+
+class RunHistoryVerifyRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class RunHistoryVerifyResponse(BaseModel):
+    ok: bool
+    path: str
+    valid: bool
+    stored_hash: str
+    computed_hash: str
+    signing_version: str | None = None

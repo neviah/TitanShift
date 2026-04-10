@@ -346,6 +346,7 @@ def test_run_history_report_policy_endpoint() -> None:
     body = response.json()
     assert "redact_by_default" in body
     assert isinstance(body.get("redacted_keys"), list)
+    assert isinstance(body.get("max_export_bytes"), int)
 
 
 def test_run_history_export_endpoint_writes_file() -> None:
@@ -378,4 +379,61 @@ def test_run_history_export_endpoint_blocks_path_outside_policy() -> None:
         json={"path": "../outside-policy-report.json", "task_limit": 5, "log_limit": 20},
     )
     assert response.status_code == 403
+
+
+def test_run_history_export_endpoint_respects_max_bytes() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("reports.max_export_bytes", 64)
+    client = TestClient(app)
+
+    response = client.post(
+        "/reports/run-history/export",
+        json={"path": ".harness/too-large-export.json", "task_limit": 10, "log_limit": 50},
+    )
+    assert response.status_code == 413
+
+
+def test_run_history_verify_endpoint_valid_report() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    out_path = ".harness/test-run-history-verify-valid.json"
+    export = client.post(
+        "/reports/run-history/export",
+        json={"path": out_path, "task_limit": 5, "log_limit": 20},
+    )
+    assert export.status_code == 200
+
+    verify = client.post("/reports/run-history/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    body = verify.json()
+    assert body["valid"] is True
+    assert body["stored_hash"] == body["computed_hash"]
+
+    Path(out_path).unlink(missing_ok=True)
+
+
+def test_run_history_verify_endpoint_detects_tamper() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    out_path = ".harness/test-run-history-verify-tampered.json"
+    export = client.post(
+        "/reports/run-history/export",
+        json={"path": out_path, "task_limit": 5, "log_limit": 20},
+    )
+    assert export.status_code == 200
+
+    target = Path(out_path)
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    loaded["total_tasks"] = int(loaded.get("total_tasks", 0)) + 1
+    target.write_text(json.dumps(loaded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verify = client.post("/reports/run-history/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    body = verify.json()
+    assert body["valid"] is False
+    assert body["stored_hash"] != body["computed_hash"]
+
+    target.unlink(missing_ok=True)
 
