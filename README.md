@@ -232,6 +232,88 @@ Logging retention keys:
 
 - logging.cleanup_max_age_days
 
+## Ops runbook
+
+Recommended startup order:
+
+1. Activate the virtual environment.
+2. Confirm local model readiness if using LM Studio:
+
+```bash
+python -m harness --workspace . lmstudio-check
+```
+
+3. Confirm base runtime wiring:
+
+```bash
+python -m harness --workspace . status
+```
+
+4. Start the API:
+
+```bash
+python -m harness --workspace . serve-api --host 127.0.0.1 --port 8000
+```
+
+5. Check health and policy surfaces:
+
+```bash
+curl http://127.0.0.1:8000/status
+curl http://127.0.0.1:8000/reports/policy
+curl http://127.0.0.1:8000/scheduler/jobs
+```
+
+Operational triage flow:
+
+1. Check `/status` for degraded module health.
+2. Query `/logs` for `MODULE_ERROR`, `TASK_COMPLETED`, `REPORT_VERIFIED`, and `ARTIFACTS_CLEANUP` events.
+3. Export a signed report with `/reports/run-history/export`.
+4. Verify the exported report with `/reports/run-history/verify`.
+5. If artifacts accumulate, preview cleanup with `/artifacts/cleanup` using `dry_run=true` before deleting.
+
+Suggested incident commands:
+
+```bash
+curl "http://127.0.0.1:8000/logs?event_type=MODULE_ERROR&limit=20"
+curl -X POST http://127.0.0.1:8000/reports/run-history/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\",\"task_limit\":20,\"log_limit\":200}"
+curl -X POST http://127.0.0.1:8000/reports/run-history/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\"}"
+curl -X POST http://127.0.0.1:8000/artifacts/cleanup -H "Content-Type: application/json" -d "{\"max_age_days\":7,\"include_logs\":false,\"dry_run\":true}"
+```
+
+## Phase 1 smoke workflow
+
+Run this sequence against a fresh API process:
+
+1. `GET /status`
+2. `POST /chat` with `local_stub`
+3. `GET /tasks`
+4. `GET /logs?limit=10`
+5. `GET /memory/summary`
+6. `GET /reports/run-history`
+7. `POST /reports/run-history/export`
+8. `POST /reports/run-history/verify`
+9. `GET /scheduler/jobs`
+10. `POST /scheduler/tick`
+
+Expected Phase 1 smoke outcomes:
+
+- status returns `ok: true`
+- chat returns `success` boolean and response payload
+- tasks and logs return arrays
+- report export returns `ok: true` and a `report_hash`
+- report verify returns `valid: true`
+- scheduler endpoints return job metadata including guardrail fields
+
+## Phase 1 closeout checklist
+
+- `pytest -q` passes cleanly
+- local API smoke workflow completes without manual patching
+- report export and verify both succeed
+- cleanup dry-run produces expected candidate list
+- scheduler metadata exposes failure and timeout guardrails
+- README reflects the current operational surface
+- latest changes are committed and pushed
+
 ## Notes
 
 - This is phase 1 plus forward-compatible stubs.
