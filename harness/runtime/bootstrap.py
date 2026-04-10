@@ -15,6 +15,7 @@ from harness.runtime.config import ConfigManager
 from harness.runtime.event_bus import EventBus
 from harness.runtime.health import HealthRegistry
 from harness.runtime.module_loader import ModuleLoader
+from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.tools.builtin import register_builtin_tools
 from harness.tools.registry import PermissionPolicy, ToolRegistry
 
@@ -33,6 +34,7 @@ class RuntimeContext:
     execution: ExecutionModule
     emergency: EmergencyModule
     health: HealthRegistry
+    scheduler: Scheduler
 
 
 def build_runtime(workspace_root: Path) -> RuntimeContext:
@@ -79,7 +81,17 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
 
     module_loader = ModuleLoader(modules_root=workspace_root / cfg.get("runtime.module_path", "modules"))
     emergency = EmergencyModule()
+    scheduler = Scheduler()
+    scheduler.register_job(
+        ScheduledJob(
+            job_id="scheduler_heartbeat",
+            description="Publish heartbeat tick and keep scheduler health updated",
+            interval_seconds=60,
+            callback=lambda: bus.publish("HEARTBEAT_TICK", {"source": "scheduler"}),
+        )
+    )
     health.set("emergency", "healthy")
+    health.set("scheduler", "healthy", {"jobs": [j["job_id"] for j in scheduler.list_jobs()]})
 
     async def on_agent_spawned(payload: dict) -> None:
         logger.log("AGENT_SPAWNED", payload)
@@ -106,9 +118,15 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         )
         await hooks.emit(HookPayload(event="MODULE_ERROR", data=payload))
 
+    async def on_heartbeat_tick(payload: dict) -> None:
+        logger.log("HEARTBEAT_TICK", payload)
+        health.set("scheduler", "healthy", {"last_heartbeat_source": payload.get("source", "unknown")})
+        await hooks.emit(HookPayload(event="HEARTBEAT_TICK", data=payload))
+
     bus.subscribe("AGENT_SPAWNED", on_agent_spawned)
     bus.subscribe("TASK_COMPLETED", on_task_completed)
     bus.subscribe("MODULE_ERROR", on_module_error)
+    bus.subscribe("HEARTBEAT_TICK", on_heartbeat_tick)
 
     for mod_name in module_loader.discover_modules():
         module_loader.load_from_package(f"modules.{mod_name}")
@@ -128,4 +146,5 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         execution=execution,
         emergency=emergency,
         health=health,
+        scheduler=scheduler,
     )

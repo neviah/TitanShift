@@ -6,11 +6,15 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 
 from harness.api.schemas import (
+    AgentSummary,
     ChatRequest,
     ChatResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
     LogEntry,
+    SchedulerHeartbeatResponse,
+    SchedulerJob,
+    SchedulerTickResponse,
     TaskDetail,
     TaskSummary,
 )
@@ -102,5 +106,33 @@ def create_app(workspace_root: Path) -> FastAPI:
         runtime.config.set(body.key, body.value)
         runtime.logger.log("CONFIG_UPDATED", {"key": body.key})
         return ConfigUpdateResponse(ok=True, key=body.key, value=runtime.config.get(body.key))
+
+    @app.get("/scheduler/jobs", response_model=list[SchedulerJob])
+    async def scheduler_jobs() -> list[SchedulerJob]:
+        return [SchedulerJob(**j) for j in runtime.scheduler.list_jobs()]
+
+    @app.get("/agents", response_model=list[AgentSummary])
+    async def agents() -> list[AgentSummary]:
+        return [
+            AgentSummary(
+                agent_id="main-agent",
+                role=runtime.config.get("orchestrator.default_role", "General Agent"),
+                subagents_enabled=runtime.config.get("orchestrator.enable_subagents", False),
+                model_default_backend=runtime.config.get("model.default_backend", "local_stub"),
+                memory_layers=["working", "short_term", "long_term", "semantic", "graph"],
+            )
+        ]
+
+    @app.post("/scheduler/heartbeat", response_model=SchedulerHeartbeatResponse)
+    async def scheduler_heartbeat() -> SchedulerHeartbeatResponse:
+        runtime.logger.log("SCHEDULER_HEARTBEAT", {"source": "api"})
+        hb = runtime.scheduler.heartbeat()
+        return SchedulerHeartbeatResponse(**hb)
+
+    @app.post("/scheduler/tick", response_model=SchedulerTickResponse)
+    async def scheduler_tick() -> SchedulerTickResponse:
+        result = await runtime.scheduler.tick()
+        runtime.logger.log("SCHEDULER_TICK", result)
+        return SchedulerTickResponse(**result)
 
     return app

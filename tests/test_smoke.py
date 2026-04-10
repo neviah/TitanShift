@@ -151,3 +151,34 @@ def test_config_update_endpoint_runtime_override() -> None:
     assert body["key"] == "state_machine.default_budget.max_tokens"
     assert body["value"] == 2048
 
+
+def test_scheduler_endpoints() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    jobs = client.get("/scheduler/jobs")
+    assert jobs.status_code == 200
+    jobs_body = jobs.json()
+    assert isinstance(jobs_body, list)
+    assert any(j.get("job_id") == "scheduler_heartbeat" for j in jobs_body)
+
+    hb = client.post("/scheduler/heartbeat")
+    assert hb.status_code == 200
+    hb_body = hb.json()
+    assert hb_body["heartbeat_count"] >= 1
+
+    tick = client.post("/scheduler/tick")
+    assert tick.status_code == 200
+    tick_body = tick.json()
+    assert "ran_jobs" in tick_body
+
+
+def test_agents_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.get("/agents")
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list)
+    assert body[0]["agent_id"] == "main-agent"
+

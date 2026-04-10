@@ -96,6 +96,20 @@ curl http://127.0.0.1:8000/config
 curl -X POST http://127.0.0.1:8000/config -H "Content-Type: application/json" -d "{\"key\":\"state_machine.default_budget.max_tokens\",\"value\":16000}"
 ```
 
+Scheduler API (idle by default, explicit triggers only):
+
+```bash
+curl http://127.0.0.1:8000/scheduler/jobs
+curl -X POST http://127.0.0.1:8000/scheduler/heartbeat
+curl -X POST http://127.0.0.1:8000/scheduler/tick
+```
+
+Agents visibility API:
+
+```bash
+curl http://127.0.0.1:8000/agents
+```
+
 Status now includes runtime module health:
 
 ```bash

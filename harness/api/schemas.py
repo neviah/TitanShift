@@ -54,3 +54,31 @@ class ConfigUpdateResponse(BaseModel):
     ok: bool
     key: str
     value: object
+
+
+class SchedulerJob(BaseModel):
+    job_id: str
+    description: str
+    interval_seconds: int
+    enabled: bool
+    run_count: int
+    last_run_at: str | None = None
+
+
+class SchedulerHeartbeatResponse(BaseModel):
+    heartbeat_count: int
+    last_heartbeat_at: str | None = None
+    job_count: int
+
+
+class SchedulerTickResponse(BaseModel):
+    ran_jobs: list[str]
+    job_count: int
+
+
+class AgentSummary(BaseModel):
+    agent_id: str
+    role: str
+    subagents_enabled: bool
+    model_default_backend: str
+    memory_layers: list[str]
