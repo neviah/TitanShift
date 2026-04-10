@@ -79,6 +79,18 @@ curl http://127.0.0.1:8000/tasks/<task_id>
 python -m harness --workspace . lmstudio-check
 ```
 
+8. Run a policy-constrained tool command:
+
+```bash
+python -m harness --workspace . run-tool shell_command --args "{\"command\":\"git status --short\"}"
+```
+
+PowerShell-friendly shortcut:
+
+```bash
+python -m harness --workspace . run-tool shell_command --command "git status --short"
+```
+
 ## Configuration
 
 - Defaults: harness/config_defaults.json
@@ -99,6 +111,13 @@ Phase 1 budget and tool policy keys:
 - tools.allowed_tool_names
 - tools.blocked_tool_names
 - tools.allowed_command_prefixes
+
+Execution sandbox keys:
+
+- execution.allowed_cwd_roots
+- execution.allowed_command_prefixes
+- execution.max_runtime_s
+- execution.max_output_bytes
 
 ## Notes
 

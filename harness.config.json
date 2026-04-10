@@ -19,10 +19,16 @@
   "tools": {
     "deny_all_by_default": true,
     "allow_network": false,
-    "allowed_paths": [],
-    "allowed_tool_names": [],
+    "allowed_paths": ["."],
+    "allowed_tool_names": ["shell_command"],
     "blocked_tool_names": [],
-    "allowed_command_prefixes": []
+    "allowed_command_prefixes": ["where", "git", "python", "dir", "echo"]
+  },
+  "execution": {
+    "allowed_cwd_roots": ["."],
+    "allowed_command_prefixes": ["where", "git", "python", "dir", "echo"],
+    "max_runtime_s": 30,
+    "max_output_bytes": 32768
   },
   "state_machine": {
     "default_budget": {

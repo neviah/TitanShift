@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from harness.api.hooks import ApiHooks, HookPayload
+from harness.execution.policy import ExecutionPolicy
+from harness.execution.runner import ExecutionModule
 from harness.logging.logger import JsonLogger
 from harness.memory.manager import MemoryManager
 from harness.model.adapter import ModelRegistry
@@ -11,6 +13,7 @@ from harness.orchestrator.orchestrator import Orchestrator
 from harness.runtime.config import ConfigManager
 from harness.runtime.event_bus import EventBus
 from harness.runtime.module_loader import ModuleLoader
+from harness.tools.builtin import register_builtin_tools
 from harness.tools.registry import PermissionPolicy, ToolRegistry
 
 
@@ -25,6 +28,7 @@ class RuntimeContext:
     hooks: ApiHooks
     logger: JsonLogger
     module_loader: ModuleLoader
+    execution: ExecutionModule
 
 
 def build_runtime(workspace_root: Path) -> RuntimeContext:
@@ -45,6 +49,11 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         PermissionPolicy.from_config(cfg, workspace_root),
         audit_sink=on_tool_audit,
     )
+    execution = ExecutionModule(
+        policy=ExecutionPolicy.from_config(cfg, workspace_root),
+        default_cwd=workspace_root,
+    )
+    register_builtin_tools(tools, execution)
 
     orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, tools=tools)
     hooks = ApiHooks()
@@ -75,4 +84,5 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         hooks=hooks,
         logger=logger,
         module_loader=module_loader,
+        execution=execution,
     )

@@ -29,6 +29,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional model backend override",
     )
 
+    run_tool_cmd = sub.add_parser("run-tool", help="Run a registered tool with JSON args")
+    run_tool_cmd.add_argument("name", help="Tool name")
+    run_tool_cmd.add_argument("--args", default="{}", help="JSON args object")
+    run_tool_cmd.add_argument(
+        "--command",
+        dest="tool_command",
+        default=None,
+        help="Shortcut: sets args.command for shell_command",
+    )
+
     serve_api = sub.add_parser("serve-api", help="Run FastAPI server")
     serve_api.add_argument("--host", default="127.0.0.1")
     serve_api.add_argument("--port", type=int, default=8000)
@@ -47,6 +57,24 @@ async def run_task(prompt: str, workspace_root: Path, backend: str | None = None
     task = Task(id=str(uuid.uuid4()), description=prompt, input=task_input)
     result = await runtime.orchestrator.run_reactive_task(task)
     print(json.dumps(result.output, indent=2))
+
+
+async def run_tool(name: str, raw_args: str, workspace_root: Path, command: str | None = None) -> None:
+    runtime = build_runtime(workspace_root)
+    try:
+        if command is not None:
+            args = {"command": command}
+        else:
+            args = json.loads(raw_args)
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"ok": False, "error": f"Invalid JSON for --args: {exc}"}, indent=2))
+        return
+
+    try:
+        result = await runtime.tools.execute_tool(name, args)
+        print(json.dumps(result, indent=2))
+    except (KeyError, PermissionError, ValueError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
 
 
 def print_status(workspace_root: Path) -> None:
@@ -88,6 +116,8 @@ def main() -> None:
 
     if args.command == "run-task":
         asyncio.run(run_task(args.prompt, workspace_root, args.backend))
+    elif args.command == "run-tool":
+        asyncio.run(run_tool(args.name, args.args, workspace_root, args.tool_command))
     elif args.command == "status":
         print_status(workspace_root)
     elif args.command == "print-config":
