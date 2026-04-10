@@ -72,6 +72,8 @@ class LMStudioAdapter:
                 {"role": "user", "content": request.prompt},
             ],
             "temperature": 0.2,
+            "max_tokens": 256,
+            "reasoning": "off",
         }
         endpoint = f"{self.base_url}/chat/completions"
         try:
@@ -84,12 +86,9 @@ class LMStudioAdapter:
                 f"endpoint is reachable at {endpoint}"
             ) from exc
         body = response.json()
-        content = (
-            body.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
+        choice0 = body.get("choices", [{}])[0]
+        message0 = choice0.get("message", {})
+        content = str(message0.get("content", "")).strip() or str(message0.get("reasoning_content", "")).strip()
         if not content:
             content = "[lmstudio] empty response"
         return ModelResponse(text=content, model_id=self.model_id)

@@ -308,11 +308,29 @@ Expected Phase 1 smoke outcomes:
 
 - `pytest -q` passes cleanly
 - local API smoke workflow completes without manual patching
+- LM Studio-backed `/chat` smoke request succeeds when the local server is available
 - report export and verify both succeed
 - cleanup dry-run produces expected candidate list
 - scheduler metadata exposes failure and timeout guardrails
 - README reflects the current operational surface
 - latest changes are committed and pushed
+
+## Phase 1 milestone
+
+Phase 1 is now functionally closed as a local-first operational scaffold.
+
+Delivered in this milestone:
+
+- CLI and FastAPI control surfaces
+- local stub and LM Studio model backends
+- semantic and graph memory inspection APIs
+- signed report export and verification
+- artifact cleanup and retention controls
+- read/admin API auth scopes
+- scheduler failure and timeout guardrails
+- operational runbook and smoke workflow
+
+Recommended stable checkpoint tag: `phase1-milestone`
 
 ## Notes
 
