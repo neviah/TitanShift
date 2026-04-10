@@ -64,8 +64,11 @@ class SchedulerJob(BaseModel):
     description: str
     interval_seconds: int
     enabled: bool
+    max_failures: int
     run_count: int
+    failure_count: int
     last_run_at: str | None = None
+    last_error: str | None = None
 
 
 class SchedulerHeartbeatResponse(BaseModel):
@@ -76,6 +79,8 @@ class SchedulerHeartbeatResponse(BaseModel):
 
 class SchedulerTickResponse(BaseModel):
     ran_jobs: list[str]
+    failed_jobs: list[str]
+    auto_disabled_jobs: list[str]
     job_count: int
 
 

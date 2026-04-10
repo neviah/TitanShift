@@ -13,8 +13,11 @@ class ScheduledJob:
     description: str = ""
     interval_seconds: int = 60
     enabled: bool = True
+    max_failures: int = 3
     run_count: int = 0
+    failure_count: int = 0
     last_run_at: str | None = None
+    last_error: str | None = None
 
 
 class Scheduler:
@@ -52,16 +55,34 @@ class Scheduler:
 
     async def tick(self) -> dict[str, Any]:
         ran: list[str] = []
+        failed: list[str] = []
+        auto_disabled: list[str] = []
         for job in self.jobs.values():
             if not job.enabled:
                 continue
-            result = job.callback()
-            if hasattr(result, "__await__"):
-                await result
-            job.run_count += 1
-            job.last_run_at = datetime.now(timezone.utc).isoformat()
-            ran.append(job.job_id)
-        return {"ran_jobs": ran, "job_count": len(self.jobs)}
+            try:
+                result = job.callback()
+                if hasattr(result, "__await__"):
+                    await result
+                job.run_count += 1
+                job.failure_count = 0
+                job.last_error = None
+                job.last_run_at = datetime.now(timezone.utc).isoformat()
+                ran.append(job.job_id)
+            except Exception as exc:
+                job.failure_count += 1
+                job.last_error = str(exc)
+                job.last_run_at = datetime.now(timezone.utc).isoformat()
+                failed.append(job.job_id)
+                if job.failure_count >= max(1, job.max_failures):
+                    job.enabled = False
+                    auto_disabled.append(job.job_id)
+        return {
+            "ran_jobs": ran,
+            "failed_jobs": failed,
+            "auto_disabled_jobs": auto_disabled,
+            "job_count": len(self.jobs),
+        }
 
     def list_jobs(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -72,8 +93,11 @@ class Scheduler:
                     "description": job.description,
                     "interval_seconds": job.interval_seconds,
                     "enabled": job.enabled,
+                    "max_failures": job.max_failures,
                     "run_count": job.run_count,
+                    "failure_count": job.failure_count,
                     "last_run_at": job.last_run_at,
+                    "last_error": job.last_error,
                 }
             )
         return rows

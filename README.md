@@ -105,6 +105,9 @@ curl -X POST http://127.0.0.1:8000/scheduler/tick
 curl -X POST http://127.0.0.1:8000/scheduler/jobs/scheduler_heartbeat/enabled -H "Content-Type: application/json" -d "{\"enabled\":false}"
 ```
 
+Scheduler job rows now include `max_failures`, `failure_count`, and `last_error`.
+Ticks report `failed_jobs` and `auto_disabled_jobs` so repeated failures can be detected.
+
 Agents visibility API:
 
 ```bash

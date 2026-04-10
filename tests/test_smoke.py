@@ -11,6 +11,7 @@ from harness.execution.runner import ExecutionDeniedError, ExecutionModule
 from harness.runtime.bootstrap import build_runtime
 from harness.model.adapter import ModelRegistry
 from harness.runtime.config import ConfigManager
+from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.runtime.types import Task
 from harness.tools.definitions import ToolDefinition
 from harness.tools.registry import PermissionPolicy
@@ -190,6 +191,48 @@ def test_scheduler_job_toggle_endpoint() -> None:
 
     missing = client.post("/scheduler/jobs/missing/enabled", json={"enabled": True})
     assert missing.status_code == 404
+
+
+def test_scheduler_auto_disables_repeated_failures() -> None:
+    scheduler = Scheduler()
+
+    def broken_job() -> None:
+        raise RuntimeError("expected failure")
+
+    scheduler.register_job(
+        ScheduledJob(
+            job_id="broken-job",
+            description="fails for guardrail test",
+            callback=broken_job,
+            max_failures=2,
+        )
+    )
+
+    first = asyncio.run(scheduler.tick())
+    assert "broken-job" in first["failed_jobs"]
+    assert "broken-job" not in first["auto_disabled_jobs"]
+
+    second = asyncio.run(scheduler.tick())
+    assert "broken-job" in second["failed_jobs"]
+    assert "broken-job" in second["auto_disabled_jobs"]
+
+    job = scheduler.get_job("broken-job")
+    assert job is not None
+    assert job.enabled is False
+    assert job.failure_count == 2
+    assert job.last_error == "expected failure"
+
+
+def test_scheduler_endpoint_returns_failure_guardrail_fields() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    jobs = client.get("/scheduler/jobs")
+    assert jobs.status_code == 200
+    row = next(j for j in jobs.json() if j["job_id"] == "scheduler_heartbeat")
+    assert "max_failures" in row
+    assert "failure_count" in row
+    assert "last_error" in row
 
 
 def test_agents_endpoint() -> None:
