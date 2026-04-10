@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -262,15 +264,44 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         failed_tasks = sum(1 for t in all_tasks if t.get("status") == "failed")
         loaded_modules = runtime.module_loader.list_modules()
+        generated_at = datetime.now(timezone.utc)
+        config_snapshot = {
+            "model.default_backend": runtime.config.get("model.default_backend"),
+            "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
+            "tools.deny_all_by_default": runtime.config.get("tools.deny_all_by_default"),
+            "reports.redact_by_default": bool(runtime.config.get("reports.redact_by_default", True)),
+            "reports.redacted_keys": _report_redacted_keys(),
+        }
+        signing_version = "v1"
+        signature_payload = {
+            "generated_at": generated_at.isoformat(),
+            "signing_version": signing_version,
+            "redaction_applied": apply_redaction,
+            "total_tasks": len(all_tasks),
+            "failed_tasks": failed_tasks,
+            "recent_tasks": recent_tasks_raw,
+            "recent_events": recent_events_raw,
+            "health": runtime.health.as_list(),
+            "loaded_modules": loaded_modules,
+            "config_snapshot": config_snapshot,
+        }
+        digest = hashlib.sha256(
+            json.dumps(signature_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        report_hash = f"sha256:{digest}"
 
         return RunHistoryReport(
-            generated_at=datetime.now(timezone.utc),
+            generated_at=generated_at,
+            signing_version=signing_version,
+            report_hash=report_hash,
+            redaction_applied=apply_redaction,
             total_tasks=len(all_tasks),
             failed_tasks=failed_tasks,
             recent_tasks=[TaskSummary(**t) for t in recent_tasks_raw],
             recent_events=[LogEntry(**e) for e in recent_events_raw],
             health=runtime.health.as_list(),
             loaded_modules=loaded_modules,
+            config_snapshot=config_snapshot,
         )
 
     @app.get("/reports/policy", response_model=RunHistoryPolicy, dependencies=[Depends(require_api_key)])

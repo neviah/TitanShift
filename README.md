@@ -136,6 +136,13 @@ curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50&redac
 curl "http://127.0.0.1:8000/reports/policy"
 ```
 
+`/reports/run-history` includes signing metadata:
+
+- signing_version
+- report_hash (sha256 of deterministic report payload)
+- redaction_applied
+- config_snapshot (safe runtime config subset)
+
 Status now includes runtime module health:
 
 ```bash

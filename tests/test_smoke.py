@@ -298,10 +298,27 @@ def test_run_history_report_endpoint() -> None:
     assert response.status_code == 200
     body = response.json()
     assert "generated_at" in body
+    assert body.get("signing_version") == "v1"
+    assert str(body.get("report_hash", "")).startswith("sha256:")
+    assert "config_snapshot" in body
     assert "total_tasks" in body
     assert isinstance(body.get("recent_tasks"), list)
     assert isinstance(body.get("recent_events"), list)
     assert isinstance(body.get("health"), list)
+
+
+def test_run_history_report_hash_changes_with_redaction_mode() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    runtime.logger.log("TEST_HASH", {"token": "sensitive-value", "note": "ok"})
+    client = TestClient(app)
+
+    redacted = client.get("/reports/run-history?log_limit=10&redact=true")
+    raw = client.get("/reports/run-history?log_limit=10&redact=false")
+
+    assert redacted.status_code == 200
+    assert raw.status_code == 200
+    assert redacted.json()["report_hash"] != raw.json()["report_hash"]
 
 
 def test_run_history_report_redacts_sensitive_keys() -> None:

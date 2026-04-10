@@ -135,12 +135,16 @@ class MemoryGraphNeighbors(BaseModel):
 
 class RunHistoryReport(BaseModel):
     generated_at: datetime
+    signing_version: str
+    report_hash: str
+    redaction_applied: bool
     total_tasks: int
     failed_tasks: int
     recent_tasks: list[TaskSummary]
     recent_events: list[LogEntry]
     health: list[dict[str, Any]]
     loaded_modules: list[str]
+    config_snapshot: dict[str, Any]
 
 
 class RunHistoryPolicy(BaseModel):
