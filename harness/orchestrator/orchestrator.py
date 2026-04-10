@@ -33,7 +33,18 @@ class Orchestrator:
         self.task_store.mark_started(task.id)
         await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": False})
         self.memory.append_short_term("main-agent", {"task": task.description})
-        result = await self.state_machine.run_task(task)
+        try:
+            result = await self.state_machine.run_task(task)
+        except Exception as exc:
+            await self.event_bus.publish(
+                "MODULE_ERROR",
+                {
+                    "source": "orchestrator",
+                    "task_id": task.id,
+                    "error": str(exc),
+                },
+            )
+            result = TaskResult(task_id=task.id, output={}, success=False, error=f"Unhandled runtime error: {exc}")
         self.task_store.mark_completed(result)
         await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
         return result

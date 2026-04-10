@@ -22,6 +22,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "graph_backend": runtime.config.get("memory.graph_backend"),
             "semantic_backend": runtime.config.get("memory.semantic_backend"),
             "default_model_backend": runtime.config.get("model.default_backend"),
+            "health": runtime.health.as_list(),
         }
 
     @app.post("/chat", response_model=ChatResponse)

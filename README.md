@@ -81,6 +81,15 @@ curl http://127.0.0.1:8000/tasks
 curl http://127.0.0.1:8000/tasks/<task_id>
 ```
 
+Status now includes runtime module health:
+
+```bash
+curl http://127.0.0.1:8000/status
+```
+
+On internal module errors, orchestrator isolates failure to the task, publishes a
+`MODULE_ERROR` event, and triggers logging-only Emergency diagnostics.
+
 7. Run LM Studio health check:
 
 ```bash

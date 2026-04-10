@@ -93,3 +93,27 @@ def test_chat_budget_override_returns_error_state() -> None:
     body = response.json()
     assert body["success"] is False
     assert body["error"] is not None
+
+
+def test_status_includes_health() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.get("/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body.get("health"), list)
+    assert any(item.get("name") == "orchestrator" for item in body.get("health", []))
+
+
+def test_orchestrator_failure_isolation_marks_task_failed() -> None:
+    runtime = build_runtime(Path(".").resolve())
+
+    class BrokenStateMachine:
+        async def run_task(self, task: Task):
+            raise RuntimeError("boom")
+
+    runtime.orchestrator.state_machine = BrokenStateMachine()  # type: ignore[assignment]
+    result = asyncio.run(runtime.orchestrator.run_reactive_task(Task(id="fail-1", description="should fail")))
+    assert result.success is False
+    assert "Unhandled runtime error" in (result.error or "")
+
