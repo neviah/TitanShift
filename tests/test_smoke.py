@@ -285,6 +285,32 @@ def test_api_key_auth_enforced_when_enabled() -> None:
     assert authorized.status_code == 200
 
 
+def test_admin_api_key_scope_enforced_for_mutating_endpoints() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("api.require_api_key", True)
+    app.state.runtime.config.set("api.api_key", "read123")
+    app.state.runtime.config.set("api.require_admin_api_key", True)
+    app.state.runtime.config.set("api.admin_api_key", "admin123")
+    client = TestClient(app)
+
+    read_ok = client.get("/status", headers={"x-api-key": "read123"})
+    assert read_ok.status_code == 200
+
+    admin_blocked = client.post(
+        "/config",
+        headers={"x-api-key": "read123"},
+        json={"key": "state_machine.default_budget.max_tokens", "value": 4096},
+    )
+    assert admin_blocked.status_code == 401
+
+    admin_ok = client.post(
+        "/config",
+        headers={"x-api-key": "admin123"},
+        json={"key": "state_machine.default_budget.max_tokens", "value": 4096},
+    )
+    assert admin_ok.status_code == 200
+
+
 def test_run_history_report_endpoint() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)

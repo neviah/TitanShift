@@ -209,8 +209,12 @@ Optional API auth keys:
 
 - api.require_api_key
 - api.api_key
+- api.require_admin_api_key
+- api.admin_api_key
 
 When enabled, send `x-api-key` header on all API calls.
+Read-only endpoints use `api.api_key`. Mutating endpoints such as config updates,
+report export, artifact cleanup, and scheduler control can require `api.admin_api_key`.
 
 Report export keys:
 

@@ -53,7 +53,9 @@
   },
   "api": {
     "require_api_key": false,
-    "api_key": ""
+    "api_key": "",
+    "require_admin_api_key": false,
+    "admin_api_key": ""
   },
   "reports": {
     "redact_by_default": true,

@@ -47,15 +47,33 @@ def create_app(workspace_root: Path) -> FastAPI:
     app = FastAPI(title="TitantShift Harness API", version="0.1.0")
     app.state.runtime = runtime
 
-    async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
-        enabled = bool(runtime.config.get("api.require_api_key", False))
+    def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
         if not enabled:
             return
-        expected = str(runtime.config.get("api.api_key", "")).strip()
         if not expected:
-            raise HTTPException(status_code=500, detail="API key auth enabled but no api.api_key configured")
-        if x_api_key != expected:
+            raise HTTPException(status_code=500, detail=missing_detail)
+        if supplied != expected:
             raise HTTPException(status_code=401, detail="Unauthorized")
+
+    async def require_read_api_key(x_api_key: str | None = Header(default=None)) -> None:
+        _validate_api_key(
+            supplied=x_api_key,
+            expected=str(runtime.config.get("api.api_key", "")).strip(),
+            enabled=bool(runtime.config.get("api.require_api_key", False)),
+            missing_detail="API key auth enabled but no api.api_key configured",
+        )
+
+    async def require_admin_api_key(x_api_key: str | None = Header(default=None)) -> None:
+        admin_enabled = bool(runtime.config.get("api.require_admin_api_key", False))
+        if admin_enabled:
+            _validate_api_key(
+                supplied=x_api_key,
+                expected=str(runtime.config.get("api.admin_api_key", "")).strip(),
+                enabled=True,
+                missing_detail="Admin API key auth enabled but no api.admin_api_key configured",
+            )
+            return
+        await require_read_api_key(x_api_key)
 
     def _report_redacted_keys() -> list[str]:
         keys = runtime.config.get("reports.redacted_keys", [])
@@ -198,7 +216,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                 skipped_paths.append(str(path))
         return deleted_paths, skipped_paths
 
-    @app.get("/status", dependencies=[Depends(require_api_key)])
+    @app.get("/status", dependencies=[Depends(require_read_api_key)])
     async def status() -> dict:
         return {
             "ok": True,
@@ -209,7 +227,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "health": runtime.health.as_list(),
         }
 
-    @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_api_key)])
+    @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_read_api_key)])
     async def chat(body: ChatRequest) -> ChatResponse:
         task_input: dict = {}
         if body.model_backend:
@@ -232,18 +250,18 @@ def create_app(workspace_root: Path) -> FastAPI:
             estimated_total_tokens=result.output.get("estimated_total_tokens"),
         )
 
-    @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_api_key)])
+    @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_read_api_key)])
     async def list_tasks() -> list[TaskSummary]:
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
 
-    @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_api_key)])
+    @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_read_api_key)])
     async def get_task(task_id: str) -> TaskDetail:
         task = runtime.orchestrator.get_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskDetail(**task)
 
-    @app.get("/logs", response_model=list[LogEntry], dependencies=[Depends(require_api_key)])
+    @app.get("/logs", response_model=list[LogEntry], dependencies=[Depends(require_read_api_key)])
     async def get_logs(
         event_type: str | None = None,
         task_id: str | None = None,
@@ -259,7 +277,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
         return [LogEntry(**r) for r in rows]
 
-    @app.get("/config", dependencies=[Depends(require_api_key)])
+    @app.get("/config", dependencies=[Depends(require_read_api_key)])
     async def get_config() -> dict:
         return {
             "model.default_backend": runtime.config.get("model.default_backend"),
@@ -273,17 +291,17 @@ def create_app(workspace_root: Path) -> FastAPI:
             "tools.allow_network": runtime.config.get("tools.allow_network"),
         }
 
-    @app.post("/config", response_model=ConfigUpdateResponse, dependencies=[Depends(require_api_key)])
+    @app.post("/config", response_model=ConfigUpdateResponse, dependencies=[Depends(require_admin_api_key)])
     async def update_config(body: ConfigUpdateRequest) -> ConfigUpdateResponse:
         runtime.config.set(body.key, body.value)
         runtime.logger.log("CONFIG_UPDATED", {"key": body.key})
         return ConfigUpdateResponse(ok=True, key=body.key, value=runtime.config.get(body.key))
 
-    @app.get("/scheduler/jobs", response_model=list[SchedulerJob], dependencies=[Depends(require_api_key)])
+    @app.get("/scheduler/jobs", response_model=list[SchedulerJob], dependencies=[Depends(require_read_api_key)])
     async def scheduler_jobs() -> list[SchedulerJob]:
         return [SchedulerJob(**j) for j in runtime.scheduler.list_jobs()]
 
-    @app.get("/agents", response_model=list[AgentSummary], dependencies=[Depends(require_api_key)])
+    @app.get("/agents", response_model=list[AgentSummary], dependencies=[Depends(require_read_api_key)])
     async def agents() -> list[AgentSummary]:
         return [
             AgentSummary(
@@ -295,7 +313,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
         ]
 
-    @app.get("/skills", response_model=list[SkillSummary], dependencies=[Depends(require_api_key)])
+    @app.get("/skills", response_model=list[SkillSummary], dependencies=[Depends(require_read_api_key)])
     async def skills(query: str | None = None) -> list[SkillSummary]:
         rows = runtime.skills.search_skills(query) if query else runtime.skills.list_skills()
         return [
@@ -308,7 +326,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             for s in rows
         ]
 
-    @app.get("/tools", response_model=list[ToolSummary], dependencies=[Depends(require_api_key)])
+    @app.get("/tools", response_model=list[ToolSummary], dependencies=[Depends(require_read_api_key)])
     async def tools(query: str | None = None) -> list[ToolSummary]:
         rows = runtime.tools.search_tools(query) if query else runtime.tools.list_tools()
         out: list[ToolSummary] = []
@@ -327,13 +345,13 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
         return out
 
-    @app.post("/scheduler/heartbeat", response_model=SchedulerHeartbeatResponse, dependencies=[Depends(require_api_key)])
+    @app.post("/scheduler/heartbeat", response_model=SchedulerHeartbeatResponse, dependencies=[Depends(require_admin_api_key)])
     async def scheduler_heartbeat() -> SchedulerHeartbeatResponse:
         runtime.logger.log("SCHEDULER_HEARTBEAT", {"source": "api"})
         hb = runtime.scheduler.heartbeat()
         return SchedulerHeartbeatResponse(**hb)
 
-    @app.post("/scheduler/tick", response_model=SchedulerTickResponse, dependencies=[Depends(require_api_key)])
+    @app.post("/scheduler/tick", response_model=SchedulerTickResponse, dependencies=[Depends(require_admin_api_key)])
     async def scheduler_tick() -> SchedulerTickResponse:
         result = await runtime.scheduler.tick()
         runtime.logger.log("SCHEDULER_TICK", result)
@@ -342,7 +360,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.post(
         "/scheduler/jobs/{job_id}/enabled",
         response_model=SchedulerJobToggleResponse,
-        dependencies=[Depends(require_api_key)],
+        dependencies=[Depends(require_admin_api_key)],
     )
     async def scheduler_job_enabled(job_id: str, body: SchedulerJobToggleRequest) -> SchedulerJobToggleResponse:
         job = runtime.scheduler.set_enabled(job_id, body.enabled)
@@ -351,26 +369,26 @@ def create_app(workspace_root: Path) -> FastAPI:
         runtime.logger.log("SCHEDULER_JOB_TOGGLED", {"job_id": job_id, "enabled": body.enabled, "source": "api"})
         return SchedulerJobToggleResponse(job_id=job_id, enabled=job.enabled)
 
-    @app.get("/memory/summary", response_model=MemorySummary, dependencies=[Depends(require_api_key)])
+    @app.get("/memory/summary", response_model=MemorySummary, dependencies=[Depends(require_read_api_key)])
     async def memory_summary() -> MemorySummary:
         return MemorySummary(**runtime.memory.summary())
 
-    @app.get("/memory/semantic-search", response_model=list[MemorySemanticHit], dependencies=[Depends(require_api_key)])
+    @app.get("/memory/semantic-search", response_model=list[MemorySemanticHit], dependencies=[Depends(require_read_api_key)])
     async def memory_semantic_search(query: str, limit: int = 5) -> list[MemorySemanticHit]:
         clamped_limit = max(1, min(limit, 100))
         rows = runtime.memory.semantic_search(query=query, limit=clamped_limit)
         return [MemorySemanticHit(**r) for r in rows]
 
-    @app.get("/memory/graph/neighbors", response_model=MemoryGraphNeighbors, dependencies=[Depends(require_api_key)])
+    @app.get("/memory/graph/neighbors", response_model=MemoryGraphNeighbors, dependencies=[Depends(require_read_api_key)])
     async def memory_graph_neighbors(node_id: str) -> MemoryGraphNeighbors:
         neighbors = runtime.memory.graph_neighbors(node_id)
         return MemoryGraphNeighbors(node_id=node_id, neighbors=neighbors)
 
-    @app.get("/reports/run-history", response_model=RunHistoryReport, dependencies=[Depends(require_api_key)])
+    @app.get("/reports/run-history", response_model=RunHistoryReport, dependencies=[Depends(require_read_api_key)])
     async def run_history_report(task_limit: int = 10, log_limit: int = 50, redact: bool | None = None) -> RunHistoryReport:
         return _build_run_history_report(task_limit=task_limit, log_limit=log_limit, redact=redact)
 
-    @app.post("/reports/run-history/export", response_model=RunHistoryExportResponse, dependencies=[Depends(require_api_key)])
+    @app.post("/reports/run-history/export", response_model=RunHistoryExportResponse, dependencies=[Depends(require_admin_api_key)])
     async def run_history_export(body: RunHistoryExportRequest) -> RunHistoryExportResponse:
         target = (workspace_root / body.path).resolve()
         if not runtime.execution.policy.is_cwd_allowed(target.parent):
@@ -402,7 +420,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             report_hash=report.report_hash,
         )
 
-    @app.post("/reports/run-history/verify", response_model=RunHistoryVerifyResponse, dependencies=[Depends(require_api_key)])
+    @app.post("/reports/run-history/verify", response_model=RunHistoryVerifyResponse, dependencies=[Depends(require_read_api_key)])
     async def run_history_verify(body: RunHistoryVerifyRequest) -> RunHistoryVerifyResponse:
         target = (workspace_root / body.path).resolve()
         if not runtime.execution.policy.is_cwd_allowed(target.parent):
@@ -442,7 +460,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             signing_version=str(loaded.get("signing_version")) if loaded.get("signing_version") is not None else None,
         )
 
-    @app.post("/artifacts/cleanup", response_model=ArtifactCleanupResponse, dependencies=[Depends(require_api_key)])
+    @app.post("/artifacts/cleanup", response_model=ArtifactCleanupResponse, dependencies=[Depends(require_admin_api_key)])
     async def artifacts_cleanup(body: ArtifactCleanupRequest) -> ArtifactCleanupResponse:
         report_default = int(runtime.config.get("reports.cleanup_max_age_days", 7))
         log_default = int(runtime.config.get("logging.cleanup_max_age_days", 30))
@@ -471,7 +489,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             skipped_paths=skipped_paths,
         )
 
-    @app.get("/reports/policy", response_model=RunHistoryPolicy, dependencies=[Depends(require_api_key)])
+    @app.get("/reports/policy", response_model=RunHistoryPolicy, dependencies=[Depends(require_read_api_key)])
     async def report_policy() -> RunHistoryPolicy:
         return RunHistoryPolicy(
             redact_by_default=bool(runtime.config.get("reports.redact_by_default", True)),
