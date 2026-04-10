@@ -173,6 +173,22 @@ def test_scheduler_endpoints() -> None:
     assert "ran_jobs" in tick_body
 
 
+def test_scheduler_job_toggle_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    disable = client.post("/scheduler/jobs/scheduler_heartbeat/enabled", json={"enabled": False})
+    assert disable.status_code == 200
+    assert disable.json()["enabled"] is False
+
+    tick = client.post("/scheduler/tick")
+    assert tick.status_code == 200
+    assert "scheduler_heartbeat" not in tick.json()["ran_jobs"]
+
+    missing = client.post("/scheduler/jobs/missing/enabled", json={"enabled": True})
+    assert missing.status_code == 404
+
+
 def test_agents_endpoint() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -264,4 +280,26 @@ def test_api_key_auth_enforced_when_enabled() -> None:
 
     authorized = client.get("/status", headers={"x-api-key": "secret123"})
     assert authorized.status_code == 200
+
+
+def test_run_history_report_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    _ = client.post(
+        "/chat",
+        json={
+            "prompt": "history smoke",
+            "model_backend": "local_stub",
+        },
+    )
+
+    response = client.get("/reports/run-history?task_limit=5&log_limit=20")
+    assert response.status_code == 200
+    body = response.json()
+    assert "generated_at" in body
+    assert "total_tasks" in body
+    assert isinstance(body.get("recent_tasks"), list)
+    assert isinstance(body.get("recent_events"), list)
+    assert isinstance(body.get("health"), list)
 

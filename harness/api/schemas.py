@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -76,6 +79,15 @@ class SchedulerTickResponse(BaseModel):
     job_count: int
 
 
+class SchedulerJobToggleRequest(BaseModel):
+    enabled: bool
+
+
+class SchedulerJobToggleResponse(BaseModel):
+    job_id: str
+    enabled: bool
+
+
 class AgentSummary(BaseModel):
     agent_id: str
     role: str
@@ -119,3 +131,13 @@ class MemorySemanticHit(BaseModel):
 class MemoryGraphNeighbors(BaseModel):
     node_id: str
     neighbors: list[str]
+
+
+class RunHistoryReport(BaseModel):
+    generated_at: datetime
+    total_tasks: int
+    failed_tasks: int
+    recent_tasks: list[TaskSummary]
+    recent_events: list[LogEntry]
+    health: list[dict[str, Any]]
+    loaded_modules: list[str]

@@ -102,6 +102,7 @@ Scheduler API (idle by default, explicit triggers only):
 curl http://127.0.0.1:8000/scheduler/jobs
 curl -X POST http://127.0.0.1:8000/scheduler/heartbeat
 curl -X POST http://127.0.0.1:8000/scheduler/tick
+curl -X POST http://127.0.0.1:8000/scheduler/jobs/scheduler_heartbeat/enabled -H "Content-Type: application/json" -d "{\"enabled\":false}"
 ```
 
 Agents visibility API:
@@ -125,6 +126,12 @@ Read-only memory inspect API:
 curl http://127.0.0.1:8000/memory/summary
 curl "http://127.0.0.1:8000/memory/semantic-search?query=alpha&limit=5"
 curl "http://127.0.0.1:8000/memory/graph/neighbors?node_id=n1"
+```
+
+Run history export report:
+
+```bash
+curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50"
 ```
 
 Status now includes runtime module health:

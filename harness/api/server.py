@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -12,6 +13,9 @@ from harness.api.schemas import (
     ConfigUpdateRequest,
     ConfigUpdateResponse,
     LogEntry,
+    RunHistoryReport,
+    SchedulerJobToggleRequest,
+    SchedulerJobToggleResponse,
     SchedulerHeartbeatResponse,
     SchedulerJob,
     SchedulerTickResponse,
@@ -183,6 +187,18 @@ def create_app(workspace_root: Path) -> FastAPI:
         runtime.logger.log("SCHEDULER_TICK", result)
         return SchedulerTickResponse(**result)
 
+    @app.post(
+        "/scheduler/jobs/{job_id}/enabled",
+        response_model=SchedulerJobToggleResponse,
+        dependencies=[Depends(require_api_key)],
+    )
+    async def scheduler_job_enabled(job_id: str, body: SchedulerJobToggleRequest) -> SchedulerJobToggleResponse:
+        job = runtime.scheduler.set_enabled(job_id, body.enabled)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        runtime.logger.log("SCHEDULER_JOB_TOGGLED", {"job_id": job_id, "enabled": body.enabled, "source": "api"})
+        return SchedulerJobToggleResponse(job_id=job_id, enabled=job.enabled)
+
     @app.get("/memory/summary", response_model=MemorySummary, dependencies=[Depends(require_api_key)])
     async def memory_summary() -> MemorySummary:
         return MemorySummary(**runtime.memory.summary())
@@ -197,5 +213,27 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def memory_graph_neighbors(node_id: str) -> MemoryGraphNeighbors:
         neighbors = runtime.memory.graph_neighbors(node_id)
         return MemoryGraphNeighbors(node_id=node_id, neighbors=neighbors)
+
+    @app.get("/reports/run-history", response_model=RunHistoryReport, dependencies=[Depends(require_api_key)])
+    async def run_history_report(task_limit: int = 10, log_limit: int = 50) -> RunHistoryReport:
+        clamped_task_limit = max(1, min(task_limit, 100))
+        clamped_log_limit = max(1, min(log_limit, 500))
+
+        all_tasks = runtime.orchestrator.list_tasks()
+        recent_tasks_raw = all_tasks[:clamped_task_limit]
+        recent_events_raw = runtime.logger.query(limit=clamped_log_limit)
+
+        failed_tasks = sum(1 for t in all_tasks if t.get("status") == "failed")
+        loaded_modules = runtime.module_loader.list_modules()
+
+        return RunHistoryReport(
+            generated_at=datetime.now(timezone.utc),
+            total_tasks=len(all_tasks),
+            failed_tasks=failed_tasks,
+            recent_tasks=[TaskSummary(**t) for t in recent_tasks_raw],
+            recent_events=[LogEntry(**e) for e in recent_events_raw],
+            health=runtime.health.as_list(),
+            loaded_modules=loaded_modules,
+        )
 
     return app

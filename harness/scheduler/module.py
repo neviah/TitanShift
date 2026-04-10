@@ -31,6 +31,16 @@ class Scheduler:
     def remove_job(self, job_id: str) -> None:
         self.jobs.pop(job_id, None)
 
+    def set_enabled(self, job_id: str, enabled: bool) -> ScheduledJob | None:
+        job = self.jobs.get(job_id)
+        if job is None:
+            return None
+        job.enabled = enabled
+        return job
+
+    def get_job(self, job_id: str) -> ScheduledJob | None:
+        return self.jobs.get(job_id)
+
     def heartbeat(self) -> dict[str, Any]:
         self.heartbeat_count += 1
         self.last_heartbeat_at = datetime.now(timezone.utc).isoformat()
