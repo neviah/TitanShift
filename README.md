@@ -119,6 +119,14 @@ curl http://127.0.0.1:8000/tools
 curl "http://127.0.0.1:8000/tools?query=shell"
 ```
 
+Read-only memory inspect API:
+
+```bash
+curl http://127.0.0.1:8000/memory/summary
+curl "http://127.0.0.1:8000/memory/semantic-search?query=alpha&limit=5"
+curl "http://127.0.0.1:8000/memory/graph/neighbors?node_id=n1"
+```
+
 Status now includes runtime module health:
 
 ```bash

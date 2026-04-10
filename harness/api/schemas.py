@@ -99,3 +99,23 @@ class ToolSummary(BaseModel):
     required_commands: list[str]
     allowed_by_policy: bool
     policy_reason: str
+
+
+class MemorySummary(BaseModel):
+    working_agents: int
+    working_entries: int
+    short_term_agents: int
+    short_term_entries: int
+    long_term_scopes: int
+    long_term_entries: int
+
+
+class MemorySemanticHit(BaseModel):
+    doc_id: str
+    content: str
+    metadata: dict
+
+
+class MemoryGraphNeighbors(BaseModel):
+    node_id: str
+    neighbors: list[str]

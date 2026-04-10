@@ -66,3 +66,22 @@ class MemoryManager:
         self.graph.add_edge(
             GraphEdge(source=source, target=target, edge_type=edge_type, properties=properties or {})
         )
+
+    def graph_neighbors(self, node_id: str) -> list[str]:
+        return self.graph.query_neighbors(node_id)
+
+    def summary(self) -> dict[str, int]:
+        working_agents = len(self.working_memory)
+        working_entries = sum(len(v) for v in self.working_memory.values())
+        short_term_agents = len(self.short_term)
+        short_term_entries = sum(len(v) for v in self.short_term.values())
+        long_term_scopes = len(self.long_term)
+        long_term_entries = sum(len(v) for v in self.long_term.values())
+        return {
+            "working_agents": working_agents,
+            "working_entries": working_entries,
+            "short_term_agents": short_term_agents,
+            "short_term_entries": short_term_entries,
+            "long_term_scopes": long_term_scopes,
+            "long_term_entries": long_term_entries,
+        }

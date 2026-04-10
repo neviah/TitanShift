@@ -214,3 +214,41 @@ def test_tools_endpoint_and_search() -> None:
     body_q = response_q.json()
     assert any(row["name"] == "shell_command" for row in body_q)
 
+
+def test_memory_summary_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.get("/memory/summary")
+    assert response.status_code == 200
+    body = response.json()
+    assert "working_entries" in body
+    assert "short_term_entries" in body
+
+
+def test_memory_semantic_search_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.memory.embed_and_store(
+        doc_id="sem-1",
+        text="alpha budget policy",
+        metadata={"source": "test"},
+        embedding=[0.1, 0.2, 0.3],
+    )
+    client = TestClient(app)
+    response = client.get("/memory/semantic-search?query=alpha&limit=5")
+    assert response.status_code == 200
+    body = response.json()
+    assert any(hit["doc_id"] == "sem-1" for hit in body)
+
+
+def test_memory_graph_neighbors_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.memory.graph_add_node("n1", "concept")
+    app.state.runtime.memory.graph_add_node("n2", "concept")
+    app.state.runtime.memory.graph_add_edge("n1", "n2", "depends_on")
+    client = TestClient(app)
+    response = client.get("/memory/graph/neighbors?node_id=n1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["node_id"] == "n1"
+    assert "n2" in body["neighbors"]
+

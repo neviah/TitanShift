@@ -15,6 +15,9 @@ from harness.api.schemas import (
     SchedulerHeartbeatResponse,
     SchedulerJob,
     SchedulerTickResponse,
+    MemoryGraphNeighbors,
+    MemorySemanticHit,
+    MemorySummary,
     SkillSummary,
     TaskDetail,
     TaskSummary,
@@ -27,6 +30,7 @@ from harness.runtime.types import Task
 def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
     app = FastAPI(title="TitantShift Harness API", version="0.1.0")
+    app.state.runtime = runtime
 
     @app.get("/status")
     async def status() -> dict:
@@ -168,5 +172,20 @@ def create_app(workspace_root: Path) -> FastAPI:
         result = await runtime.scheduler.tick()
         runtime.logger.log("SCHEDULER_TICK", result)
         return SchedulerTickResponse(**result)
+
+    @app.get("/memory/summary", response_model=MemorySummary)
+    async def memory_summary() -> MemorySummary:
+        return MemorySummary(**runtime.memory.summary())
+
+    @app.get("/memory/semantic-search", response_model=list[MemorySemanticHit])
+    async def memory_semantic_search(query: str, limit: int = 5) -> list[MemorySemanticHit]:
+        clamped_limit = max(1, min(limit, 100))
+        rows = runtime.memory.semantic_search(query=query, limit=clamped_limit)
+        return [MemorySemanticHit(**r) for r in rows]
+
+    @app.get("/memory/graph/neighbors", response_model=MemoryGraphNeighbors)
+    async def memory_graph_neighbors(node_id: str) -> MemoryGraphNeighbors:
+        neighbors = runtime.memory.graph_neighbors(node_id)
+        return MemoryGraphNeighbors(node_id=node_id, neighbors=neighbors)
 
     return app
