@@ -252,3 +252,16 @@ def test_memory_graph_neighbors_endpoint() -> None:
     assert body["node_id"] == "n1"
     assert "n2" in body["neighbors"]
 
+
+def test_api_key_auth_enforced_when_enabled() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("api.require_api_key", True)
+    app.state.runtime.config.set("api.api_key", "secret123")
+    client = TestClient(app)
+
+    unauthorized = client.get("/status")
+    assert unauthorized.status_code == 401
+
+    authorized = client.get("/status", headers={"x-api-key": "secret123"})
+    assert authorized.status_code == 200
+

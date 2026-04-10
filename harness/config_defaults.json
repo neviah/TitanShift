@@ -49,5 +49,9 @@
   },
   "logging": {
     "file": "events.log"
+  },
+  "api": {
+    "require_api_key": false,
+    "api_key": ""
   }
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 
 from harness.api.schemas import (
     AgentSummary,
@@ -32,7 +32,17 @@ def create_app(workspace_root: Path) -> FastAPI:
     app = FastAPI(title="TitantShift Harness API", version="0.1.0")
     app.state.runtime = runtime
 
-    @app.get("/status")
+    async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+        enabled = bool(runtime.config.get("api.require_api_key", False))
+        if not enabled:
+            return
+        expected = str(runtime.config.get("api.api_key", "")).strip()
+        if not expected:
+            raise HTTPException(status_code=500, detail="API key auth enabled but no api.api_key configured")
+        if x_api_key != expected:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    @app.get("/status", dependencies=[Depends(require_api_key)])
     async def status() -> dict:
         return {
             "ok": True,
@@ -43,7 +53,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "health": runtime.health.as_list(),
         }
 
-    @app.post("/chat", response_model=ChatResponse)
+    @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_api_key)])
     async def chat(body: ChatRequest) -> ChatResponse:
         task_input: dict = {}
         if body.model_backend:
@@ -66,18 +76,18 @@ def create_app(workspace_root: Path) -> FastAPI:
             estimated_total_tokens=result.output.get("estimated_total_tokens"),
         )
 
-    @app.get("/tasks", response_model=list[TaskSummary])
+    @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_api_key)])
     async def list_tasks() -> list[TaskSummary]:
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
 
-    @app.get("/tasks/{task_id}", response_model=TaskDetail)
+    @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_api_key)])
     async def get_task(task_id: str) -> TaskDetail:
         task = runtime.orchestrator.get_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskDetail(**task)
 
-    @app.get("/logs", response_model=list[LogEntry])
+    @app.get("/logs", response_model=list[LogEntry], dependencies=[Depends(require_api_key)])
     async def get_logs(
         event_type: str | None = None,
         task_id: str | None = None,
@@ -93,7 +103,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
         return [LogEntry(**r) for r in rows]
 
-    @app.get("/config")
+    @app.get("/config", dependencies=[Depends(require_api_key)])
     async def get_config() -> dict:
         return {
             "model.default_backend": runtime.config.get("model.default_backend"),
@@ -107,17 +117,17 @@ def create_app(workspace_root: Path) -> FastAPI:
             "tools.allow_network": runtime.config.get("tools.allow_network"),
         }
 
-    @app.post("/config", response_model=ConfigUpdateResponse)
+    @app.post("/config", response_model=ConfigUpdateResponse, dependencies=[Depends(require_api_key)])
     async def update_config(body: ConfigUpdateRequest) -> ConfigUpdateResponse:
         runtime.config.set(body.key, body.value)
         runtime.logger.log("CONFIG_UPDATED", {"key": body.key})
         return ConfigUpdateResponse(ok=True, key=body.key, value=runtime.config.get(body.key))
 
-    @app.get("/scheduler/jobs", response_model=list[SchedulerJob])
+    @app.get("/scheduler/jobs", response_model=list[SchedulerJob], dependencies=[Depends(require_api_key)])
     async def scheduler_jobs() -> list[SchedulerJob]:
         return [SchedulerJob(**j) for j in runtime.scheduler.list_jobs()]
 
-    @app.get("/agents", response_model=list[AgentSummary])
+    @app.get("/agents", response_model=list[AgentSummary], dependencies=[Depends(require_api_key)])
     async def agents() -> list[AgentSummary]:
         return [
             AgentSummary(
@@ -129,7 +139,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
         ]
 
-    @app.get("/skills", response_model=list[SkillSummary])
+    @app.get("/skills", response_model=list[SkillSummary], dependencies=[Depends(require_api_key)])
     async def skills(query: str | None = None) -> list[SkillSummary]:
         rows = runtime.skills.search_skills(query) if query else runtime.skills.list_skills()
         return [
@@ -142,7 +152,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             for s in rows
         ]
 
-    @app.get("/tools", response_model=list[ToolSummary])
+    @app.get("/tools", response_model=list[ToolSummary], dependencies=[Depends(require_api_key)])
     async def tools(query: str | None = None) -> list[ToolSummary]:
         rows = runtime.tools.search_tools(query) if query else runtime.tools.list_tools()
         out: list[ToolSummary] = []
@@ -161,29 +171,29 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
         return out
 
-    @app.post("/scheduler/heartbeat", response_model=SchedulerHeartbeatResponse)
+    @app.post("/scheduler/heartbeat", response_model=SchedulerHeartbeatResponse, dependencies=[Depends(require_api_key)])
     async def scheduler_heartbeat() -> SchedulerHeartbeatResponse:
         runtime.logger.log("SCHEDULER_HEARTBEAT", {"source": "api"})
         hb = runtime.scheduler.heartbeat()
         return SchedulerHeartbeatResponse(**hb)
 
-    @app.post("/scheduler/tick", response_model=SchedulerTickResponse)
+    @app.post("/scheduler/tick", response_model=SchedulerTickResponse, dependencies=[Depends(require_api_key)])
     async def scheduler_tick() -> SchedulerTickResponse:
         result = await runtime.scheduler.tick()
         runtime.logger.log("SCHEDULER_TICK", result)
         return SchedulerTickResponse(**result)
 
-    @app.get("/memory/summary", response_model=MemorySummary)
+    @app.get("/memory/summary", response_model=MemorySummary, dependencies=[Depends(require_api_key)])
     async def memory_summary() -> MemorySummary:
         return MemorySummary(**runtime.memory.summary())
 
-    @app.get("/memory/semantic-search", response_model=list[MemorySemanticHit])
+    @app.get("/memory/semantic-search", response_model=list[MemorySemanticHit], dependencies=[Depends(require_api_key)])
     async def memory_semantic_search(query: str, limit: int = 5) -> list[MemorySemanticHit]:
         clamped_limit = max(1, min(limit, 100))
         rows = runtime.memory.semantic_search(query=query, limit=clamped_limit)
         return [MemorySemanticHit(**r) for r in rows]
 
-    @app.get("/memory/graph/neighbors", response_model=MemoryGraphNeighbors)
+    @app.get("/memory/graph/neighbors", response_model=MemoryGraphNeighbors, dependencies=[Depends(require_api_key)])
     async def memory_graph_neighbors(node_id: str) -> MemoryGraphNeighbors:
         neighbors = runtime.memory.graph_neighbors(node_id)
         return MemoryGraphNeighbors(node_id=node_id, neighbors=neighbors)

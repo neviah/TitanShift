@@ -182,6 +182,13 @@ Execution sandbox keys:
 - execution.max_runtime_s
 - execution.max_output_bytes
 
+Optional API auth keys:
+
+- api.require_api_key
+- api.api_key
+
+When enabled, send `x-api-key` header on all API calls.
+
 ## Notes
 
 - This is phase 1 plus forward-compatible stubs.

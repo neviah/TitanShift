@@ -39,5 +39,9 @@
   },
   "ingestion": {
     "enable_graphify_plugin": false
+  },
+  "api": {
+    "require_api_key": false,
+    "api_key": ""
   }
 }
