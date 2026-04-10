@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import json
 from fastapi.testclient import TestClient
 
 from harness.api.server import create_app
@@ -345,4 +346,36 @@ def test_run_history_report_policy_endpoint() -> None:
     body = response.json()
     assert "redact_by_default" in body
     assert isinstance(body.get("redacted_keys"), list)
+
+
+def test_run_history_export_endpoint_writes_file() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    out_path = ".harness/test-run-history-export.json"
+    response = client.post(
+        "/reports/run-history/export",
+        json={"path": out_path, "task_limit": 5, "log_limit": 20},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+
+    target = Path(out_path)
+    assert target.exists()
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    assert loaded["report_hash"] == body["report_hash"]
+
+    target.unlink(missing_ok=True)
+
+
+def test_run_history_export_endpoint_blocks_path_outside_policy() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/reports/run-history/export",
+        json={"path": "../outside-policy-report.json", "task_limit": 5, "log_limit": 20},
+    )
+    assert response.status_code == 403
 

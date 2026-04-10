@@ -133,8 +133,11 @@ Run history export report:
 ```bash
 curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50"
 curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50&redact=false"
+curl -X POST http://127.0.0.1:8000/reports/run-history/export -H "Content-Type: application/json" -d "{\"path\":\".harness/run-history-report.json\",\"task_limit\":10,\"log_limit\":50}"
 curl "http://127.0.0.1:8000/reports/policy"
 ```
+
+Export writes are restricted to configured execution allowed roots.
 
 `/reports/run-history` includes signing metadata:
 

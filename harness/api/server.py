@@ -16,6 +16,8 @@ from harness.api.schemas import (
     ConfigUpdateRequest,
     ConfigUpdateResponse,
     LogEntry,
+    RunHistoryExportRequest,
+    RunHistoryExportResponse,
     RunHistoryPolicy,
     RunHistoryReport,
     SchedulerJobToggleRequest,
@@ -72,6 +74,68 @@ def create_app(workspace_root: Path) -> FastAPI:
         if isinstance(value, list):
             return [_redact_value(v, redacted_keys) for v in value]
         return value
+
+    def _build_run_history_report(task_limit: int, log_limit: int, redact: bool | None) -> RunHistoryReport:
+        clamped_task_limit = max(1, min(task_limit, 100))
+        clamped_log_limit = max(1, min(log_limit, 500))
+        apply_redaction = bool(runtime.config.get("reports.redact_by_default", True)) if redact is None else redact
+        redacted_keys = set(_report_redacted_keys())
+
+        all_tasks = runtime.orchestrator.list_tasks()
+        recent_tasks_raw = all_tasks[:clamped_task_limit]
+        recent_events_raw = runtime.logger.query(limit=clamped_log_limit)
+
+        if apply_redaction and redacted_keys:
+            recent_events_raw = [
+                {
+                    "timestamp": e.get("timestamp"),
+                    "event_type": e.get("event_type"),
+                    "payload": _redact_value(e.get("payload", {}), redacted_keys),
+                }
+                for e in recent_events_raw
+            ]
+
+        failed_tasks = sum(1 for t in all_tasks if t.get("status") == "failed")
+        loaded_modules = runtime.module_loader.list_modules()
+        generated_at = datetime.now(timezone.utc)
+        config_snapshot = {
+            "model.default_backend": runtime.config.get("model.default_backend"),
+            "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
+            "tools.deny_all_by_default": runtime.config.get("tools.deny_all_by_default"),
+            "reports.redact_by_default": bool(runtime.config.get("reports.redact_by_default", True)),
+            "reports.redacted_keys": _report_redacted_keys(),
+        }
+        signing_version = "v1"
+        signature_payload = {
+            "generated_at": generated_at.isoformat(),
+            "signing_version": signing_version,
+            "redaction_applied": apply_redaction,
+            "total_tasks": len(all_tasks),
+            "failed_tasks": failed_tasks,
+            "recent_tasks": recent_tasks_raw,
+            "recent_events": recent_events_raw,
+            "health": runtime.health.as_list(),
+            "loaded_modules": loaded_modules,
+            "config_snapshot": config_snapshot,
+        }
+        digest = hashlib.sha256(
+            json.dumps(signature_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        report_hash = f"sha256:{digest}"
+
+        return RunHistoryReport(
+            generated_at=generated_at,
+            signing_version=signing_version,
+            report_hash=report_hash,
+            redaction_applied=apply_redaction,
+            total_tasks=len(all_tasks),
+            failed_tasks=failed_tasks,
+            recent_tasks=[TaskSummary(**t) for t in recent_tasks_raw],
+            recent_events=[LogEntry(**e) for e in recent_events_raw],
+            health=runtime.health.as_list(),
+            loaded_modules=loaded_modules,
+            config_snapshot=config_snapshot,
+        )
 
     @app.get("/status", dependencies=[Depends(require_api_key)])
     async def status() -> dict:
@@ -243,65 +307,31 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.get("/reports/run-history", response_model=RunHistoryReport, dependencies=[Depends(require_api_key)])
     async def run_history_report(task_limit: int = 10, log_limit: int = 50, redact: bool | None = None) -> RunHistoryReport:
-        clamped_task_limit = max(1, min(task_limit, 100))
-        clamped_log_limit = max(1, min(log_limit, 500))
-        apply_redaction = bool(runtime.config.get("reports.redact_by_default", True)) if redact is None else redact
-        redacted_keys = set(_report_redacted_keys())
+        return _build_run_history_report(task_limit=task_limit, log_limit=log_limit, redact=redact)
 
-        all_tasks = runtime.orchestrator.list_tasks()
-        recent_tasks_raw = all_tasks[:clamped_task_limit]
-        recent_events_raw = runtime.logger.query(limit=clamped_log_limit)
+    @app.post("/reports/run-history/export", response_model=RunHistoryExportResponse, dependencies=[Depends(require_api_key)])
+    async def run_history_export(body: RunHistoryExportRequest) -> RunHistoryExportResponse:
+        target = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(target.parent):
+            raise HTTPException(status_code=403, detail="Export path blocked by execution policy")
 
-        if apply_redaction and redacted_keys:
-            recent_events_raw = [
-                {
-                    "timestamp": e.get("timestamp"),
-                    "event_type": e.get("event_type"),
-                    "payload": _redact_value(e.get("payload", {}), redacted_keys),
-                }
-                for e in recent_events_raw
-            ]
+        report = _build_run_history_report(task_limit=body.task_limit, log_limit=body.log_limit, redact=body.redact)
+        payload = report.model_dump(mode="json")
+        text = json.dumps(payload, indent=2, sort_keys=True)
 
-        failed_tasks = sum(1 for t in all_tasks if t.get("status") == "failed")
-        loaded_modules = runtime.module_loader.list_modules()
-        generated_at = datetime.now(timezone.utc)
-        config_snapshot = {
-            "model.default_backend": runtime.config.get("model.default_backend"),
-            "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
-            "tools.deny_all_by_default": runtime.config.get("tools.deny_all_by_default"),
-            "reports.redact_by_default": bool(runtime.config.get("reports.redact_by_default", True)),
-            "reports.redacted_keys": _report_redacted_keys(),
-        }
-        signing_version = "v1"
-        signature_payload = {
-            "generated_at": generated_at.isoformat(),
-            "signing_version": signing_version,
-            "redaction_applied": apply_redaction,
-            "total_tasks": len(all_tasks),
-            "failed_tasks": failed_tasks,
-            "recent_tasks": recent_tasks_raw,
-            "recent_events": recent_events_raw,
-            "health": runtime.health.as_list(),
-            "loaded_modules": loaded_modules,
-            "config_snapshot": config_snapshot,
-        }
-        digest = hashlib.sha256(
-            json.dumps(signature_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        report_hash = f"sha256:{digest}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text + "\n", encoding="utf-8")
 
-        return RunHistoryReport(
-            generated_at=generated_at,
-            signing_version=signing_version,
-            report_hash=report_hash,
-            redaction_applied=apply_redaction,
-            total_tasks=len(all_tasks),
-            failed_tasks=failed_tasks,
-            recent_tasks=[TaskSummary(**t) for t in recent_tasks_raw],
-            recent_events=[LogEntry(**e) for e in recent_events_raw],
-            health=runtime.health.as_list(),
-            loaded_modules=loaded_modules,
-            config_snapshot=config_snapshot,
+        runtime.logger.log(
+            "REPORT_EXPORTED",
+            {"path": str(target), "report_hash": report.report_hash, "source": "api"},
+        )
+
+        return RunHistoryExportResponse(
+            ok=True,
+            path=str(target),
+            bytes_written=target.stat().st_size,
+            report_hash=report.report_hash,
         )
 
     @app.get("/reports/policy", response_model=RunHistoryPolicy, dependencies=[Depends(require_api_key)])

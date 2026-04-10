@@ -150,3 +150,17 @@ class RunHistoryReport(BaseModel):
 class RunHistoryPolicy(BaseModel):
     redact_by_default: bool
     redacted_keys: list[str]
+
+
+class RunHistoryExportRequest(BaseModel):
+    path: str = Field(min_length=1)
+    task_limit: int = Field(default=10, ge=1, le=100)
+    log_limit: int = Field(default=50, ge=1, le=500)
+    redact: bool | None = None
+
+
+class RunHistoryExportResponse(BaseModel):
+    ok: bool
+    path: str
+    bytes_written: int
+    report_hash: str
