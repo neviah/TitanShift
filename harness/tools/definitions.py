@@ -11,5 +11,6 @@ class ToolDefinition:
     name: str
     description: str
     required_paths: list[str] = field(default_factory=list)
+    required_commands: list[str] = field(default_factory=list)
     needs_network: bool = False
     handler: ToolHandler | None = None

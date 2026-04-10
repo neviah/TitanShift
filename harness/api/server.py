@@ -3,9 +3,9 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
-from harness.api.schemas import ChatRequest, ChatResponse
+from harness.api.schemas import ChatRequest, ChatResponse, TaskDetail, TaskSummary
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.types import Task
 
@@ -37,5 +37,16 @@ def create_app(workspace_root: Path) -> FastAPI:
             model=result.output.get("model", "unknown"),
             mode=result.output.get("mode", "reactive"),
         )
+
+    @app.get("/tasks", response_model=list[TaskSummary])
+    async def list_tasks() -> list[TaskSummary]:
+        return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
+
+    @app.get("/tasks/{task_id}", response_model=TaskDetail)
+    async def get_task(task_id: str) -> TaskDetail:
+        task = runtime.orchestrator.get_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return TaskDetail(**task)
 
     return app

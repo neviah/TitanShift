@@ -30,16 +30,25 @@ class RuntimeContext:
 def build_runtime(workspace_root: Path) -> RuntimeContext:
     cfg = ConfigManager(workspace_root)
     bus = EventBus()
-    memory = MemoryManager(cfg, workspace_root)
-    models = ModelRegistry.from_config(cfg)
-    tools = ToolRegistry(PermissionPolicy.from_config(cfg, workspace_root))
-    orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, tools=tools)
-    hooks = ApiHooks()
-    module_loader = ModuleLoader(modules_root=workspace_root / cfg.get("runtime.module_path", "modules"))
 
     log_root = workspace_root / cfg.get("memory.storage_dir", ".harness")
     log_file = log_root / cfg.get("logging.file", "events.log")
     logger = JsonLogger(log_file=log_file)
+
+    memory = MemoryManager(cfg, workspace_root)
+    models = ModelRegistry.from_config(cfg)
+
+    def on_tool_audit(payload: dict) -> None:
+        logger.log("TOOL_AUDIT", payload)
+
+    tools = ToolRegistry(
+        PermissionPolicy.from_config(cfg, workspace_root),
+        audit_sink=on_tool_audit,
+    )
+
+    orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, tools=tools)
+    hooks = ApiHooks()
+    module_loader = ModuleLoader(modules_root=workspace_root / cfg.get("runtime.module_path", "modules"))
 
     async def on_agent_spawned(payload: dict) -> None:
         logger.log("AGENT_SPAWNED", payload)

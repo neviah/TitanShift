@@ -66,6 +66,13 @@ Then call:
 curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"prompt\":\"hello\",\"model_backend\":\"local_stub\"}"
 ```
 
+Task history endpoints:
+
+```bash
+curl http://127.0.0.1:8000/tasks
+curl http://127.0.0.1:8000/tasks/<task_id>
+```
+
 7. Run LM Studio health check:
 
 ```bash
@@ -83,6 +90,15 @@ LM Studio config keys:
 - model.lmstudio.base_url (default: http://127.0.0.1:1234/v1)
 - model.lmstudio.model (default: local-model)
 - model.lmstudio.timeout_s (default: 45.0)
+
+Phase 1 budget and tool policy keys:
+
+- state_machine.default_budget.max_steps
+- state_machine.default_budget.max_tokens
+- state_machine.default_budget.max_duration_ms
+- tools.allowed_tool_names
+- tools.blocked_tool_names
+- tools.allowed_command_prefixes
 
 ## Notes
 

@@ -19,7 +19,17 @@
   "tools": {
     "deny_all_by_default": true,
     "allow_network": false,
-    "allowed_paths": []
+    "allowed_paths": [],
+    "allowed_tool_names": [],
+    "blocked_tool_names": [],
+    "allowed_command_prefixes": []
+  },
+  "state_machine": {
+    "default_budget": {
+      "max_steps": 1,
+      "max_tokens": 8192,
+      "max_duration_ms": 60000
+    }
   },
   "ingestion": {
     "enable_graphify_plugin": false
