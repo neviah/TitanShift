@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+from fastapi.testclient import TestClient
 
 from harness.api.server import create_app
 from harness.execution.policy import ExecutionPolicy
@@ -75,3 +76,20 @@ def test_builtin_shell_command_tool_registered() -> None:
     runtime = build_runtime(Path(".").resolve())
     tool = runtime.tools.get_tool("shell_command")
     assert tool is not None
+
+
+def test_chat_budget_override_returns_error_state() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.post(
+        "/chat",
+        json={
+            "prompt": "This should exceed tiny budget",
+            "model_backend": "local_stub",
+            "budget": {"max_tokens": 1},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"] is not None

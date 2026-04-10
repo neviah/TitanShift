@@ -66,6 +66,14 @@ Then call:
 curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"prompt\":\"hello\",\"model_backend\":\"local_stub\"}"
 ```
 
+Per-request budget override example:
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" -d "{\"prompt\":\"large task\",\"model_backend\":\"lmstudio\",\"budget\":{\"max_tokens\":16000,\"max_duration_ms\":120000}}"
+```
+
+`/chat` now returns `success`, optional `error`, and `estimated_total_tokens`.
+
 Task history endpoints:
 
 ```bash

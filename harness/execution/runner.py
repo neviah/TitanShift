@@ -60,6 +60,6 @@ class ExecutionModule:
         return ExecutionResult(
             stdout=stdout_b.decode("utf-8", errors="replace"),
             stderr=stderr_b.decode("utf-8", errors="replace"),
-            returncode=proc.returncode,
+            returncode=proc.returncode if proc.returncode is not None else -1,
             truncated=truncated,
         )

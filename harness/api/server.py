@@ -26,16 +26,25 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(body: ChatRequest) -> ChatResponse:
+        task_input: dict = {}
+        if body.model_backend:
+            task_input["model_backend"] = body.model_backend
+        if body.budget:
+            task_input["budget"] = body.budget.model_dump(exclude_none=True)
+
         task = Task(
             id=str(uuid.uuid4()),
             description=body.prompt,
-            input={"model_backend": body.model_backend} if body.model_backend else {},
+            input=task_input,
         )
         result = await runtime.orchestrator.run_reactive_task(task)
         return ChatResponse(
+            success=result.success,
             response=result.output.get("response", ""),
             model=result.output.get("model", "unknown"),
             mode=result.output.get("mode", "reactive"),
+            error=result.error,
+            estimated_total_tokens=result.output.get("estimated_total_tokens"),
         )
 
     @app.get("/tasks", response_model=list[TaskSummary])
