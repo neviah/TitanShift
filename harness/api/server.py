@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 
 from harness.api.schemas import (
     AgentSummary,
+    ArtifactCleanupRequest,
+    ArtifactCleanupResponse,
     ChatRequest,
     ChatResponse,
     ConfigUpdateRequest,
@@ -160,6 +163,40 @@ def create_app(workspace_root: Path) -> FastAPI:
             loaded_modules=loaded_modules,
             config_snapshot=config_snapshot,
         )
+
+    def _storage_root() -> Path:
+        return runtime.logger.log_file.parent.resolve()
+
+    def _candidate_cleanup_paths(include_logs: bool) -> list[Path]:
+        root = _storage_root()
+        report_glob = str(runtime.config.get("reports.cleanup_glob", "*.json"))
+        candidates = [path for path in root.glob(report_glob) if path.is_file()]
+        if include_logs and runtime.logger.log_file.exists():
+            candidates.append(runtime.logger.log_file.resolve())
+        deduped: dict[str, Path] = {str(path.resolve()): path.resolve() for path in candidates}
+        return list(deduped.values())
+
+    def _cleanup_artifacts(max_age_days: int, include_logs: bool, dry_run: bool) -> tuple[list[str], list[str]]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        deleted_paths: list[str] = []
+        skipped_paths: list[str] = []
+        for path in _candidate_cleanup_paths(include_logs=include_logs):
+            if not runtime.execution.policy.is_cwd_allowed(path.parent):
+                skipped_paths.append(str(path))
+                continue
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            if modified_at > cutoff:
+                skipped_paths.append(str(path))
+                continue
+            if dry_run:
+                deleted_paths.append(str(path))
+                continue
+            try:
+                os.remove(path)
+                deleted_paths.append(str(path))
+            except OSError:
+                skipped_paths.append(str(path))
+        return deleted_paths, skipped_paths
 
     @app.get("/status", dependencies=[Depends(require_api_key)])
     async def status() -> dict:
@@ -403,6 +440,35 @@ def create_app(workspace_root: Path) -> FastAPI:
             stored_hash=stored_hash,
             computed_hash=computed_hash,
             signing_version=str(loaded.get("signing_version")) if loaded.get("signing_version") is not None else None,
+        )
+
+    @app.post("/artifacts/cleanup", response_model=ArtifactCleanupResponse, dependencies=[Depends(require_api_key)])
+    async def artifacts_cleanup(body: ArtifactCleanupRequest) -> ArtifactCleanupResponse:
+        report_default = int(runtime.config.get("reports.cleanup_max_age_days", 7))
+        log_default = int(runtime.config.get("logging.cleanup_max_age_days", 30))
+        effective_max_age_days = body.max_age_days or (min(report_default, log_default) if body.include_logs else report_default)
+        deleted_paths, skipped_paths = _cleanup_artifacts(
+            max_age_days=effective_max_age_days,
+            include_logs=body.include_logs,
+            dry_run=body.dry_run,
+        )
+        runtime.logger.log(
+            "ARTIFACTS_CLEANUP",
+            {
+                "dry_run": body.dry_run,
+                "include_logs": body.include_logs,
+                "max_age_days": effective_max_age_days,
+                "deleted_count": len(deleted_paths),
+                "skipped_count": len(skipped_paths),
+                "source": "api",
+            },
+        )
+        return ArtifactCleanupResponse(
+            ok=True,
+            dry_run=body.dry_run,
+            max_age_days=effective_max_age_days,
+            deleted_paths=deleted_paths,
+            skipped_paths=skipped_paths,
         )
 
     @app.get("/reports/policy", response_model=RunHistoryPolicy, dependencies=[Depends(require_api_key)])

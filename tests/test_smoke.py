@@ -1,6 +1,8 @@
 from pathlib import Path
 import asyncio
 import json
+import os
+import time
 from fastapi.testclient import TestClient
 
 from harness.api.server import create_app
@@ -436,4 +438,44 @@ def test_run_history_verify_endpoint_detects_tamper() -> None:
     assert body["stored_hash"] != body["computed_hash"]
 
     target.unlink(missing_ok=True)
+
+
+def test_artifacts_cleanup_dry_run_lists_old_report_without_deleting() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    target = Path(".harness/cleanup-dry-run.json")
+    target.write_text("{}\n", encoding="utf-8")
+    old_ts = time.time() - (10 * 24 * 60 * 60)
+    os.utime(target, (old_ts, old_ts))
+
+    response = client.post(
+        "/artifacts/cleanup",
+        json={"max_age_days": 7, "dry_run": True, "include_logs": False},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert str(target.resolve()) in body["deleted_paths"]
+    assert target.exists()
+
+    target.unlink(missing_ok=True)
+
+
+def test_artifacts_cleanup_deletes_old_report_file() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    target = Path(".harness/cleanup-delete.json")
+    target.write_text("{}\n", encoding="utf-8")
+    old_ts = time.time() - (10 * 24 * 60 * 60)
+    os.utime(target, (old_ts, old_ts))
+
+    response = client.post(
+        "/artifacts/cleanup",
+        json={"max_age_days": 7, "dry_run": False, "include_logs": False},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert str(target.resolve()) in body["deleted_paths"]
+    assert not target.exists()
 

@@ -48,7 +48,8 @@
     "enable_graphify_plugin": false
   },
   "logging": {
-    "file": "events.log"
+    "file": "events.log",
+    "cleanup_max_age_days": 30
   },
   "api": {
     "require_api_key": false,
@@ -57,6 +58,8 @@
   "reports": {
     "redact_by_default": true,
     "redacted_keys": ["api_key", "x_api_key", "authorization", "token", "secret", "password"],
-    "max_export_bytes": 262144
+    "max_export_bytes": 262144,
+    "cleanup_max_age_days": 7,
+    "cleanup_glob": "*.json"
   }
 }

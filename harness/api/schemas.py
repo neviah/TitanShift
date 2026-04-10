@@ -178,3 +178,17 @@ class RunHistoryVerifyResponse(BaseModel):
     stored_hash: str
     computed_hash: str
     signing_version: str | None = None
+
+
+class ArtifactCleanupRequest(BaseModel):
+    max_age_days: int | None = Field(default=None, ge=1)
+    include_logs: bool = False
+    dry_run: bool = False
+
+
+class ArtifactCleanupResponse(BaseModel):
+    ok: bool
+    dry_run: bool
+    max_age_days: int
+    deleted_paths: list[str]
+    skipped_paths: list[str]

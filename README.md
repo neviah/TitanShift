@@ -135,11 +135,13 @@ curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50"
 curl "http://127.0.0.1:8000/reports/run-history?task_limit=10&log_limit=50&redact=false"
 curl -X POST http://127.0.0.1:8000/reports/run-history/export -H "Content-Type: application/json" -d "{\"path\":\".harness/run-history-report.json\",\"task_limit\":10,\"log_limit\":50}"
 curl -X POST http://127.0.0.1:8000/reports/run-history/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/run-history-report.json\"}"
+curl -X POST http://127.0.0.1:8000/artifacts/cleanup -H "Content-Type: application/json" -d "{\"max_age_days\":7,\"include_logs\":false,\"dry_run\":true}"
 curl "http://127.0.0.1:8000/reports/policy"
 ```
 
 Export writes are restricted to configured execution allowed roots.
 Export size is capped by `reports.max_export_bytes` and oversized exports are rejected.
+Artifact cleanup is restricted to the storage directory and supports dry-run previews.
 
 `/reports/run-history` includes signing metadata:
 
@@ -215,6 +217,12 @@ Report export keys:
 - reports.redact_by_default
 - reports.redacted_keys
 - reports.max_export_bytes
+- reports.cleanup_max_age_days
+- reports.cleanup_glob
+
+Logging retention keys:
+
+- logging.cleanup_max_age_days
 
 ## Notes
 
