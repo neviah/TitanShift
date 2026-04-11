@@ -5,7 +5,8 @@
   },
   "orchestrator": {
     "enable_subagents": false,
-    "default_role": "General Agent"
+    "default_role": "General Agent",
+    "skill_execution_timeout_s": 15.0
   },
   "model": {
     "default_backend": "local_stub",

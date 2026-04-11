@@ -497,6 +497,19 @@ def create_app(workspace_root: Path) -> FastAPI:
                 },
             )
             raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except TimeoutError as exc:
+            runtime.logger.log(
+                "AGENT_SKILL_EXECUTED",
+                {
+                    "execution_id": execution_id,
+                    "agent_id": agent_id,
+                    "skill_id": skill_id,
+                    "ok": False,
+                    "error": str(exc),
+                    "source": "api",
+                },
+            )
+            raise HTTPException(status_code=504, detail=str(exc)) from exc
 
     @app.get("/tools", response_model=list[ToolSummary], dependencies=[Depends(require_read_api_key)])
     async def tools(query: str | None = None) -> list[ToolSummary]:

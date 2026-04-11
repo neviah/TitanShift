@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from harness.api.hooks import ApiHooks, HookPayload
@@ -171,7 +171,7 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
             "EMERGENCY_DIAGNOSIS",
             {
                 "source": payload.get("source", "unknown"),
-                "diagnoses": [d.__dict__ for d in diagnoses],
+                "diagnoses": [asdict(d) for d in diagnoses],
             },
         )
         await hooks.emit(HookPayload(event="MODULE_ERROR", data=payload))

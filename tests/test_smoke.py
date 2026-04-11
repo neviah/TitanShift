@@ -13,6 +13,7 @@ from harness.model.adapter import ModelRegistry
 from harness.runtime.config import ConfigManager
 from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.runtime.types import Task
+from harness.skills.registry import SkillDefinition
 from harness.tools.definitions import ToolDefinition
 from harness.tools.registry import PermissionPolicy
 
@@ -346,6 +347,48 @@ def test_agent_scoped_skill_execute_endpoint_and_audit_log() -> None:
     assert logs.status_code == 200
     log_rows = logs.json()
     assert any(r["payload"].get("execution_id") == body["execution_id"] for r in log_rows)
+
+
+def test_agent_scoped_skill_execute_timeout_emits_emergency_diagnosis() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    app.state.runtime.config.set("orchestrator.skill_execution_timeout_s", 0.01)
+    runtime = app.state.runtime
+
+    runtime.skills.register_skill(
+        SkillDefinition(
+            skill_id="slow_skill",
+            description="Slow skill for timeout test",
+            mode="code",
+            tags=["test", "slow"],
+            required_tools=[],
+        )
+    )
+
+    async def _slow_handler(_: dict) -> dict:
+        await asyncio.sleep(0.05)
+        return {"ok": True}
+
+    runtime.skills.register_code_handler("slow_skill", _slow_handler)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need slow skill"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+
+    assigned = client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["slow_skill"]})
+    assert assigned.status_code == 200
+
+    timed_out = client.post(
+        f"/agents/{agent_id}/skills/slow_skill/execute",
+        json={"input": {}},
+    )
+    assert timed_out.status_code == 504
+
+    diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&limit=10")
+    assert diag_logs.status_code == 200
+    rows = diag_logs.json()
+    assert any(r["payload"].get("source") == "orchestrator.skill_execution" for r in rows)
 
 
 def test_skills_endpoint_and_search() -> None:

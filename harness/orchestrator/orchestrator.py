@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -154,7 +155,47 @@ class Orchestrator:
         if skill_id not in agent.assigned_skills:
             raise PermissionError(f"Skill {skill_id} is not assigned to agent {agent_id}")
 
-        result = await self.skills.execute_skill(skill_id, skill_input)
+        timeout_s = float(self.config.get("orchestrator.skill_execution_timeout_s", 15.0))
+        try:
+            result = await asyncio.wait_for(
+                self.skills.execute_skill(skill_id, skill_input),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError as exc:
+            timeout_message = f"Timed out after {timeout_s:.2f}s"
+            await self.event_bus.publish(
+                "MODULE_ERROR",
+                {
+                    "source": "orchestrator.skill_execution",
+                    "agent_id": agent_id,
+                    "skill_id": skill_id,
+                    "error": timeout_message,
+                },
+            )
+            raise TimeoutError(timeout_message) from exc
+        except Exception as exc:
+            await self.event_bus.publish(
+                "MODULE_ERROR",
+                {
+                    "source": "orchestrator.skill_execution",
+                    "agent_id": agent_id,
+                    "skill_id": skill_id,
+                    "error": str(exc),
+                },
+            )
+            raise
+
+        if not bool(result.get("ok", False)):
+            await self.event_bus.publish(
+                "MODULE_ERROR",
+                {
+                    "source": "orchestrator.skill_execution",
+                    "agent_id": agent_id,
+                    "skill_id": skill_id,
+                    "error": str(result.get("error", "Skill reported failure")),
+                },
+            )
+
         self.memory.append_short_term(
             agent_id,
             {"skill_execution": {"skill_id": skill_id, "ok": bool(result.get("ok", False))}},
