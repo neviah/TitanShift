@@ -171,6 +171,16 @@ def create_app(workspace_root: Path) -> FastAPI:
             EmergencyDiagnosisEntry(
                 timestamp=str(e.get("timestamp", "")),
                 source=str(dict(e.get("payload", {})).get("source", "unknown")),
+                agent_id=(
+                    str(dict(e.get("payload", {})).get("agent_id"))
+                    if dict(e.get("payload", {})).get("agent_id") is not None
+                    else None
+                ),
+                skill_id=(
+                    str(dict(e.get("payload", {})).get("skill_id"))
+                    if dict(e.get("payload", {})).get("skill_id") is not None
+                    else None
+                ),
                 diagnoses=[EmergencyDiagnosis(**d) for d in list(dict(e.get("payload", {})).get("diagnoses", []))],
             )
             for e in recent_diagnoses_raw
@@ -309,15 +319,34 @@ def create_app(workspace_root: Path) -> FastAPI:
         return [LogEntry(**r) for r in rows]
 
     @app.get("/diagnostics/emergency", response_model=list[EmergencyDiagnosisEntry], dependencies=[Depends(require_read_api_key)])
-    async def get_emergency_diagnoses(source: str | None = None, limit: int = 20) -> list[EmergencyDiagnosisEntry]:
+    async def get_emergency_diagnoses(
+        source: str | None = None,
+        agent_id: str | None = None,
+        skill_id: str | None = None,
+        limit: int = 20,
+    ) -> list[EmergencyDiagnosisEntry]:
         clamped_limit = max(1, min(limit, 200))
         rows = runtime.logger.query(event_type="EMERGENCY_DIAGNOSIS", limit=clamped_limit)
         if source:
             rows = [r for r in rows if str(dict(r.get("payload", {})).get("source", "")) == source]
+        if agent_id:
+            rows = [r for r in rows if str(dict(r.get("payload", {})).get("agent_id", "")) == agent_id]
+        if skill_id:
+            rows = [r for r in rows if str(dict(r.get("payload", {})).get("skill_id", "")) == skill_id]
         return [
             EmergencyDiagnosisEntry(
                 timestamp=str(r.get("timestamp", "")),
                 source=str(dict(r.get("payload", {})).get("source", "unknown")),
+                agent_id=(
+                    str(dict(r.get("payload", {})).get("agent_id"))
+                    if dict(r.get("payload", {})).get("agent_id") is not None
+                    else None
+                ),
+                skill_id=(
+                    str(dict(r.get("payload", {})).get("skill_id"))
+                    if dict(r.get("payload", {})).get("skill_id") is not None
+                    else None
+                ),
                 diagnoses=[EmergencyDiagnosis(**d) for d in list(dict(r.get("payload", {})).get("diagnoses", []))],
             )
             for r in rows

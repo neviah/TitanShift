@@ -210,6 +210,8 @@ class EmergencyDiagnosis(BaseModel):
 class EmergencyDiagnosisEntry(BaseModel):
     timestamp: str
     source: str
+    agent_id: str | None = None
+    skill_id: str | None = None
     diagnoses: list[EmergencyDiagnosis]
 
 

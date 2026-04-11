@@ -171,6 +171,8 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
             "EMERGENCY_DIAGNOSIS",
             {
                 "source": payload.get("source", "unknown"),
+                "agent_id": payload.get("agent_id"),
+                "skill_id": payload.get("skill_id"),
                 "diagnoses": [asdict(d) for d in diagnoses],
             },
         )

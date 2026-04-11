@@ -151,6 +151,16 @@ curl "http://127.0.0.1:8000/memory/graph/neighbors?node_id=n1"
 curl "http://127.0.0.1:8000/memory/graph/search?query=shell&node_type=skill&limit=10"
 ```
 
+Emergency diagnostics API:
+
+```bash
+curl "http://127.0.0.1:8000/diagnostics/emergency?limit=20"
+curl "http://127.0.0.1:8000/diagnostics/emergency?source=orchestrator.skill_execution&limit=20"
+curl "http://127.0.0.1:8000/diagnostics/emergency?agent_id=<agent_id>&skill_id=<skill_id>&limit=20"
+```
+
+Each diagnosis entry includes `timestamp`, `source`, optional `agent_id`, optional `skill_id`, and structured diagnosis suggestions.
+
 Run history export report:
 
 ```bash
@@ -172,6 +182,7 @@ Artifact cleanup is restricted to the storage directory and supports dry-run pre
 - report_hash (sha256 of deterministic report payload)
 - redaction_applied
 - config_snapshot (safe runtime config subset)
+- recent_diagnoses (recent emergency diagnosis entries included in the signed payload)
 
 Status now includes runtime module health:
 
@@ -285,6 +296,7 @@ curl http://127.0.0.1:8000/reports/policy
 curl http://127.0.0.1:8000/scheduler/jobs
 curl http://127.0.0.1:8000/agents
 curl "http://127.0.0.1:8000/skills?related_node_id=tool:shell_command"
+curl "http://127.0.0.1:8000/diagnostics/emergency?source=orchestrator.skill_execution&limit=10"
 ```
 
 Operational triage flow:
@@ -301,6 +313,7 @@ Suggested incident commands:
 curl "http://127.0.0.1:8000/logs?event_type=MODULE_ERROR&limit=20"
 curl "http://127.0.0.1:8000/logs?event_type=EMERGENCY_DIAGNOSIS&limit=20"
 curl "http://127.0.0.1:8000/logs?event_type=AGENT_SKILL_EXECUTED&limit=20"
+curl "http://127.0.0.1:8000/diagnostics/emergency?agent_id=<agent_id>&skill_id=<skill_id>&limit=20"
 curl -X POST http://127.0.0.1:8000/reports/run-history/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\",\"task_limit\":20,\"log_limit\":200}"
 curl -X POST http://127.0.0.1:8000/reports/run-history/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\"}"
 curl -X POST http://127.0.0.1:8000/artifacts/cleanup -H "Content-Type: application/json" -d "{\"max_age_days\":7,\"include_logs\":false,\"dry_run\":true}"

@@ -535,10 +535,14 @@ def test_emergency_diagnosis_endpoint() -> None:
     app = create_app(Path(".").resolve())
     runtime = app.state.runtime
     source_name = "test.emergency.endpoint"
+    agent_name = "agent-test-1"
+    skill_name = "skill-test-1"
     runtime.logger.log(
         "EMERGENCY_DIAGNOSIS",
         {
             "source": source_name,
+            "agent_id": agent_name,
+            "skill_id": skill_name,
             "diagnoses": [
                 {
                     "hypothesis": "Execution policy blocked the requested tool or command",
@@ -550,11 +554,15 @@ def test_emergency_diagnosis_endpoint() -> None:
     )
     client = TestClient(app)
 
-    response = client.get(f"/diagnostics/emergency?source={source_name}&limit=10")
+    response = client.get(
+        f"/diagnostics/emergency?source={source_name}&agent_id={agent_name}&skill_id={skill_name}&limit=10"
+    )
     assert response.status_code == 200
     body = response.json()
     assert body
     assert body[0]["source"] == source_name
+    assert body[0]["agent_id"] == agent_name
+    assert body[0]["skill_id"] == skill_name
     assert body[0]["diagnoses"][0]["confidence"] == 0.95
 
 
@@ -604,6 +612,8 @@ def test_run_history_report_endpoint() -> None:
         "EMERGENCY_DIAGNOSIS",
         {
             "source": "orchestrator.skill_execution",
+            "agent_id": "subagent-report",
+            "skill_id": "slow_skill",
             "diagnoses": [
                 {
                     "hypothesis": "orchestrator.skill_execution exceeded its configured execution budget",
@@ -634,6 +644,8 @@ def test_run_history_report_endpoint() -> None:
     assert isinstance(body.get("recent_events"), list)
     assert isinstance(body.get("recent_diagnoses"), list)
     assert any(d.get("source") == "orchestrator.skill_execution" for d in body.get("recent_diagnoses", []))
+    assert any(d.get("agent_id") == "subagent-report" for d in body.get("recent_diagnoses", []))
+    assert any(d.get("skill_id") == "slow_skill" for d in body.get("recent_diagnoses", []))
     assert isinstance(body.get("health"), list)
 
 
