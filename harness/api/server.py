@@ -359,6 +359,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_id: str | None,
         agent_id: str | None,
         execution_id: str | None,
+        include_fix_executions: bool,
+        fix_event_type: str | None,
         after: str | None,
         before: str | None,
         offset: int,
@@ -369,6 +371,18 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         requested_execution_scope = execution_id is not None and task_id is None and agent_id is None
         clamped_limit = max(1, min(limit, 500))
+        normalized_fix_event_type = (fix_event_type or "all").strip().lower()
+        if normalized_fix_event_type not in {"all", "apply", "rollback"}:
+            raise HTTPException(status_code=400, detail="Invalid fix_event_type: expected all, apply, or rollback")
+        selected_fix_event_types = {
+            "EMERGENCY_FIX_APPLY",
+            "EMERGENCY_FIX_ROLLBACK",
+        }
+        if normalized_fix_event_type == "apply":
+            selected_fix_event_types = {"EMERGENCY_FIX_APPLY"}
+        elif normalized_fix_event_type == "rollback":
+            selected_fix_event_types = {"EMERGENCY_FIX_ROLLBACK"}
+
         linked_agent_ids: list[str] = []
         task_detail: TaskDetail | None = None
         agent_summary: AgentSummary | None = None
@@ -485,7 +499,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                 )
             )
 
-        if execution_id:
+        if include_fix_executions and execution_id:
             fix_execution_rows.extend(
                 runtime.logger.query(
                     event_type="EMERGENCY_FIX_APPLY",
@@ -518,25 +532,40 @@ def create_app(workspace_root: Path) -> FastAPI:
             failure_id = payload.get("failure_id")
             if failure_id:
                 failure_ids.add(str(failure_id))
-        if failure_ids:
-            candidate_fix_rows = runtime.logger.query(
-                event_type="EMERGENCY_FIX_APPLY",
-                after=after,
-                before=before,
-                offset=offset,
-                limit=clamped_limit,
-            ) + runtime.logger.query(
-                event_type="EMERGENCY_FIX_ROLLBACK",
-                after=after,
-                before=before,
-                offset=offset,
-                limit=clamped_limit,
-            )
+        if include_fix_executions and failure_ids:
+            candidate_fix_rows: list[dict[str, Any]] = []
+            if "EMERGENCY_FIX_APPLY" in selected_fix_event_types:
+                candidate_fix_rows.extend(
+                    runtime.logger.query(
+                        event_type="EMERGENCY_FIX_APPLY",
+                        after=after,
+                        before=before,
+                        offset=offset,
+                        limit=clamped_limit,
+                    )
+                )
+            if "EMERGENCY_FIX_ROLLBACK" in selected_fix_event_types:
+                candidate_fix_rows.extend(
+                    runtime.logger.query(
+                        event_type="EMERGENCY_FIX_ROLLBACK",
+                        after=after,
+                        before=before,
+                        offset=offset,
+                        limit=clamped_limit,
+                    )
+                )
             for row in candidate_fix_rows:
                 payload = dict(row.get("payload", {}))
                 candidate_failure_id = payload.get("failure_id")
                 if candidate_failure_id and str(candidate_failure_id) in failure_ids:
                     fix_execution_rows.append(row)
+
+        if include_fix_executions and selected_fix_event_types != {"EMERGENCY_FIX_APPLY", "EMERGENCY_FIX_ROLLBACK"}:
+            fix_execution_rows = [
+                row for row in fix_execution_rows if str(row.get("event_type", "")) in selected_fix_event_types
+            ]
+        if not include_fix_executions:
+            fix_execution_rows = []
 
         dedupe = lambda rows: list({json.dumps(r, sort_keys=True): r for r in rows}.values())
         deduped_executions = dedupe(executions_rows)
@@ -561,6 +590,21 @@ def create_app(workspace_root: Path) -> FastAPI:
             "correlation": {
                 "failure_ids": sorted(failure_ids),
                 "fix_execution_count": len(deduped_fix_executions),
+                "correlation_sources": [
+                    source
+                    for source in [
+                        "from_execution_id" if include_fix_executions and execution_id else None,
+                        "from_failure_id" if include_fix_executions and bool(failure_ids) else None,
+                    ]
+                    if source is not None
+                ],
+                "resolved_execution_ids": sorted(
+                    {
+                        str(dict(row.get("payload", {})).get("execution_id"))
+                        for row in deduped_fix_executions
+                        if dict(row.get("payload", {})).get("execution_id")
+                    }
+                ),
             },
             "module_errors": [LogEntry(**row).model_dump(mode="json") for row in deduped_module_errors],
             "diagnoses": [r.model_dump(mode="json") for r in _diagnosis_entries_from_rows(deduped_diagnoses)],
@@ -1267,6 +1311,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_id: str | None = None,
         agent_id: str | None = None,
         execution_id: str | None = None,
+        include_fix_executions: bool = True,
+        fix_event_type: str | None = None,
         after: str | None = None,
         before: str | None = None,
         offset: int = 0,
@@ -1277,6 +1323,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_id=task_id,
             agent_id=agent_id,
             execution_id=execution_id,
+            include_fix_executions=include_fix_executions,
+            fix_event_type=fix_event_type,
             after=after,
             before=before,
             offset=offset,
@@ -1703,6 +1751,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_id=body.task_id,
             agent_id=body.agent_id,
             execution_id=body.execution_id,
+            include_fix_executions=body.include_fix_executions,
+            fix_event_type=body.fix_event_type,
             after=body.after,
             before=body.before,
             offset=body.offset,

@@ -59,6 +59,8 @@ class LogQueryResponse(BaseModel):
 class IncidentCorrelation(BaseModel):
     failure_ids: list[str] = Field(default_factory=list)
     fix_execution_count: int = 0
+    correlation_sources: list[str] = Field(default_factory=list)
+    resolved_execution_ids: list[str] = Field(default_factory=list)
 
 
 class IncidentReport(BaseModel):
@@ -406,6 +408,8 @@ class IncidentReportExportRequest(BaseModel):
     task_id: str | None = None
     agent_id: str | None = None
     execution_id: str | None = None
+    include_fix_executions: bool = True
+    fix_event_type: str | None = None
     after: str | None = None
     before: str | None = None
     offset: int = Field(default=0, ge=0)

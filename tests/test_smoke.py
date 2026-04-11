@@ -1156,6 +1156,8 @@ def test_incident_report_by_execution_id() -> None:
     assert body["fix_executions"] == []
     assert body["correlation"]["failure_ids"] == []
     assert body["correlation"]["fix_execution_count"] == 0
+    assert body["correlation"]["correlation_sources"] == ["from_execution_id"]
+    assert body["correlation"]["resolved_execution_ids"] == []
 
 
 def test_incident_report_includes_fix_execution_records_for_fix_execution_id() -> None:
@@ -1199,6 +1201,8 @@ def test_incident_report_includes_fix_execution_records_for_fix_execution_id() -
     event_types = {row["event_type"] for row in body["fix_executions"]}
     assert "EMERGENCY_FIX_APPLY" in event_types
     assert "EMERGENCY_FIX_ROLLBACK" in event_types
+    assert "from_execution_id" in body["correlation"]["correlation_sources"]
+    assert fix_execution_id in body["correlation"]["resolved_execution_ids"]
 
 
 def test_incident_report_by_agent_correlates_fix_executions_by_failure_id() -> None:
@@ -1261,6 +1265,83 @@ def test_incident_report_by_agent_correlates_fix_executions_by_failure_id() -> N
     assert any(row["payload"].get("execution_id") == fix_execution_id for row in body["fix_executions"])
     assert failure_id in body["correlation"]["failure_ids"]
     assert body["correlation"]["fix_execution_count"] >= 2
+    assert "from_failure_id" in body["correlation"]["correlation_sources"]
+    assert fix_execution_id in body["correlation"]["resolved_execution_ids"]
+
+
+def test_incident_report_can_exclude_fix_executions() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-filter-no-fix",
+                "recommended_hypothesis": "config drift",
+                "risk_level": "low",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 2333},
+                    }
+                ],
+                "notes": "exclude fix executions",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+
+    report = client.get(f"/reports/incident?execution_id={execution_id}&include_fix_executions=false&limit=20")
+    assert report.status_code == 200
+    body = report.json()
+    assert body["fix_executions"] == []
+    assert body["correlation"]["fix_execution_count"] == 0
+    assert body["correlation"]["resolved_execution_ids"] == []
+
+
+def test_incident_report_can_filter_fix_event_type() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-filter-event-type",
+                "recommended_hypothesis": "config drift",
+                "risk_level": "low",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 2444},
+                    }
+                ],
+                "notes": "event type filter",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+
+    rollback = client.post(
+        "/diagnostics/emergency/fix-rollback",
+        json={"execution_id": execution_id, "dry_run": False},
+    )
+    assert rollback.status_code == 200
+
+    report = client.get(f"/reports/incident?execution_id={execution_id}&fix_event_type=rollback&limit=20")
+    assert report.status_code == 200
+    body = report.json()
+    assert body["fix_executions"]
+    assert all(row["event_type"] == "EMERGENCY_FIX_ROLLBACK" for row in body["fix_executions"])
 
 
 def test_incident_report_export_and_verify() -> None:

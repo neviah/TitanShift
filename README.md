@@ -193,14 +193,18 @@ Incident report API:
 curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&limit=50"
 curl "http://127.0.0.1:8000/reports/incident?task_id=<task_id>&limit=50"
 curl "http://127.0.0.1:8000/reports/incident?execution_id=<execution_id>&limit=50"
+curl "http://127.0.0.1:8000/reports/incident?execution_id=<execution_id>&include_fix_executions=false&limit=50"
+curl "http://127.0.0.1:8000/reports/incident?execution_id=<execution_id>&fix_event_type=rollback&limit=50"
 curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&after=2026-04-10T00:00:00%2B00:00&before=2026-04-10T23:59:59%2B00:00&limit=50"
-curl -X POST http://127.0.0.1:8000/reports/incident/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\",\"agent_id\":\"<agent_id>\",\"limit\":50}"
+curl -X POST http://127.0.0.1:8000/reports/incident/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\",\"agent_id\":\"<agent_id>\",\"include_fix_executions\":true,\"fix_event_type\":\"all\",\"limit\":50}"
 curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\"}"
 ```
 
 Incident reports bundle task context, agent context, execution logs, fix execution logs, module errors, emergency diagnoses, and related events for a single agent or task.
 When execution_id is not supplied, fix execution logs are still correlated into incident reports through shared failure_id values present in related diagnoses/events.
-Incident report payloads now include a `correlation` block with `failure_ids` and `fix_execution_count` to make linkage provenance explicit.
+`include_fix_executions=false` omits fix execution records and sets fix correlation counts to zero.
+`fix_event_type` supports `all` (default), `apply`, and `rollback` for focused fix-event views.
+Incident report payloads now include a `correlation` block with `failure_ids`, `fix_execution_count`, `correlation_sources`, and `resolved_execution_ids` to make linkage provenance explicit.
 They are signed with `signing_version` and `report_hash`, and exported incident documents can be verified independently.
 
 Emergency diagnosis snapshot export API:
