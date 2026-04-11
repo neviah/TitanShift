@@ -190,6 +190,53 @@ class SkillSummary(BaseModel):
     ranking_score: float | None = None
 
 
+class SkillMarketItem(BaseModel):
+    skill_id: str
+    description: str
+    mode: str
+    domain: str
+    version: str
+    tags: list[str]
+    required_tools: list[str]
+    dependencies: list[str]
+    installed: bool
+    installable: bool
+    missing_dependencies: list[str]
+    missing_tools: list[str]
+
+
+class SkillMarketInstallRequest(BaseModel):
+    skill_id: str = Field(min_length=1)
+
+
+class SkillMarketInstallResponse(BaseModel):
+    ok: bool
+    skill_id: str
+    installed: bool
+    version: str
+
+
+class SkillMarketUninstallRequest(BaseModel):
+    skill_id: str = Field(min_length=1)
+
+
+class SkillMarketUninstallResponse(BaseModel):
+    ok: bool
+    skill_id: str
+    uninstalled: bool
+
+
+class SkillMarketUpdateRequest(BaseModel):
+    skill_id: str = Field(min_length=1)
+
+
+class SkillMarketUpdateResponse(BaseModel):
+    ok: bool
+    skill_id: str
+    updated: bool
+    version: str
+
+
 class SkillExecuteRequest(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
 

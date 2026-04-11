@@ -8,6 +8,10 @@
     "default_role": "General Agent",
     "skill_execution_timeout_s": 15.0
   },
+  "skills": {
+    "market_registry_file": "skills_market_registry.json",
+    "market_installed_file": "skills_market_installed.json"
+  },
   "model": {
     "default_backend": "local_stub",
     "allow_cloud_adapters": true,
@@ -20,6 +24,7 @@
   "memory": {
     "storage_dir": ".harness",
     "sqlite_file": "memory.db",
+    "graph_file": "graph.json",
     "semantic_backend": "sqlite",
     "enable_chroma": false,
     "graph_backend": "networkx"

@@ -18,6 +18,7 @@ class SkillDefinition:
     version: str = "0.1.0"
     tags: list[str] = field(default_factory=list)
     required_tools: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
     prompt_template: str | None = None
 
 
@@ -28,6 +29,11 @@ class SkillRegistry:
 
     def register_skill(self, skill: SkillDefinition) -> None:
         self._skills[skill.skill_id] = skill
+
+    def unregister_skill(self, skill_id: str) -> bool:
+        removed = self._skills.pop(skill_id, None) is not None
+        self._handlers.pop(skill_id, None)
+        return removed
 
     def register_code_handler(self, skill_id: str, handler: SkillHandler) -> None:
         self._handlers[skill_id] = handler

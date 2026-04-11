@@ -591,6 +591,211 @@ def test_skills_endpoint_and_search() -> None:
     assert body_related[0]["ranking_score"] is not None
 
 
+def test_skills_market_list_endpoint(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(
+        json.dumps(
+            [
+                {
+                    "skill_id": "market_alpha",
+                    "description": "Market skill alpha",
+                    "mode": "prompt",
+                    "domain": "market",
+                    "version": "0.1.0",
+                    "tags": ["alpha"],
+                    "required_tools": [],
+                    "dependencies": [],
+                    "prompt_template": "alpha {input}",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    installed_path.write_text(json.dumps(["market_alpha"]), encoding="utf-8")
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    response = client.get("/skills/market")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["skill_id"] == "market_alpha"
+    assert body[0]["installed"] is True
+
+
+def test_skills_market_install_enforces_dependencies(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(
+        json.dumps(
+            [
+                {
+                    "skill_id": "dep_skill",
+                    "description": "Dependency skill",
+                    "mode": "prompt",
+                    "domain": "market",
+                    "version": "0.1.0",
+                    "tags": [],
+                    "required_tools": [],
+                    "dependencies": [],
+                    "prompt_template": "dep {input}",
+                },
+                {
+                    "skill_id": "root_skill",
+                    "description": "Root skill",
+                    "mode": "prompt",
+                    "domain": "market",
+                    "version": "0.1.0",
+                    "tags": [],
+                    "required_tools": [],
+                    "dependencies": ["dep_skill"],
+                    "prompt_template": "root {input}",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    installed_path.write_text(json.dumps([]), encoding="utf-8")
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    blocked = client.post("/skills/market/install", json={"skill_id": "root_skill"})
+    assert blocked.status_code == 400
+
+    dep = client.post("/skills/market/install", json={"skill_id": "dep_skill"})
+    assert dep.status_code == 200
+
+    root = client.post("/skills/market/install", json={"skill_id": "root_skill"})
+    assert root.status_code == 200
+    assert root.json()["installed"] is True
+
+
+def test_skills_market_uninstall_blocks_when_dependents_present(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(
+        json.dumps(
+            [
+                {
+                    "skill_id": "dep_skill",
+                    "description": "Dependency skill",
+                    "mode": "prompt",
+                    "domain": "market",
+                    "version": "0.1.0",
+                    "tags": [],
+                    "required_tools": [],
+                    "dependencies": [],
+                    "prompt_template": "dep {input}",
+                },
+                {
+                    "skill_id": "root_skill",
+                    "description": "Root skill",
+                    "mode": "prompt",
+                    "domain": "market",
+                    "version": "0.1.0",
+                    "tags": [],
+                    "required_tools": [],
+                    "dependencies": ["dep_skill"],
+                    "prompt_template": "root {input}",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    installed_path.write_text(json.dumps(["dep_skill", "root_skill"]), encoding="utf-8")
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    blocked = client.post("/skills/market/uninstall", json={"skill_id": "dep_skill"})
+    assert blocked.status_code == 400
+
+
+def test_skills_market_update_endpoint(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(
+        json.dumps(
+            [
+                {
+                    "skill_id": "market_alpha",
+                    "description": "Market skill alpha",
+                    "mode": "prompt",
+                    "domain": "market",
+                    "version": "0.2.0",
+                    "tags": ["alpha"],
+                    "required_tools": [],
+                    "dependencies": [],
+                    "prompt_template": "alpha {input}",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    installed_path.write_text(json.dumps(["market_alpha"]), encoding="utf-8")
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    response = client.post("/skills/market/update", json={"skill_id": "market_alpha"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["updated"] is True
+    assert body["version"] == "0.2.0"
+
+
 def test_execute_skill_endpoint_prompt_mode() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -666,6 +871,38 @@ def test_memory_graph_search_endpoint() -> None:
     assert response.status_code == 200
     body = response.json()
     assert any(hit["node_id"] == "skill:test_skill" for hit in body)
+
+
+def test_memory_graph_persists_across_runtime_restart(tmp_path: Path) -> None:
+    app1 = create_app(tmp_path)
+    app1.state.runtime.memory.graph_add_node("concept:persisted", "concept", {"text": "persisted"})
+    app1.state.runtime.memory.graph_add_node("concept:target", "concept", {"text": "target"})
+    app1.state.runtime.memory.graph_add_edge("concept:persisted", "concept:target", "related_to")
+
+    app2 = create_app(tmp_path)
+    client2 = TestClient(app2)
+
+    neighbors = client2.get("/memory/graph/neighbors?node_id=concept:persisted")
+    assert neighbors.status_code == 200
+    assert "concept:target" in neighbors.json()["neighbors"]
+
+    search = client2.get("/memory/graph/search?query=persisted&node_type=concept&limit=20")
+    assert search.status_code == 200
+    assert any(hit["node_id"] == "concept:persisted" for hit in search.json())
+
+
+def test_ingested_graph_data_persists_across_runtime_restart(tmp_path: Path) -> None:
+    app1 = create_app(tmp_path)
+    client1 = TestClient(app1)
+    ingest = client1.post("/ingestion/graphify", json={"text": "persistent ingestion telemetry graph"})
+    assert ingest.status_code == 200
+    assert ingest.json()["nodes_added"] > 0
+
+    app2 = create_app(tmp_path)
+    client2 = TestClient(app2)
+    search = client2.get("/memory/graph/search?query=telemetry&node_type=concept&limit=20")
+    assert search.status_code == 200
+    assert any("telemetry" in hit["node_id"] for hit in search.json())
 
 
 def test_emergency_diagnosis_endpoint() -> None:
@@ -1663,8 +1900,8 @@ def test_emergency_diagnosis_export_limit_boundary_500() -> None:
 # P4-01 Graphify Ingestion MVP
 # ---------------------------------------------------------------------------
 
-def test_ingestion_graphify_creates_nodes_and_edges() -> None:
-    app = create_app(Path(".").resolve())
+def test_ingestion_graphify_creates_nodes_and_edges(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
     client = TestClient(app)
     text = "Memory management enables efficient knowledge retrieval across multiple sessions"
     response = client.post("/ingestion/graphify", json={"text": text, "metadata": {"source": "test"}})
@@ -1677,8 +1914,8 @@ def test_ingestion_graphify_creates_nodes_and_edges() -> None:
     assert all(nid.startswith("concept:") for nid in body["node_ids"])
 
 
-def test_ingestion_graphify_nodes_appear_in_graph_search() -> None:
-    app = create_app(Path(".").resolve())
+def test_ingestion_graphify_nodes_appear_in_graph_search(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
     client = TestClient(app)
     text = "Planning orchestration enables autonomous agent scheduling"
     client.post("/ingestion/graphify", json={"text": text})
@@ -1688,8 +1925,8 @@ def test_ingestion_graphify_nodes_appear_in_graph_search() -> None:
     assert any("orchestration" in h["node_id"] for h in hits)
 
 
-def test_ingestion_graphify_filters_short_words_and_stopwords() -> None:
-    app = create_app(Path(".").resolve())
+def test_ingestion_graphify_filters_short_words_and_stopwords(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
     client = TestClient(app)
     # "the", "and", "or", "in" are stopwords; "go" is too short
     text = "the and or in go"

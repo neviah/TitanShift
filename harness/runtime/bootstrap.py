@@ -114,22 +114,29 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     health.set("orchestrator", "healthy")
 
     for tool in tools.list_tools():
-        memory.graph_add_node(f"tool:{tool.name}", "tool", {"name": tool.name, "description": tool.description})
+        tool_node = f"tool:{tool.name}"
+        if not memory.graph_has_node(tool_node):
+            memory.graph_add_node(tool_node, "tool", {"name": tool.name, "description": tool.description})
 
     for skill in skills.list_skills():
-        memory.graph_add_node(
-            f"skill:{skill.skill_id}",
-            "skill",
-            {
-                "skill_id": skill.skill_id,
-                "description": skill.description,
-                "domain": skill.domain,
-                "tags": ",".join(skill.tags),
-            },
-        )
+        skill_node = f"skill:{skill.skill_id}"
+        if not memory.graph_has_node(skill_node):
+            memory.graph_add_node(
+                skill_node,
+                "skill",
+                {
+                    "skill_id": skill.skill_id,
+                    "description": skill.description,
+                    "domain": skill.domain,
+                    "tags": ",".join(skill.tags),
+                },
+            )
         for tool_name in skill.required_tools:
-            memory.graph_add_edge(f"skill:{skill.skill_id}", f"tool:{tool_name}", "requires_tool")
-            memory.graph_add_edge(f"tool:{tool_name}", f"skill:{skill.skill_id}", "enables_skill")
+            tool_node = f"tool:{tool_name}"
+            if not memory.graph_has_edge(skill_node, tool_node):
+                memory.graph_add_edge(skill_node, tool_node, "requires_tool")
+            if not memory.graph_has_edge(tool_node, skill_node):
+                memory.graph_add_edge(tool_node, skill_node, "enables_skill")
 
     hooks = ApiHooks()
     health.set("api_hooks", "healthy")

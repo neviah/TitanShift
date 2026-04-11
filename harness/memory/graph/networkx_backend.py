@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from harness.memory.graph.base import GraphBackend, GraphEdge, GraphNode
@@ -13,16 +15,95 @@ except ImportError:  # pragma: no cover
 class NetworkXGraphBackend(GraphBackend):
     """Default graph backend for MVP: pure Python and portable."""
 
-    def __init__(self) -> None:
+    def __init__(self, persistence_path: Path | None = None) -> None:
         if nx is None:
             raise RuntimeError("networkx is required for NetworkXGraphBackend")
         self._graph = nx.MultiDiGraph()
+        self._persistence_path = persistence_path
+        self._load_from_disk()
+
+    def _load_from_disk(self) -> None:
+        if self._persistence_path is None or not self._persistence_path.exists():
+            return
+        try:
+            payload = json.loads(self._persistence_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        nodes = payload.get("nodes", []) if isinstance(payload, dict) else []
+        edges = payload.get("edges", []) if isinstance(payload, dict) else []
+
+        if isinstance(nodes, list):
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                node_id = str(node.get("node_id", "")).strip()
+                if not node_id:
+                    continue
+                node_type = str(node.get("node_type", "concept"))
+                properties = node.get("properties", {})
+                safe_props = (
+                    {str(k): str(v) for k, v in properties.items()}
+                    if isinstance(properties, dict)
+                    else {}
+                )
+                self._graph.add_node(node_id, node_type=node_type, **safe_props)
+
+        if isinstance(edges, list):
+            for edge in edges:
+                if not isinstance(edge, dict):
+                    continue
+                source = str(edge.get("source", "")).strip()
+                target = str(edge.get("target", "")).strip()
+                if not source or not target:
+                    continue
+                edge_type = str(edge.get("edge_type", "related_to"))
+                properties = edge.get("properties", {})
+                safe_props = (
+                    {str(k): str(v) for k, v in properties.items()}
+                    if isinstance(properties, dict)
+                    else {}
+                )
+                self._graph.add_edge(source, target, edge_type=edge_type, **safe_props)
+
+    def _persist_to_disk(self) -> None:
+        if self._persistence_path is None:
+            return
+
+        nodes: list[dict[str, Any]] = []
+        for node_id, attrs in self._graph.nodes(data=True):
+            nodes.append(
+                {
+                    "node_id": str(node_id),
+                    "node_type": str(attrs.get("node_type", "")),
+                    "properties": {k: str(v) for k, v in attrs.items() if k != "node_type"},
+                }
+            )
+
+        edges: list[dict[str, Any]] = []
+        for source, target, attrs in self._graph.edges(data=True):
+            edges.append(
+                {
+                    "source": str(source),
+                    "target": str(target),
+                    "edge_type": str(attrs.get("edge_type", "")),
+                    "properties": {k: str(v) for k, v in attrs.items() if k != "edge_type"},
+                }
+            )
+
+        payload = {"nodes": nodes, "edges": edges}
+        self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self._persistence_path.with_suffix(self._persistence_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(self._persistence_path)
 
     def add_node(self, node: GraphNode) -> None:
         self._graph.add_node(node.node_id, node_type=node.node_type, **node.properties)
+        self._persist_to_disk()
 
     def add_edge(self, edge: GraphEdge) -> None:
         self._graph.add_edge(edge.source, edge.target, edge_type=edge.edge_type, **edge.properties)
+        self._persist_to_disk()
 
     def has_node(self, node_id: str) -> bool:
         return bool(self._graph.has_node(node_id))

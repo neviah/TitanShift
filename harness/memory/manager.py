@@ -25,7 +25,8 @@ class MemoryManager:
         storage_root.mkdir(parents=True, exist_ok=True)
         sqlite_name = self.config.get("memory.sqlite_file", "memory.db")
         self.semantic = SemanticSQLiteStore(storage_root / sqlite_name)
-        self.graph = NetworkXGraphBackend()
+        graph_file = str(self.config.get("memory.graph_file", "graph.json"))
+        self.graph = NetworkXGraphBackend(persistence_path=storage_root / graph_file)
 
     def save_fact(self, scope: str, fact: dict[str, Any]) -> None:
         self.long_term.setdefault(scope, []).append(fact)

@@ -78,6 +78,13 @@ from harness.api.schemas import (
     MemorySummary,
     SkillExecuteRequest,
     SkillExecuteResponse,
+    SkillMarketInstallRequest,
+    SkillMarketInstallResponse,
+    SkillMarketItem,
+    SkillMarketUninstallRequest,
+    SkillMarketUninstallResponse,
+    SkillMarketUpdateRequest,
+    SkillMarketUpdateResponse,
     SkillSummary,
     TaskDetail,
     TaskSummary,
@@ -86,6 +93,7 @@ from harness.api.schemas import (
 from harness.scheduler.module import ScheduledJob
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.types import Task
+from harness.skills.registry import SkillDefinition
 
 T = TypeVar("T")
 
@@ -359,6 +367,103 @@ def create_app(workspace_root: Path) -> FastAPI:
         trimmed = items[-limit:] if has_more else items
         next_offset = offset + len(trimmed) if has_more else None
         return trimmed, has_more, next_offset
+
+    def _market_registry_path() -> Path:
+        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        return storage_root / str(runtime.config.get("skills.market_registry_file", "skills_market_registry.json"))
+
+    def _market_installed_path() -> Path:
+        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        return storage_root / str(runtime.config.get("skills.market_installed_file", "skills_market_installed.json"))
+
+    def _skill_to_market_record(skill: SkillDefinition) -> dict[str, Any]:
+        return {
+            "skill_id": skill.skill_id,
+            "description": skill.description,
+            "mode": skill.mode,
+            "domain": skill.domain,
+            "version": skill.version,
+            "tags": list(skill.tags),
+            "required_tools": list(skill.required_tools),
+            "dependencies": list(skill.dependencies),
+            "prompt_template": skill.prompt_template,
+        }
+
+    def _load_market_registry() -> dict[str, dict[str, Any]]:
+        path = _market_registry_path()
+        if not path.exists():
+            seeded = [_skill_to_market_record(s) for s in runtime.skills.list_skills()]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(seeded, indent=2, sort_keys=True), encoding="utf-8")
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            loaded = []
+        if not isinstance(loaded, list):
+            loaded = []
+        out: dict[str, dict[str, Any]] = {}
+        for item in loaded:
+            if not isinstance(item, dict):
+                continue
+            skill_id = str(item.get("skill_id", "")).strip()
+            if not skill_id:
+                continue
+            out[skill_id] = item
+        return out
+
+    def _load_market_installed(default_ids: list[str]) -> set[str]:
+        path = _market_installed_path()
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(default_ids, indent=2, sort_keys=True), encoding="utf-8")
+            return set(default_ids)
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            loaded = default_ids
+        if not isinstance(loaded, list):
+            loaded = default_ids
+        return {str(v) for v in loaded if str(v).strip()}
+
+    def _save_market_installed(installed_ids: set[str]) -> None:
+        path = _market_installed_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sorted(installed_ids), indent=2, sort_keys=True), encoding="utf-8")
+
+    def _market_to_skill_definition(item: dict[str, Any]) -> SkillDefinition:
+        return SkillDefinition(
+            skill_id=str(item.get("skill_id", "")),
+            description=str(item.get("description", "")),
+            mode=str(item.get("mode", "prompt")),
+            domain=str(item.get("domain", "general")),
+            version=str(item.get("version", "0.1.0")),
+            tags=[str(v) for v in list(item.get("tags", []))],
+            required_tools=[str(v) for v in list(item.get("required_tools", []))],
+            dependencies=[str(v) for v in list(item.get("dependencies", []))],
+            prompt_template=(
+                str(item.get("prompt_template"))
+                if item.get("prompt_template") is not None
+                else None
+            ),
+        )
+
+    def _market_missing_tools(item: dict[str, Any]) -> list[str]:
+        missing: list[str] = []
+        for tool_name in [str(v) for v in list(item.get("required_tools", []))]:
+            if runtime.tools.get_tool(tool_name) is None:
+                missing.append(tool_name)
+        return missing
+
+    market_registry = _load_market_registry()
+    market_installed = _load_market_installed([s.skill_id for s in runtime.skills.list_skills()])
+
+    # Reconcile runtime skill registry with persisted installed-state.
+    for current in list(runtime.skills.list_skills()):
+        if current.skill_id not in market_installed:
+            runtime.skills.unregister_skill(current.skill_id)
+    for installed_id in sorted(market_installed):
+        if runtime.skills.get_skill(installed_id) is None and installed_id in market_registry:
+            runtime.skills.register_skill(_market_to_skill_definition(market_registry[installed_id]))
 
     def _build_incident_report(
         *,
@@ -1492,6 +1597,146 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
             for score, s in ranked_rows
         ]
+
+    @app.get("/skills/market", response_model=list[SkillMarketItem], dependencies=[Depends(require_read_api_key)])
+    async def skills_market() -> list[SkillMarketItem]:
+        installed_set = set(market_installed)
+        rows: list[SkillMarketItem] = []
+        for skill_id, item in sorted(market_registry.items(), key=lambda kv: kv[0]):
+            dependencies = [str(v) for v in list(item.get("dependencies", []))]
+            missing_dependencies = sorted([dep for dep in dependencies if dep not in installed_set])
+            missing_tools = sorted(_market_missing_tools(item))
+            rows.append(
+                SkillMarketItem(
+                    skill_id=skill_id,
+                    description=str(item.get("description", "")),
+                    mode=str(item.get("mode", "prompt")),
+                    domain=str(item.get("domain", "general")),
+                    version=str(item.get("version", "0.1.0")),
+                    tags=[str(v) for v in list(item.get("tags", []))],
+                    required_tools=[str(v) for v in list(item.get("required_tools", []))],
+                    dependencies=dependencies,
+                    installed=skill_id in installed_set,
+                    installable=(len(missing_dependencies) == 0 and len(missing_tools) == 0),
+                    missing_dependencies=missing_dependencies,
+                    missing_tools=missing_tools,
+                )
+            )
+        return rows
+
+    @app.post(
+        "/skills/market/install",
+        response_model=SkillMarketInstallResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def skills_market_install(body: SkillMarketInstallRequest) -> SkillMarketInstallResponse:
+        skill_id = body.skill_id.strip()
+        if skill_id not in market_registry:
+            raise HTTPException(status_code=404, detail="Skill not found in local market registry")
+
+        item = market_registry[skill_id]
+        dependencies = [str(v) for v in list(item.get("dependencies", []))]
+        missing_dependencies = sorted([dep for dep in dependencies if dep not in market_installed])
+        missing_tools = sorted(_market_missing_tools(item))
+        if missing_dependencies:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing skill dependencies: {', '.join(missing_dependencies)}",
+            )
+        if missing_tools:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required tools: {', '.join(missing_tools)}",
+            )
+
+        runtime.skills.register_skill(_market_to_skill_definition(item))
+        market_installed.add(skill_id)
+        _save_market_installed(market_installed)
+        runtime.logger.log(
+            "SKILL_MARKET_INSTALL",
+            {
+                "skill_id": skill_id,
+                "version": str(item.get("version", "0.1.0")),
+                "dependencies": dependencies,
+                "required_tools": [str(v) for v in list(item.get("required_tools", []))],
+            },
+        )
+        return SkillMarketInstallResponse(
+            ok=True,
+            skill_id=skill_id,
+            installed=True,
+            version=str(item.get("version", "0.1.0")),
+        )
+
+    @app.post(
+        "/skills/market/uninstall",
+        response_model=SkillMarketUninstallResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def skills_market_uninstall(body: SkillMarketUninstallRequest) -> SkillMarketUninstallResponse:
+        skill_id = body.skill_id.strip()
+        if skill_id not in market_installed:
+            raise HTTPException(status_code=404, detail="Skill is not installed")
+
+        dependents: list[str] = []
+        for installed_id in sorted(market_installed):
+            if installed_id == skill_id:
+                continue
+            item = market_registry.get(installed_id, {})
+            deps = [str(v) for v in list(item.get("dependencies", []))]
+            if skill_id in deps:
+                dependents.append(installed_id)
+        if dependents:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot uninstall; depended on by: {', '.join(dependents)}",
+            )
+
+        runtime.skills.unregister_skill(skill_id)
+        market_installed.discard(skill_id)
+        _save_market_installed(market_installed)
+        runtime.logger.log(
+            "SKILL_MARKET_UNINSTALL",
+            {
+                "skill_id": skill_id,
+            },
+        )
+        return SkillMarketUninstallResponse(ok=True, skill_id=skill_id, uninstalled=True)
+
+    @app.post(
+        "/skills/market/update",
+        response_model=SkillMarketUpdateResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def skills_market_update(body: SkillMarketUpdateRequest) -> SkillMarketUpdateResponse:
+        skill_id = body.skill_id.strip()
+        if skill_id not in market_registry:
+            raise HTTPException(status_code=404, detail="Skill not found in local market registry")
+        if skill_id not in market_installed:
+            raise HTTPException(status_code=400, detail="Skill must be installed before update")
+
+        item = market_registry[skill_id]
+        missing_tools = sorted(_market_missing_tools(item))
+        if missing_tools:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required tools: {', '.join(missing_tools)}",
+            )
+
+        runtime.skills.register_skill(_market_to_skill_definition(item))
+        runtime.logger.log(
+            "SKILL_MARKET_UPDATE",
+            {
+                "skill_id": skill_id,
+                "version": str(item.get("version", "0.1.0")),
+            },
+        )
+        return SkillMarketUpdateResponse(
+            ok=True,
+            skill_id=skill_id,
+            updated=True,
+            version=str(item.get("version", "0.1.0")),
+        )
 
     @app.post(
         "/skills/{skill_id}/execute",
