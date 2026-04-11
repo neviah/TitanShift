@@ -295,6 +295,22 @@ class EmergencyFixApplyResponse(BaseModel):
     ok: bool
     applied: bool
     dry_run: bool
+    execution_id: str | None = None
+    rollback_available: bool = False
+    results: list[dict[str, Any]]
+    message: str
+
+
+class EmergencyFixRollbackRequest(BaseModel):
+    execution_id: str = Field(min_length=1)
+    dry_run: bool = True
+
+
+class EmergencyFixRollbackResponse(BaseModel):
+    ok: bool
+    rolled_back: bool
+    dry_run: bool
+    execution_id: str
     results: list[dict[str, Any]]
     message: str
 

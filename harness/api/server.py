@@ -17,6 +17,8 @@ from harness.api.schemas import (
     EmergencyFixApplyRequest,
     EmergencyFixApplyResponse,
     EmergencyFixPlan,
+    EmergencyFixRollbackRequest,
+    EmergencyFixRollbackResponse,
     AgentAssignSkillsRequest,
     AgentAssignSkillsResponse,
     AgentSkillExecuteRequest,
@@ -77,6 +79,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
     app = FastAPI(title="TitantShift Harness API", version="0.2.4")
     app.state.runtime = runtime
+    emergency_fix_history: dict[str, dict[str, Any]] = {}
 
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
         if not enabled:
@@ -547,13 +550,20 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
         agent.allowed_tools = allowed_tools
 
-    def _apply_fix_action(action: EmergencyFixAction, *, dry_run: bool) -> dict[str, Any]:
+    def _apply_fix_action(action: EmergencyFixAction, *, dry_run: bool) -> tuple[dict[str, Any], dict[str, Any] | None]:
         if action.action_type == "restart_module":
             return {
                 "action_type": action.action_type,
                 "target_id": action.target_id,
                 "status": "simulated" if dry_run else "queued",
-            }
+            }, None
+
+        if action.action_type == "restart_agent":
+            return {
+                "action_type": action.action_type,
+                "target_id": action.target_id,
+                "status": "simulated" if dry_run else "queued",
+            }, None
 
         if action.action_type == "disable_skill":
             changed_agents: list[str] = []
@@ -563,41 +573,151 @@ def create_app(workspace_root: Path) -> FastAPI:
                     if not dry_run:
                         agent.assigned_skills = [s for s in agent.assigned_skills if s != action.target_id]
                         _recompute_agent_tools(agent.agent_id)
+            rollback_action = {
+                "action_type": "restore_agent_skill_assignments",
+                "params": {"skill_id": action.target_id, "agent_ids": changed_agents},
+            }
             return {
                 "action_type": action.action_type,
                 "target_id": action.target_id,
                 "status": "simulated" if dry_run else "applied",
                 "changed_agents": changed_agents,
-            }
+            }, rollback_action
 
-        if action.action_type == "disable_tool":
-            tool_name = str(action.target_id or "")
-            if tool_name:
-                if not dry_run:
-                    runtime.tools.policy.blocked_tool_names.add(tool_name)
-                    runtime.tools.policy.allowed_tool_names.discard(tool_name)
+        if action.action_type == "enable_skill":
+            target_skill = str(action.target_id or "")
+            changed_agents: list[str] = []
+            preferred_agent_id = str(action.params.get("agent_id", "")) if action.params else ""
+            if target_skill:
+                for agent in runtime.orchestrator.agents.values():
+                    if preferred_agent_id and agent.agent_id != preferred_agent_id:
+                        continue
+                    if target_skill not in agent.assigned_skills:
+                        changed_agents.append(agent.agent_id)
+                        if not dry_run:
+                            agent.assigned_skills = sorted(set(agent.assigned_skills + [target_skill]))
+                            _recompute_agent_tools(agent.agent_id)
+                    if preferred_agent_id:
+                        break
+            rollback_action = {
+                "action_type": "remove_agent_skill_assignments",
+                "params": {"skill_id": target_skill, "agent_ids": changed_agents},
+            }
             return {
                 "action_type": action.action_type,
                 "target_id": action.target_id,
                 "status": "simulated" if dry_run else "applied",
+                "changed_agents": changed_agents,
+            }, rollback_action
+
+        if action.action_type == "disable_tool":
+            tool_name = str(action.target_id or "")
+            prior = {
+                "in_blocked": tool_name in runtime.tools.policy.blocked_tool_names,
+                "in_allowed": tool_name in runtime.tools.policy.allowed_tool_names,
             }
+            if tool_name:
+                if not dry_run:
+                    runtime.tools.policy.blocked_tool_names.add(tool_name)
+                    runtime.tools.policy.allowed_tool_names.discard(tool_name)
+            rollback_action = {
+                "action_type": "restore_tool_policy_state",
+                "params": {"tool_name": tool_name, **prior},
+            }
+            return {
+                "action_type": action.action_type,
+                "target_id": action.target_id,
+                "status": "simulated" if dry_run else "applied",
+            }, rollback_action
+
+        if action.action_type == "enable_tool":
+            tool_name = str(action.target_id or "")
+            prior = {
+                "in_blocked": tool_name in runtime.tools.policy.blocked_tool_names,
+                "in_allowed": tool_name in runtime.tools.policy.allowed_tool_names,
+            }
+            if tool_name and not dry_run:
+                runtime.tools.policy.blocked_tool_names.discard(tool_name)
+                runtime.tools.policy.allowed_tool_names.add(tool_name)
+            rollback_action = {
+                "action_type": "restore_tool_policy_state",
+                "params": {"tool_name": tool_name, **prior},
+            }
+            return {
+                "action_type": action.action_type,
+                "target_id": action.target_id,
+                "status": "simulated" if dry_run else "applied",
+            }, rollback_action
 
         if action.action_type == "update_config":
             key = str(action.params.get("key", "")) if action.params else ""
             value = action.params.get("value") if action.params else None
+            old_value = runtime.config.get(key) if key else None
             if key and not dry_run:
                 runtime.config.set(key, value)
+            rollback_action = {
+                "action_type": "update_config",
+                "params": {"key": key, "value": old_value},
+            }
             return {
                 "action_type": action.action_type,
                 "status": "simulated" if dry_run else "applied",
                 "key": key,
-            }
+            }, rollback_action
+
+        if action.action_type == "restore_tool_policy_state":
+            params = action.params or {}
+            tool_name = str(params.get("tool_name", ""))
+            in_blocked = bool(params.get("in_blocked", False))
+            in_allowed = bool(params.get("in_allowed", False))
+            if tool_name and not dry_run:
+                if in_blocked:
+                    runtime.tools.policy.blocked_tool_names.add(tool_name)
+                else:
+                    runtime.tools.policy.blocked_tool_names.discard(tool_name)
+                if in_allowed:
+                    runtime.tools.policy.allowed_tool_names.add(tool_name)
+                else:
+                    runtime.tools.policy.allowed_tool_names.discard(tool_name)
+            return {
+                "action_type": action.action_type,
+                "target_id": tool_name,
+                "status": "simulated" if dry_run else "applied",
+            }, None
+
+        if action.action_type in ["restore_agent_skill_assignments", "remove_agent_skill_assignments"]:
+            params = action.params or {}
+            target_skill = str(params.get("skill_id", ""))
+            agent_ids = [str(a) for a in list(params.get("agent_ids", []))]
+            changed_agents: list[str] = []
+            for agent_id in agent_ids:
+                agent = runtime.orchestrator.get_agent(agent_id)
+                if agent is None:
+                    continue
+                if action.action_type == "restore_agent_skill_assignments":
+                    if target_skill and target_skill not in agent.assigned_skills:
+                        changed_agents.append(agent.agent_id)
+                        if not dry_run:
+                            agent.assigned_skills = sorted(set(agent.assigned_skills + [target_skill]))
+                            _recompute_agent_tools(agent.agent_id)
+                else:
+                    if target_skill and target_skill in agent.assigned_skills:
+                        changed_agents.append(agent.agent_id)
+                        if not dry_run:
+                            agent.assigned_skills = [s for s in agent.assigned_skills if s != target_skill]
+                            _recompute_agent_tools(agent.agent_id)
+            return {
+                "action_type": action.action_type,
+                "target_id": target_skill,
+                "status": "simulated" if dry_run else "applied",
+                "changed_agents": changed_agents,
+            }, None
 
         return {
             "action_type": action.action_type,
             "target_id": action.target_id,
             "status": "unsupported",
-        }
+        }, None
 
     def _cleanup_artifacts(max_age_days: int, include_logs: bool, dry_run: bool) -> tuple[list[str], list[str]]:
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
@@ -802,13 +922,33 @@ def create_app(workspace_root: Path) -> FastAPI:
         if not body.approved:
             raise HTTPException(status_code=400, detail="Fix application requires approved=true")
 
-        results = [_apply_fix_action(action, dry_run=body.dry_run) for action in body.fix_plan.actions]
+        execution_id = f"fix-{uuid.uuid4().hex[:12]}"
+        results: list[dict[str, Any]] = []
+        rollback_actions: list[dict[str, Any]] = []
+        for action in body.fix_plan.actions:
+            result, rollback_action = _apply_fix_action(action, dry_run=body.dry_run)
+            results.append(result)
+            if rollback_action is not None:
+                rollback_actions.append(rollback_action)
+
+        rollback_available = (not body.dry_run) and len(rollback_actions) > 0
+        if rollback_available:
+            emergency_fix_history[execution_id] = {
+                "execution_id": execution_id,
+                "failure_id": body.fix_plan.failure_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "rollback_actions": rollback_actions,
+                "rolled_back": False,
+            }
+
         runtime.logger.log(
             "EMERGENCY_FIX_APPLY",
             {
+                "execution_id": execution_id,
                 "failure_id": body.fix_plan.failure_id,
                 "approved": body.approved,
                 "dry_run": body.dry_run,
+                "rollback_available": rollback_available,
                 "results": results,
                 "source": "api",
             },
@@ -817,8 +957,59 @@ def create_app(workspace_root: Path) -> FastAPI:
             ok=True,
             applied=not body.dry_run,
             dry_run=body.dry_run,
+            execution_id=execution_id,
+            rollback_available=rollback_available,
             results=results,
             message="Fix actions simulated" if body.dry_run else "Fix actions applied",
+        )
+
+    @app.post(
+        "/diagnostics/emergency/fix-rollback",
+        response_model=EmergencyFixRollbackResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def rollback_emergency_fix(body: EmergencyFixRollbackRequest) -> EmergencyFixRollbackResponse:
+        record = emergency_fix_history.get(body.execution_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Fix execution not found")
+        if bool(record.get("rolled_back", False)):
+            raise HTTPException(status_code=400, detail="Fix execution already rolled back")
+
+        rollback_actions = list(record.get("rollback_actions", []))
+        if not rollback_actions:
+            raise HTTPException(status_code=400, detail="No rollback actions available for this execution")
+
+        results: list[dict[str, Any]] = []
+        for action_dict in reversed(rollback_actions):
+            action = EmergencyFixAction(
+                action_type=str(action_dict.get("action_type", "")),
+                target_id=(str(action_dict.get("target_id")) if action_dict.get("target_id") is not None else None),
+                params=dict(action_dict.get("params", {})),
+            )
+            result, _ = _apply_fix_action(action, dry_run=body.dry_run)
+            results.append(result)
+
+        if not body.dry_run:
+            record["rolled_back"] = True
+            record["rolled_back_at"] = datetime.now(timezone.utc).isoformat()
+
+        runtime.logger.log(
+            "EMERGENCY_FIX_ROLLBACK",
+            {
+                "execution_id": body.execution_id,
+                "dry_run": body.dry_run,
+                "rolled_back": not body.dry_run,
+                "results": results,
+                "source": "api",
+            },
+        )
+        return EmergencyFixRollbackResponse(
+            ok=True,
+            rolled_back=not body.dry_run,
+            dry_run=body.dry_run,
+            execution_id=body.execution_id,
+            results=results,
+            message="Rollback actions simulated" if body.dry_run else "Rollback actions applied",
         )
 
     @app.get("/reports/incident", response_model=IncidentReport, dependencies=[Depends(require_read_api_key)])

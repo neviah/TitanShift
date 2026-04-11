@@ -780,11 +780,95 @@ def test_emergency_fix_apply_updates_config_when_approved() -> None:
     body = apply.json()
     assert body["ok"] is True
     assert body["applied"] is True
+    assert body["execution_id"].startswith("fix-")
+    assert body["rollback_available"] is True
     assert any(r.get("status") == "applied" for r in body["results"])
 
     new_value = client.get("/config").json()["state_machine.default_budget.max_tokens"]
     assert new_value == 1337
     assert new_value != old_value
+
+
+def test_emergency_fix_rollback_restores_config_value() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    before = client.get("/config").json()["state_machine.default_budget.max_tokens"]
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-rollback-config",
+                "recommended_hypothesis": "config drift",
+                "risk_level": "medium",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 1777},
+                    }
+                ],
+                "notes": "patch config",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+    assert execution_id
+
+    changed = client.get("/config").json()["state_machine.default_budget.max_tokens"]
+    assert changed == 1777
+
+    rollback = client.post(
+        "/diagnostics/emergency/fix-rollback",
+        json={"execution_id": execution_id, "dry_run": False},
+    )
+    assert rollback.status_code == 200
+    rollback_body = rollback.json()
+    assert rollback_body["ok"] is True
+    assert rollback_body["rolled_back"] is True
+
+    restored = client.get("/config").json()["state_machine.default_budget.max_tokens"]
+    assert restored == before
+
+
+def test_emergency_fix_rollback_restores_tool_policy_state() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    runtime = app.state.runtime
+
+    runtime.tools.policy.blocked_tool_names.discard("shell_command")
+    runtime.tools.policy.allowed_tool_names.add("shell_command")
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-rollback-tool",
+                "recommended_hypothesis": "tool risk",
+                "risk_level": "medium",
+                "requires_user_approval": True,
+                "actions": [{"action_type": "disable_tool", "target_id": "shell_command"}],
+                "notes": "disable tool temporarily",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+    assert "shell_command" in runtime.tools.policy.blocked_tool_names
+    assert "shell_command" not in runtime.tools.policy.allowed_tool_names
+
+    rollback = client.post(
+        "/diagnostics/emergency/fix-rollback",
+        json={"execution_id": execution_id, "dry_run": False},
+    )
+    assert rollback.status_code == 200
+    assert "shell_command" not in runtime.tools.policy.blocked_tool_names
+    assert "shell_command" in runtime.tools.policy.allowed_tool_names
 
 
 def test_api_key_auth_enforced_when_enabled() -> None:

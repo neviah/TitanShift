@@ -169,12 +169,15 @@ curl "http://127.0.0.1:8000/diagnostics/emergency?offset=20&limit=20"
 curl "http://127.0.0.1:8000/diagnostics/emergency?after=2026-04-10T00:00:00%2B00:00&before=2026-04-10T23:59:59%2B00:00&limit=50"
 curl -X POST http://127.0.0.1:8000/diagnostics/emergency/analyze -H "Content-Type: application/json" -d "{\"source\":\"orchestrator.skill_execution\",\"error\":\"Timed out after 15.0s\",\"agent_id\":\"<agent_id>\",\"skill_id\":\"<skill_id>\",\"context\":{\"task_id\":\"<task_id>\"}}"
 curl -X POST http://127.0.0.1:8000/diagnostics/emergency/fix-apply -H "Content-Type: application/json" -d "{\"approved\":true,\"dry_run\":true,\"fix_plan\":{\"failure_id\":\"failure-123\",\"recommended_hypothesis\":\"Execution budget exceeded\",\"risk_level\":\"medium\",\"requires_user_approval\":true,\"actions\":[{\"action_type\":\"update_config\",\"params\":{\"key\":\"orchestrator.skill_execution_timeout_s\",\"value\":30.0}}],\"notes\":\"Review before apply\"}}"
+curl -X POST http://127.0.0.1:8000/diagnostics/emergency/fix-rollback -H "Content-Type: application/json" -d "{\"execution_id\":\"fix-abc123\",\"dry_run\":true}"
 ```
 
 Each diagnosis entry includes `timestamp`, `source`, optional `agent_id`, optional `skill_id`, and structured diagnosis suggestions.
 The response now includes `items`, `limit`, `offset`, `has_more`, and `next_offset`.
 `/diagnostics/emergency/analyze` returns a `failure_id`, ranked diagnoses, and a proposed fix plan.
 `/diagnostics/emergency/fix-apply` requires explicit `approved=true`; keep `dry_run=true` to preview actions safely.
+Successful non-dry-run fix application returns `execution_id` and `rollback_available` metadata.
+`/diagnostics/emergency/fix-rollback` replays rollback actions for a prior fix execution when available.
 
 Incident report API:
 
