@@ -258,6 +258,21 @@ class SkillMarketRemoteStatusResponse(BaseModel):
     index_hash: str | None = None
 
 
+class UiMarketOverviewResponse(BaseModel):
+    total_listed: int
+    installed_count: int
+    installable_count: int
+    non_installable_count: int
+    remote_status: SkillMarketRemoteStatusResponse
+    recent_events: list[LogEntry] = Field(default_factory=list)
+
+
+class UiIngestionOverviewResponse(BaseModel):
+    stats: IngestionStatsResponse
+    recent_ingestions: list[LogEntry] = Field(default_factory=list)
+    recent_dedupe_events: list[IngestionDedupeEntry] = Field(default_factory=list)
+
+
 class SkillExecuteRequest(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
 

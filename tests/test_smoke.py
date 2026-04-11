@@ -878,6 +878,72 @@ def test_skills_market_remote_sync_and_status(tmp_path: Path) -> None:
     assert status_body["synced"] is True
     assert status_body["pulled_count"] == 1
     assert status_body["index_hash"] == sync_body["index_hash"]
+    assert sync_body["index_hash"].startswith("sha256:")
+
+
+def test_ui_market_overview_endpoint(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(
+        json.dumps(
+            [
+                {
+                    "skill_id": "ui_market_skill",
+                    "description": "Skill for UI market overview",
+                    "mode": "prompt",
+                    "domain": "market",
+                    "version": "1.0.0",
+                    "tags": ["ui"],
+                    "required_tools": [],
+                    "dependencies": [],
+                    "prompt_template": "ui {input}",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    installed_path.write_text(json.dumps([]), encoding="utf-8")
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    app.state.runtime.logger.log("SKILL_MARKET_INSTALL", {"skill_id": "ui_market_skill"})
+    client = TestClient(app)
+    response = client.get("/ui/market/overview")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_listed"] == 1
+    assert body["installable_count"] == 1
+    assert body["remote_status"]["synced"] is False
+    assert any(event["event_type"] == "SKILL_MARKET_INSTALL" for event in body["recent_events"])
+
+
+def test_ui_ingestion_overview_endpoint(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    ingest1 = client.post("/ingestion/graphify", json={"text": "alpha beta gamma delta"})
+    assert ingest1.status_code == 200
+    ingest2 = client.post("/ingestion/graphify", json={"text": "alpha beta gamma delta"})
+    assert ingest2.status_code == 200
+
+    response = client.get("/ui/ingestion/overview")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stats"]["total_ingestions"] == 2
+    assert len(body["recent_ingestions"]) >= 2
+    assert len(body["recent_dedupe_events"]) >= 1
 
 
 def test_skills_market_remote_sync_rejects_invalid_signature(tmp_path: Path) -> None:

@@ -90,6 +90,8 @@ from harness.api.schemas import (
     SkillMarketUpdateRequest,
     SkillMarketUpdateResponse,
     SkillSummary,
+    UiIngestionOverviewResponse,
+    UiMarketOverviewResponse,
     TaskDetail,
     TaskSummary,
     ToolSummary,
@@ -578,6 +580,43 @@ def create_app(workspace_root: Path) -> FastAPI:
     for installed_id in sorted(market_installed):
         if runtime.skills.get_skill(installed_id) is None and installed_id in market_registry:
             runtime.skills.register_skill(_market_to_skill_definition(market_registry[installed_id]))
+
+    def _current_market_rows() -> list[SkillMarketItem]:
+        installed_set = set(market_installed)
+        rows: list[SkillMarketItem] = []
+        for skill_id, item in sorted(market_registry.items(), key=lambda kv: kv[0]):
+            dependencies = [str(v) for v in list(item.get("dependencies", []))]
+            missing_dependencies = sorted([dep for dep in dependencies if dep not in installed_set])
+            missing_tools = sorted(_market_missing_tools(item))
+            rows.append(
+                SkillMarketItem(
+                    skill_id=skill_id,
+                    description=str(item.get("description", "")),
+                    mode=str(item.get("mode", "prompt")),
+                    domain=str(item.get("domain", "general")),
+                    version=str(item.get("version", "0.1.0")),
+                    tags=[str(v) for v in list(item.get("tags", []))],
+                    required_tools=[str(v) for v in list(item.get("required_tools", []))],
+                    dependencies=dependencies,
+                    installed=skill_id in installed_set,
+                    installable=(len(missing_dependencies) == 0 and len(missing_tools) == 0),
+                    missing_dependencies=missing_dependencies,
+                    missing_tools=missing_tools,
+                )
+            )
+        return rows
+
+    def _current_market_remote_status() -> SkillMarketRemoteStatusResponse:
+        status = _load_market_remote_status()
+        if not status:
+            return SkillMarketRemoteStatusResponse(synced=False)
+        return SkillMarketRemoteStatusResponse(
+            synced=True,
+            source=str(status.get("source")) if status.get("source") is not None else None,
+            synced_at=str(status.get("synced_at")) if status.get("synced_at") is not None else None,
+            pulled_count=int(status.get("pulled_count", 0)),
+            index_hash=str(status.get("index_hash")) if status.get("index_hash") is not None else None,
+        )
 
     def _build_incident_report(
         *,
@@ -1714,29 +1753,7 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.get("/skills/market", response_model=list[SkillMarketItem], dependencies=[Depends(require_read_api_key)])
     async def skills_market() -> list[SkillMarketItem]:
-        installed_set = set(market_installed)
-        rows: list[SkillMarketItem] = []
-        for skill_id, item in sorted(market_registry.items(), key=lambda kv: kv[0]):
-            dependencies = [str(v) for v in list(item.get("dependencies", []))]
-            missing_dependencies = sorted([dep for dep in dependencies if dep not in installed_set])
-            missing_tools = sorted(_market_missing_tools(item))
-            rows.append(
-                SkillMarketItem(
-                    skill_id=skill_id,
-                    description=str(item.get("description", "")),
-                    mode=str(item.get("mode", "prompt")),
-                    domain=str(item.get("domain", "general")),
-                    version=str(item.get("version", "0.1.0")),
-                    tags=[str(v) for v in list(item.get("tags", []))],
-                    required_tools=[str(v) for v in list(item.get("required_tools", []))],
-                    dependencies=dependencies,
-                    installed=skill_id in installed_set,
-                    installable=(len(missing_dependencies) == 0 and len(missing_tools) == 0),
-                    missing_dependencies=missing_dependencies,
-                    missing_tools=missing_tools,
-                )
-            )
-        return rows
+        return _current_market_rows()
 
     @app.post(
         "/skills/market/install",
@@ -1928,6 +1945,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             if not index_hash or index_hash != computed_hash:
                 raise HTTPException(status_code=400, detail="Remote index v1 hash validation failed")
 
+        effective_index_hash = index_hash or computed_hash
+
         normalized_items: list[dict[str, Any]] = []
         for candidate in items_raw:
             if not isinstance(candidate, dict):
@@ -1950,7 +1969,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "source": source,
             "synced_at": synced_at,
             "pulled_count": len(normalized_items),
-            "index_hash": index_hash,
+            "index_hash": effective_index_hash,
         }
         _save_market_remote_status(status_payload)
         runtime.logger.log(
@@ -1958,7 +1977,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             {
                 "source": source,
                 "pulled_count": len(normalized_items),
-                "index_hash": index_hash,
+                "index_hash": effective_index_hash,
             },
         )
 
@@ -1966,7 +1985,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             ok=True,
             source=source,
             pulled_count=len(normalized_items),
-            index_hash=index_hash,
+            index_hash=effective_index_hash,
             synced_at=synced_at,
         )
 
@@ -1976,15 +1995,33 @@ def create_app(workspace_root: Path) -> FastAPI:
         dependencies=[Depends(require_read_api_key)],
     )
     async def skills_market_remote_status() -> SkillMarketRemoteStatusResponse:
-        status = _load_market_remote_status()
-        if not status:
-            return SkillMarketRemoteStatusResponse(synced=False)
-        return SkillMarketRemoteStatusResponse(
-            synced=True,
-            source=str(status.get("source")) if status.get("source") is not None else None,
-            synced_at=str(status.get("synced_at")) if status.get("synced_at") is not None else None,
-            pulled_count=int(status.get("pulled_count", 0)),
-            index_hash=str(status.get("index_hash")) if status.get("index_hash") is not None else None,
+        return _current_market_remote_status()
+
+    @app.get("/ui/market/overview", response_model=UiMarketOverviewResponse, dependencies=[Depends(require_read_api_key)])
+    async def ui_market_overview() -> UiMarketOverviewResponse:
+        rows = _current_market_rows()
+        installed_count = sum(1 for r in rows if r.installed)
+        installable_count = sum(1 for r in rows if (not r.installed and r.installable))
+        non_installable_count = sum(1 for r in rows if (not r.installed and not r.installable))
+
+        market_events: list[dict[str, Any]] = []
+        for event_type in [
+            "SKILL_MARKET_REMOTE_SYNC",
+            "SKILL_MARKET_INSTALL",
+            "SKILL_MARKET_UNINSTALL",
+            "SKILL_MARKET_UPDATE",
+        ]:
+            market_events.extend(runtime.logger.query(event_type=event_type, limit=20))
+        market_events.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
+        recent_events = [LogEntry(**r) for r in market_events[:20]]
+
+        return UiMarketOverviewResponse(
+            total_listed=len(rows),
+            installed_count=installed_count,
+            installable_count=installable_count,
+            non_installable_count=non_installable_count,
+            remote_status=_current_market_remote_status(),
+            recent_events=recent_events,
         )
 
     @app.post(
@@ -2620,6 +2657,9 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.get("/ingestion/stats", response_model=IngestionStatsResponse, dependencies=[Depends(require_read_api_key)])
     async def ingestion_stats() -> IngestionStatsResponse:
+        return _current_ingestion_stats()
+
+    def _current_ingestion_stats() -> IngestionStatsResponse:
         rows = runtime.logger.query(event_type="INGESTION_COMPLETE", limit=10000)
         total_nodes = 0
         total_nodes_skipped = 0
@@ -2642,6 +2682,29 @@ def create_app(workspace_root: Path) -> FastAPI:
             total_edges_added=total_edges,
             total_edges_skipped=total_edges_skipped,
             last_ingested_at=last_at,
+        )
+
+    @app.get("/ui/ingestion/overview", response_model=UiIngestionOverviewResponse, dependencies=[Depends(require_read_api_key)])
+    async def ui_ingestion_overview() -> UiIngestionOverviewResponse:
+        ingestion_rows = runtime.logger.query(event_type="INGESTION_COMPLETE", limit=20)
+        recent_ingestions = [LogEntry(**r) for r in ingestion_rows]
+
+        dedupe_rows = runtime.logger.query(event_type="INGESTION_DEDUPE", limit=20)
+        recent_dedupe_entries = [
+            IngestionDedupeEntry(
+                timestamp=str(r.get("timestamp", "")),
+                node_id=str(dict(r.get("payload", {})).get("node_id", "")),
+                reason=str(dict(r.get("payload", {})).get("reason", "")),
+                confidence=float(dict(r.get("payload", {})).get("confidence", 0.0)),
+                threshold=float(dict(r.get("payload", {})).get("threshold", 0.0)),
+            )
+            for r in dedupe_rows
+        ]
+
+        return UiIngestionOverviewResponse(
+            stats=_current_ingestion_stats(),
+            recent_ingestions=recent_ingestions,
+            recent_dedupe_events=recent_dedupe_entries,
         )
 
     @app.get("/ingestion/dedupe-log", response_model=IngestionDedupeLogResponse, dependencies=[Depends(require_read_api_key)])
