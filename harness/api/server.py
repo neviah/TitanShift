@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
@@ -64,10 +64,12 @@ from harness.api.schemas import (
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.types import Task
 
+T = TypeVar("T")
+
 
 def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
-    app = FastAPI(title="TitantShift Harness API", version="0.2.2")
+    app = FastAPI(title="TitantShift Harness API", version="0.2.3")
     app.state.runtime = runtime
 
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
@@ -308,7 +310,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             for r in rows
         ]
 
-    def _paginate[T](items: list[T], limit: int, offset: int) -> tuple[list[T], bool, int | None]:
+    def _paginate(items: list[T], limit: int, offset: int) -> tuple[list[T], bool, int | None]:
         has_more = len(items) > limit
         trimmed = items[-limit:] if has_more else items
         next_offset = offset + len(trimmed) if has_more else None
