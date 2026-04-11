@@ -181,6 +181,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "agent": report_data.get("agent"),
             "executions": report_data.get("executions"),
             "fix_executions": report_data.get("fix_executions"),
+            "correlation": report_data.get("correlation"),
             "module_errors": report_data.get("module_errors"),
             "diagnoses": report_data.get("diagnoses"),
             "related_events": report_data.get("related_events"),
@@ -538,6 +539,11 @@ def create_app(workspace_root: Path) -> FastAPI:
                     fix_execution_rows.append(row)
 
         dedupe = lambda rows: list({json.dumps(r, sort_keys=True): r for r in rows}.values())
+        deduped_executions = dedupe(executions_rows)
+        deduped_fix_executions = dedupe(fix_execution_rows)
+        deduped_module_errors = dedupe(module_error_rows)
+        deduped_diagnoses = dedupe(diagnosis_rows)
+        deduped_related_events = dedupe(related_event_rows)
         generated_at = datetime.now(timezone.utc)
         signing_version = "v1"
         payload = {
@@ -550,11 +556,15 @@ def create_app(workspace_root: Path) -> FastAPI:
             "linked_agent_ids": sorted(set(linked_agent_ids)),
             "task": task_detail.model_dump(mode="json") if task_detail else None,
             "agent": agent_summary.model_dump(mode="json") if agent_summary else None,
-            "executions": [LogEntry(**row).model_dump(mode="json") for row in dedupe(executions_rows)],
-            "fix_executions": [LogEntry(**row).model_dump(mode="json") for row in dedupe(fix_execution_rows)],
-            "module_errors": [LogEntry(**row).model_dump(mode="json") for row in dedupe(module_error_rows)],
-            "diagnoses": [r.model_dump(mode="json") for r in _diagnosis_entries_from_rows(dedupe(diagnosis_rows))],
-            "related_events": [LogEntry(**row).model_dump(mode="json") for row in dedupe(related_event_rows)],
+            "executions": [LogEntry(**row).model_dump(mode="json") for row in deduped_executions],
+            "fix_executions": [LogEntry(**row).model_dump(mode="json") for row in deduped_fix_executions],
+            "correlation": {
+                "failure_ids": sorted(failure_ids),
+                "fix_execution_count": len(deduped_fix_executions),
+            },
+            "module_errors": [LogEntry(**row).model_dump(mode="json") for row in deduped_module_errors],
+            "diagnoses": [r.model_dump(mode="json") for r in _diagnosis_entries_from_rows(deduped_diagnoses)],
+            "related_events": [LogEntry(**row).model_dump(mode="json") for row in deduped_related_events],
         }
         report_hash = _compute_report_hash_from_payload(payload)
         return IncidentReport(report_hash=report_hash, **payload)

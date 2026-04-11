@@ -56,6 +56,11 @@ class LogQueryResponse(BaseModel):
     next_offset: int | None = None
 
 
+class IncidentCorrelation(BaseModel):
+    failure_ids: list[str] = Field(default_factory=list)
+    fix_execution_count: int = 0
+
+
 class IncidentReport(BaseModel):
     generated_at: datetime
     signing_version: str
@@ -69,6 +74,7 @@ class IncidentReport(BaseModel):
     agent: AgentSummary | None = None
     executions: list[LogEntry] = Field(default_factory=list)
     fix_executions: list[LogEntry] = Field(default_factory=list)
+    correlation: IncidentCorrelation = Field(default_factory=IncidentCorrelation)
     module_errors: list[LogEntry] = Field(default_factory=list)
     diagnoses: list[EmergencyDiagnosisEntry] = Field(default_factory=list)
     related_events: list[LogEntry] = Field(default_factory=list)

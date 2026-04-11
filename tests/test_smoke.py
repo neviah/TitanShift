@@ -1154,6 +1154,8 @@ def test_incident_report_by_execution_id() -> None:
     assert body["agent_id"] == agent_id
     assert any(log["payload"].get("execution_id") == execution_id for log in body["executions"])
     assert body["fix_executions"] == []
+    assert body["correlation"]["failure_ids"] == []
+    assert body["correlation"]["fix_execution_count"] == 0
 
 
 def test_incident_report_includes_fix_execution_records_for_fix_execution_id() -> None:
@@ -1257,6 +1259,8 @@ def test_incident_report_by_agent_correlates_fix_executions_by_failure_id() -> N
     assert "EMERGENCY_FIX_APPLY" in event_types
     assert "EMERGENCY_FIX_ROLLBACK" in event_types
     assert any(row["payload"].get("execution_id") == fix_execution_id for row in body["fix_executions"])
+    assert failure_id in body["correlation"]["failure_ids"]
+    assert body["correlation"]["fix_execution_count"] >= 2
 
 
 def test_incident_report_export_and_verify() -> None:
