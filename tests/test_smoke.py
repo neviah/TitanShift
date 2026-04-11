@@ -274,6 +274,27 @@ def test_agents_endpoint() -> None:
     assert body[0]["agent_id"] == "main-agent"
 
 
+def test_agents_spawn_endpoint_when_enabled() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawn = client.post(
+        "/agents/spawn",
+        json={"description": "Run shell command safely", "role": "Execution Specialist"},
+    )
+    assert spawn.status_code == 200
+    body = spawn.json()
+    assert body["ok"] is True
+    assert body["agent_id"].startswith("subagent-")
+    assert isinstance(body["assigned_skills"], list)
+
+    agents = client.get("/agents")
+    assert agents.status_code == 200
+    rows = agents.json()
+    assert any(row["agent_id"] == body["agent_id"] for row in rows)
+
+
 def test_skills_endpoint_and_search() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -283,11 +304,17 @@ def test_skills_endpoint_and_search() -> None:
     body = response.json()
     assert isinstance(body, list)
     assert any(row["skill_id"] == "reactive_chat" for row in body)
+    assert all("mode" in row for row in body)
 
     response_q = client.get("/skills?query=shell")
     assert response_q.status_code == 200
     body_q = response_q.json()
     assert any(row["skill_id"] == "safe_shell_command" for row in body_q)
+
+    response_tag = client.get("/skills?tags=safety")
+    assert response_tag.status_code == 200
+    body_tag = response_tag.json()
+    assert any(row["skill_id"] == "safe_shell_command" for row in body_tag)
 
 
 def test_tools_endpoint_and_search() -> None:
@@ -342,6 +369,17 @@ def test_memory_graph_neighbors_endpoint() -> None:
     body = response.json()
     assert body["node_id"] == "n1"
     assert "n2" in body["neighbors"]
+
+
+def test_memory_graph_search_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.memory.graph_add_node("skill:test_skill", "skill", {"description": "test skill"})
+    client = TestClient(app)
+
+    response = client.get("/memory/graph/search?query=test&node_type=skill&limit=10")
+    assert response.status_code == 200
+    body = response.json()
+    assert any(hit["node_id"] == "skill:test_skill" for hit in body)
 
 
 def test_api_key_auth_enforced_when_enabled() -> None:

@@ -101,11 +101,32 @@ class AgentSummary(BaseModel):
     subagents_enabled: bool
     model_default_backend: str
     memory_layers: list[str]
+    assigned_skills: list[str] = Field(default_factory=list)
+    allowed_tools: list[str] = Field(default_factory=list)
+    spawned_from_task: str | None = None
+    created_at: str | None = None
+    active: bool = True
+
+
+class AgentSpawnRequest(BaseModel):
+    description: str = Field(min_length=1)
+    role: str | None = None
+    model_backend: str | None = None
+
+
+class AgentSpawnResponse(BaseModel):
+    ok: bool
+    agent_id: str
+    assigned_skills: list[str]
+    allowed_tools: list[str]
 
 
 class SkillSummary(BaseModel):
     skill_id: str
     description: str
+    mode: str
+    domain: str
+    version: str
     tags: list[str]
     required_tools: list[str]
 
@@ -138,6 +159,12 @@ class MemorySemanticHit(BaseModel):
 class MemoryGraphNeighbors(BaseModel):
     node_id: str
     neighbors: list[str]
+
+
+class MemoryGraphNodeHit(BaseModel):
+    node_id: str
+    node_type: str
+    properties: dict[str, str]
 
 
 class RunHistoryReport(BaseModel):

@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from harness.api.schemas import (
+    AgentSpawnRequest,
+    AgentSpawnResponse,
     AgentSummary,
     ArtifactCleanupRequest,
     ArtifactCleanupResponse,
@@ -31,6 +33,7 @@ from harness.api.schemas import (
     SchedulerJob,
     SchedulerTickResponse,
     MemoryGraphNeighbors,
+    MemoryGraphNodeHit,
     MemorySemanticHit,
     MemorySummary,
     SkillSummary,
@@ -303,23 +306,75 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.get("/agents", response_model=list[AgentSummary], dependencies=[Depends(require_read_api_key)])
     async def agents() -> list[AgentSummary]:
-        return [
-            AgentSummary(
-                agent_id="main-agent",
-                role=runtime.config.get("orchestrator.default_role", "General Agent"),
-                subagents_enabled=runtime.config.get("orchestrator.enable_subagents", False),
-                model_default_backend=runtime.config.get("model.default_backend", "local_stub"),
-                memory_layers=["working", "short_term", "long_term", "semantic", "graph"],
+        subagents_enabled = bool(runtime.config.get("orchestrator.enable_subagents", False))
+        model_default_backend = str(runtime.config.get("model.default_backend", "local_stub"))
+        rows = []
+        for agent in runtime.orchestrator.list_agents():
+            rows.append(
+                AgentSummary(
+                    agent_id=agent["agent_id"],
+                    role=agent["role"],
+                    subagents_enabled=subagents_enabled,
+                    model_default_backend=model_default_backend,
+                    memory_layers=["working", "short_term", "long_term", "semantic", "graph"],
+                    assigned_skills=list(agent.get("assigned_skills", [])),
+                    allowed_tools=list(agent.get("allowed_tools", [])),
+                    spawned_from_task=agent.get("spawned_from_task"),
+                    created_at=agent.get("created_at"),
+                    active=bool(agent.get("active", True)),
+                )
             )
-        ]
+        return rows
+
+    @app.post("/agents/spawn", response_model=AgentSpawnResponse, dependencies=[Depends(require_admin_api_key)])
+    async def spawn_agent(body: AgentSpawnRequest) -> AgentSpawnResponse:
+        task = Task(
+            id=f"spawn-{uuid.uuid4()}",
+            description=body.description,
+            input={
+                "role": body.role or "Specialist Agent",
+                "model_backend": body.model_backend or runtime.config.get("model.default_backend", "local_stub"),
+            },
+        )
+        try:
+            agent_id = await runtime.orchestrator.spawn_subagent(task)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        agent = next((a for a in runtime.orchestrator.list_agents() if a.get("agent_id") == agent_id), None)
+        return AgentSpawnResponse(
+            ok=True,
+            agent_id=agent_id,
+            assigned_skills=list(agent.get("assigned_skills", [])) if agent else [],
+            allowed_tools=list(agent.get("allowed_tools", [])) if agent else [],
+        )
 
     @app.get("/skills", response_model=list[SkillSummary], dependencies=[Depends(require_read_api_key)])
-    async def skills(query: str | None = None) -> list[SkillSummary]:
-        rows = runtime.skills.search_skills(query) if query else runtime.skills.list_skills()
+    async def skills(
+        query: str | None = None,
+        tags: str | None = None,
+        related_node_id: str | None = None,
+    ) -> list[SkillSummary]:
+        tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+        if query:
+            rows = runtime.skills.search_skills(query, tags=tag_list)
+        elif tag_list:
+            rows = runtime.skills.search_skills("", tags=tag_list)
+        else:
+            rows = runtime.skills.list_skills()
+
+        if related_node_id:
+            neighbors = set(runtime.memory.graph_neighbors(related_node_id))
+            allowed_skill_ids = {n.removeprefix("skill:") for n in neighbors if n.startswith("skill:")}
+            rows = [s for s in rows if s.skill_id in allowed_skill_ids]
+
         return [
             SkillSummary(
                 skill_id=s.skill_id,
                 description=s.description,
+                mode=s.mode,
+                domain=s.domain,
+                version=s.version,
                 tags=list(s.tags),
                 required_tools=list(s.required_tools),
             )
@@ -383,6 +438,23 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def memory_graph_neighbors(node_id: str) -> MemoryGraphNeighbors:
         neighbors = runtime.memory.graph_neighbors(node_id)
         return MemoryGraphNeighbors(node_id=node_id, neighbors=neighbors)
+
+    @app.get("/memory/graph/search", response_model=list[MemoryGraphNodeHit], dependencies=[Depends(require_read_api_key)])
+    async def memory_graph_search(
+        query: str,
+        node_type: str | None = None,
+        limit: int = 20,
+    ) -> list[MemoryGraphNodeHit]:
+        clamped_limit = max(1, min(limit, 100))
+        rows = runtime.memory.graph_search_nodes(query=query, node_type=node_type, limit=clamped_limit)
+        return [
+            MemoryGraphNodeHit(
+                node_id=str(r.get("node_id", "")),
+                node_type=str(r.get("node_type", "")),
+                properties={k: str(v) for k, v in dict(r.get("properties", {})).items()},
+            )
+            for r in rows
+        ]
 
     @app.get("/reports/run-history", response_model=RunHistoryReport, dependencies=[Depends(require_read_api_key)])
     async def run_history_report(task_limit: int = 10, log_limit: int = 50, redact: bool | None = None) -> RunHistoryReport:

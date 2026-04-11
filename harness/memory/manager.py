@@ -70,6 +70,9 @@ class MemoryManager:
     def graph_neighbors(self, node_id: str) -> list[str]:
         return self.graph.query_neighbors(node_id)
 
+    def graph_search_nodes(self, query: str, node_type: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        return self.graph.search_nodes(query=query, node_type=node_type, limit=limit)
+
     def summary(self) -> dict[str, int]:
         working_agents = len(self.working_memory)
         working_entries = sum(len(v) for v in self.working_memory.values())

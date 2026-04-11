@@ -81,22 +81,54 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         SkillDefinition(
             skill_id="reactive_chat",
             description="Single-agent reactive response generation",
+            mode="prompt",
+            domain="orchestration",
             tags=["chat", "reactive", "phase1"],
             required_tools=[],
+            prompt_template="Respond to user input reactively and safely: {input}",
         )
     )
     skills.register_skill(
         SkillDefinition(
             skill_id="safe_shell_command",
             description="Policy-constrained shell command execution wrapper",
+            mode="code",
+            domain="execution",
             tags=["tools", "execution", "safety", "phase1"],
             required_tools=["shell_command"],
         )
     )
+
+    async def _safe_shell_handler(payload: dict) -> dict:
+        command = str(payload.get("command", "")).strip()
+        if not command:
+            return {"ok": False, "error": "Missing command"}
+        args = {"command": command}
+        result = await tools.execute_tool("shell_command", args)
+        return {"ok": True, "tool": "shell_command", "result": result}
+
+    skills.register_code_handler("safe_shell_command", _safe_shell_handler)
     health.set("skills", "healthy", {"count": len(skills.list_skills())})
 
-    orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, tools=tools)
+    orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, skills=skills, tools=tools)
     health.set("orchestrator", "healthy")
+
+    for tool in tools.list_tools():
+        memory.graph_add_node(f"tool:{tool.name}", "tool", {"name": tool.name, "description": tool.description})
+
+    for skill in skills.list_skills():
+        memory.graph_add_node(
+            f"skill:{skill.skill_id}",
+            "skill",
+            {
+                "skill_id": skill.skill_id,
+                "description": skill.description,
+                "domain": skill.domain,
+                "tags": ",".join(skill.tags),
+            },
+        )
+        for tool_name in skill.required_tools:
+            memory.graph_add_edge(f"skill:{skill.skill_id}", f"tool:{tool_name}", "requires_tool")
 
     hooks = ApiHooks()
     health.set("api_hooks", "healthy")

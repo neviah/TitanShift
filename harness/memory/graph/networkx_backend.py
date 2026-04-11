@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from harness.memory.graph.base import GraphBackend, GraphEdge, GraphNode
 
 try:
@@ -26,3 +28,27 @@ class NetworkXGraphBackend(GraphBackend):
         if node_id not in self._graph:
             return []
         return list(self._graph.neighbors(node_id))
+
+    def search_nodes(self, query: str, node_type: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        needle = query.lower().strip()
+        out: list[dict[str, Any]] = []
+        for node_id, attrs in self._graph.nodes(data=True):
+            current_type = str(attrs.get("node_type", ""))
+            if node_type and current_type != node_type:
+                continue
+
+            haystacks = [str(node_id).lower(), current_type.lower()]
+            haystacks.extend(str(v).lower() for v in attrs.values())
+            if needle and not any(needle in h for h in haystacks):
+                continue
+
+            out.append(
+                {
+                    "node_id": str(node_id),
+                    "node_type": current_type,
+                    "properties": {k: str(v) for k, v in attrs.items() if k != "node_type"},
+                }
+            )
+            if len(out) >= max(1, limit):
+                break
+        return out
