@@ -1199,6 +1199,66 @@ def test_incident_report_includes_fix_execution_records_for_fix_execution_id() -
     assert "EMERGENCY_FIX_ROLLBACK" in event_types
 
 
+def test_incident_report_by_agent_correlates_fix_executions_by_failure_id() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support", "role": "Exec"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+
+    analyzed = client.post(
+        "/diagnostics/emergency/analyze",
+        json={
+            "source": "orchestrator.skill_execution",
+            "error": "Timed out after 0.01s",
+            "agent_id": agent_id,
+            "skill_id": "slow_skill",
+            "context": {"task_id": "task-correlated"},
+        },
+    )
+    assert analyzed.status_code == 200
+    failure_id = analyzed.json()["failure_id"]
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": failure_id,
+                "recommended_hypothesis": "execution timeout",
+                "risk_level": "medium",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 2222},
+                    }
+                ],
+                "notes": "correlate by failure id",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    fix_execution_id = apply.json()["execution_id"]
+
+    rollback = client.post(
+        "/diagnostics/emergency/fix-rollback",
+        json={"execution_id": fix_execution_id, "dry_run": False},
+    )
+    assert rollback.status_code == 200
+
+    report = client.get(f"/reports/incident?agent_id={agent_id}&limit=20")
+    assert report.status_code == 200
+    body = report.json()
+    event_types = {row["event_type"] for row in body["fix_executions"]}
+    assert "EMERGENCY_FIX_APPLY" in event_types
+    assert "EMERGENCY_FIX_ROLLBACK" in event_types
+    assert any(row["payload"].get("execution_id") == fix_execution_id for row in body["fix_executions"])
+
+
 def test_incident_report_export_and_verify() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("orchestrator.enable_subagents", True)

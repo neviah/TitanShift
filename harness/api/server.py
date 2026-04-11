@@ -506,6 +506,37 @@ def create_app(workspace_root: Path) -> FastAPI:
                 )
             )
 
+        failure_ids: set[str] = set()
+        for row in diagnosis_rows:
+            payload = dict(row.get("payload", {}))
+            failure_id = payload.get("failure_id")
+            if failure_id:
+                failure_ids.add(str(failure_id))
+        for row in related_event_rows:
+            payload = dict(row.get("payload", {}))
+            failure_id = payload.get("failure_id")
+            if failure_id:
+                failure_ids.add(str(failure_id))
+        if failure_ids:
+            candidate_fix_rows = runtime.logger.query(
+                event_type="EMERGENCY_FIX_APPLY",
+                after=after,
+                before=before,
+                offset=offset,
+                limit=clamped_limit,
+            ) + runtime.logger.query(
+                event_type="EMERGENCY_FIX_ROLLBACK",
+                after=after,
+                before=before,
+                offset=offset,
+                limit=clamped_limit,
+            )
+            for row in candidate_fix_rows:
+                payload = dict(row.get("payload", {}))
+                candidate_failure_id = payload.get("failure_id")
+                if candidate_failure_id and str(candidate_failure_id) in failure_ids:
+                    fix_execution_rows.append(row)
+
         dedupe = lambda rows: list({json.dumps(r, sort_keys=True): r for r in rows}.values())
         generated_at = datetime.now(timezone.utc)
         signing_version = "v1"
@@ -1205,6 +1236,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "EMERGENCY_FIX_ROLLBACK",
             {
                 "execution_id": body.execution_id,
+                "failure_id": record.get("failure_id"),
                 "dry_run": body.dry_run,
                 "rolled_back": not body.dry_run,
                 "results": results,

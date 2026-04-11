@@ -199,6 +199,7 @@ curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: app
 ```
 
 Incident reports bundle task context, agent context, execution logs, fix execution logs, module errors, emergency diagnoses, and related events for a single agent or task.
+When execution_id is not supplied, fix execution logs are still correlated into incident reports through shared failure_id values present in related diagnoses/events.
 They are signed with `signing_version` and `report_hash`, and exported incident documents can be verified independently.
 
 Emergency diagnosis snapshot export API:
