@@ -295,6 +295,24 @@ def test_agents_spawn_endpoint_when_enabled() -> None:
     assert any(row["agent_id"] == body["agent_id"] for row in rows)
 
 
+def test_agents_assign_skills_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+
+    assigned = client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]})
+    assert assigned.status_code == 200
+    body = assigned.json()
+    assert body["ok"] is True
+    assert body["agent_id"] == agent_id
+    assert "safe_shell_command" in body["assigned_skills"]
+    assert "shell_command" in body["allowed_tools"]
+
+
 def test_skills_endpoint_and_search() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -315,6 +333,23 @@ def test_skills_endpoint_and_search() -> None:
     assert response_tag.status_code == 200
     body_tag = response_tag.json()
     assert any(row["skill_id"] == "safe_shell_command" for row in body_tag)
+
+    response_related = client.get("/skills?related_node_id=tool:shell_command")
+    assert response_related.status_code == 200
+    body_related = response_related.json()
+    assert any(row["skill_id"] == "safe_shell_command" for row in body_related)
+
+
+def test_execute_skill_endpoint_prompt_mode() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post("/skills/reactive_chat/execute", json={"input": {"message": "hello"}})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["skill_id"] == "reactive_chat"
+    assert body["result"]["mode"] == "prompt"
 
 
 def test_tools_endpoint_and_search() -> None:

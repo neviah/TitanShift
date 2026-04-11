@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from harness.api.schemas import (
+    AgentAssignSkillsRequest,
+    AgentAssignSkillsResponse,
     AgentSpawnRequest,
     AgentSpawnResponse,
     AgentSummary,
@@ -36,6 +38,8 @@ from harness.api.schemas import (
     MemoryGraphNodeHit,
     MemorySemanticHit,
     MemorySummary,
+    SkillExecuteRequest,
+    SkillExecuteResponse,
     SkillSummary,
     TaskDetail,
     TaskSummary,
@@ -349,6 +353,23 @@ def create_app(workspace_root: Path) -> FastAPI:
             allowed_tools=list(agent.get("allowed_tools", [])) if agent else [],
         )
 
+    @app.post(
+        "/agents/{agent_id}/skills/assign",
+        response_model=AgentAssignSkillsResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def assign_agent_skills(agent_id: str, body: AgentAssignSkillsRequest) -> AgentAssignSkillsResponse:
+        try:
+            agent = await runtime.orchestrator.assign_skills_to_agent(agent_id, body.skill_ids)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return AgentAssignSkillsResponse(
+            ok=True,
+            agent_id=agent.agent_id,
+            assigned_skills=list(agent.assigned_skills),
+            allowed_tools=list(agent.allowed_tools),
+        )
+
     @app.get("/skills", response_model=list[SkillSummary], dependencies=[Depends(require_read_api_key)])
     async def skills(
         query: str | None = None,
@@ -380,6 +401,18 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
             for s in rows
         ]
+
+    @app.post(
+        "/skills/{skill_id}/execute",
+        response_model=SkillExecuteResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def execute_skill(skill_id: str, body: SkillExecuteRequest) -> SkillExecuteResponse:
+        try:
+            result = await runtime.orchestrator.execute_skill(skill_id, body.input)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return SkillExecuteResponse(ok=bool(result.get("ok", False)), skill_id=skill_id, result=result)
 
     @app.get("/tools", response_model=list[ToolSummary], dependencies=[Depends(require_read_api_key)])
     async def tools(query: str | None = None) -> list[ToolSummary]:

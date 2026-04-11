@@ -121,6 +121,17 @@ class AgentSpawnResponse(BaseModel):
     allowed_tools: list[str]
 
 
+class AgentAssignSkillsRequest(BaseModel):
+    skill_ids: list[str] = Field(min_length=1)
+
+
+class AgentAssignSkillsResponse(BaseModel):
+    ok: bool
+    agent_id: str
+    assigned_skills: list[str]
+    allowed_tools: list[str]
+
+
 class SkillSummary(BaseModel):
     skill_id: str
     description: str
@@ -129,6 +140,16 @@ class SkillSummary(BaseModel):
     version: str
     tags: list[str]
     required_tools: list[str]
+
+
+class SkillExecuteRequest(BaseModel):
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillExecuteResponse(BaseModel):
+    ok: bool
+    skill_id: str
+    result: dict[str, Any]
 
 
 class ToolSummary(BaseModel):

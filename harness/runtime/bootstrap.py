@@ -129,6 +129,7 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         )
         for tool_name in skill.required_tools:
             memory.graph_add_edge(f"skill:{skill.skill_id}", f"tool:{tool_name}", "requires_tool")
+            memory.graph_add_edge(f"tool:{tool_name}", f"skill:{skill.skill_id}", "enables_skill")
 
     hooks = ApiHooks()
     health.set("api_hooks", "healthy")

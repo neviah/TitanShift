@@ -107,6 +107,39 @@ class Orchestrator:
         )
         return agent_id
 
+    async def assign_skills_to_agent(self, agent_id: str, skill_ids: list[str]) -> AgentRecord:
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            raise KeyError(f"Agent not found: {agent_id}")
+
+        validated: list[str] = []
+        for skill_id in skill_ids:
+            skill = self.skills.get_skill(skill_id)
+            if skill is None:
+                raise KeyError(f"Skill not found: {skill_id}")
+            validated.append(skill_id)
+
+        deduped = sorted(set(validated))
+        allowed_tools = sorted(
+            {
+                tool_name
+                for sid in deduped
+                for tool_name in (self.skills.get_skill(sid).required_tools if self.skills.get_skill(sid) else [])
+            }
+        )
+
+        agent.assigned_skills = deduped
+        agent.allowed_tools = allowed_tools
+        self.memory.append_short_term(agent_id, {"assigned_skills": deduped})
+        await self.event_bus.publish(
+            "AGENT_SPAWNED",
+            {"task_id": "manual-assign", "subagents": agent_id != "main-agent", "agent_id": agent_id, "role": agent.role},
+        )
+        return agent
+
+    async def execute_skill(self, skill_id: str, skill_input: dict[str, object]) -> dict[str, object]:
+        return await self.skills.execute_skill(skill_id, skill_input)
+
     def list_agents(self) -> list[dict]:
         return [asdict(r) for r in sorted(self.agents.values(), key=lambda x: x.created_at)]
 
