@@ -531,6 +531,33 @@ def test_memory_graph_search_endpoint() -> None:
     assert any(hit["node_id"] == "skill:test_skill" for hit in body)
 
 
+def test_emergency_diagnosis_endpoint() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    source_name = "test.emergency.endpoint"
+    runtime.logger.log(
+        "EMERGENCY_DIAGNOSIS",
+        {
+            "source": source_name,
+            "diagnoses": [
+                {
+                    "hypothesis": "Execution policy blocked the requested tool or command",
+                    "confidence": 0.95,
+                    "suggested_fix": "Update tool allowlists or execution.allowed_command_prefixes before retrying",
+                }
+            ],
+        },
+    )
+    client = TestClient(app)
+
+    response = client.get(f"/diagnostics/emergency?source={source_name}&limit=10")
+    assert response.status_code == 200
+    body = response.json()
+    assert body
+    assert body[0]["source"] == source_name
+    assert body[0]["diagnoses"][0]["confidence"] == 0.95
+
+
 def test_api_key_auth_enforced_when_enabled() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("api.require_api_key", True)
@@ -573,6 +600,19 @@ def test_admin_api_key_scope_enforced_for_mutating_endpoints() -> None:
 def test_run_history_report_endpoint() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
+    app.state.runtime.logger.log(
+        "EMERGENCY_DIAGNOSIS",
+        {
+            "source": "orchestrator.skill_execution",
+            "diagnoses": [
+                {
+                    "hypothesis": "orchestrator.skill_execution exceeded its configured execution budget",
+                    "confidence": 0.9,
+                    "suggested_fix": "Reduce task scope, optimize the handler, or increase orchestrator.skill_execution_timeout_s",
+                }
+            ],
+        },
+    )
 
     _ = client.post(
         "/chat",
@@ -592,6 +632,8 @@ def test_run_history_report_endpoint() -> None:
     assert "total_tasks" in body
     assert isinstance(body.get("recent_tasks"), list)
     assert isinstance(body.get("recent_events"), list)
+    assert isinstance(body.get("recent_diagnoses"), list)
+    assert any(d.get("source") == "orchestrator.skill_execution" for d in body.get("recent_diagnoses", []))
     assert isinstance(body.get("health"), list)
 
 

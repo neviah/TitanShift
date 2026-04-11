@@ -24,6 +24,8 @@ from harness.api.schemas import (
     ChatResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
+    EmergencyDiagnosis,
+    EmergencyDiagnosisEntry,
     LogEntry,
     RunHistoryExportRequest,
     RunHistoryExportResponse,
@@ -125,6 +127,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "failed_tasks": report_data.get("failed_tasks"),
             "recent_tasks": report_data.get("recent_tasks"),
             "recent_events": report_data.get("recent_events"),
+            "recent_diagnoses": report_data.get("recent_diagnoses"),
             "health": report_data.get("health"),
             "loaded_modules": report_data.get("loaded_modules"),
             "config_snapshot": report_data.get("config_snapshot"),
@@ -139,6 +142,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         all_tasks = runtime.orchestrator.list_tasks()
         recent_tasks_raw = all_tasks[:clamped_task_limit]
         recent_events_raw = runtime.logger.query(limit=clamped_log_limit)
+        recent_diagnoses_raw = runtime.logger.query(event_type="EMERGENCY_DIAGNOSIS", limit=clamped_log_limit)
 
         if apply_redaction and redacted_keys:
             recent_events_raw = [
@@ -149,12 +153,28 @@ def create_app(workspace_root: Path) -> FastAPI:
                 }
                 for e in recent_events_raw
             ]
+            recent_diagnoses_raw = [
+                {
+                    "timestamp": e.get("timestamp"),
+                    "event_type": e.get("event_type"),
+                    "payload": _redact_value(e.get("payload", {}), redacted_keys),
+                }
+                for e in recent_diagnoses_raw
+            ]
 
         failed_tasks = sum(1 for t in all_tasks if t.get("status") == "failed")
         loaded_modules = runtime.module_loader.list_modules()
         generated_at = datetime.now(timezone.utc)
         recent_tasks = [TaskSummary(**t) for t in recent_tasks_raw]
         recent_events = [LogEntry(**e) for e in recent_events_raw]
+        recent_diagnoses = [
+            EmergencyDiagnosisEntry(
+                timestamp=str(e.get("timestamp", "")),
+                source=str(dict(e.get("payload", {})).get("source", "unknown")),
+                diagnoses=[EmergencyDiagnosis(**d) for d in list(dict(e.get("payload", {})).get("diagnoses", []))],
+            )
+            for e in recent_diagnoses_raw
+        ]
         config_snapshot = {
             "model.default_backend": runtime.config.get("model.default_backend"),
             "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
@@ -171,6 +191,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "failed_tasks": failed_tasks,
             "recent_tasks": [r.model_dump(mode="json") for r in recent_tasks],
             "recent_events": [r.model_dump(mode="json") for r in recent_events],
+            "recent_diagnoses": [r.model_dump(mode="json") for r in recent_diagnoses],
             "health": runtime.health.as_list(),
             "loaded_modules": loaded_modules,
             "config_snapshot": config_snapshot,
@@ -186,6 +207,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             failed_tasks=failed_tasks,
             recent_tasks=recent_tasks,
             recent_events=recent_events,
+            recent_diagnoses=recent_diagnoses,
             health=runtime.health.as_list(),
             loaded_modules=loaded_modules,
             config_snapshot=config_snapshot,
@@ -285,6 +307,21 @@ def create_app(workspace_root: Path) -> FastAPI:
             limit=clamped_limit,
         )
         return [LogEntry(**r) for r in rows]
+
+    @app.get("/diagnostics/emergency", response_model=list[EmergencyDiagnosisEntry], dependencies=[Depends(require_read_api_key)])
+    async def get_emergency_diagnoses(source: str | None = None, limit: int = 20) -> list[EmergencyDiagnosisEntry]:
+        clamped_limit = max(1, min(limit, 200))
+        rows = runtime.logger.query(event_type="EMERGENCY_DIAGNOSIS", limit=clamped_limit)
+        if source:
+            rows = [r for r in rows if str(dict(r.get("payload", {})).get("source", "")) == source]
+        return [
+            EmergencyDiagnosisEntry(
+                timestamp=str(r.get("timestamp", "")),
+                source=str(dict(r.get("payload", {})).get("source", "unknown")),
+                diagnoses=[EmergencyDiagnosis(**d) for d in list(dict(r.get("payload", {})).get("diagnoses", []))],
+            )
+            for r in rows
+        ]
 
     @app.get("/config", dependencies=[Depends(require_read_api_key)])
     async def get_config() -> dict:

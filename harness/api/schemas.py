@@ -201,6 +201,18 @@ class MemoryGraphNodeHit(BaseModel):
     properties: dict[str, str]
 
 
+class EmergencyDiagnosis(BaseModel):
+    hypothesis: str
+    confidence: float
+    suggested_fix: str
+
+
+class EmergencyDiagnosisEntry(BaseModel):
+    timestamp: str
+    source: str
+    diagnoses: list[EmergencyDiagnosis]
+
+
 class RunHistoryReport(BaseModel):
     generated_at: datetime
     signing_version: str
@@ -210,6 +222,7 @@ class RunHistoryReport(BaseModel):
     failed_tasks: int
     recent_tasks: list[TaskSummary]
     recent_events: list[LogEntry]
+    recent_diagnoses: list[EmergencyDiagnosisEntry]
     health: list[dict[str, Any]]
     loaded_modules: list[str]
     config_snapshot: dict[str, Any]
