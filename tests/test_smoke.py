@@ -2357,6 +2357,31 @@ def test_api_helper_export_and_verify_diagnosis_snapshot() -> None:
     Path(out_path).unlink(missing_ok=True)
 
 
+def test_api_helper_ui_overviews_and_market_status(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    helper = HarnessApiClient(base_url="http://testserver", client=client)
+
+    # Seed market and ingestion activity so overview endpoints have meaningful payloads.
+    app.state.runtime.logger.log("SKILL_MARKET_INSTALL", {"skill_id": "seed-skill"})
+    ingest = client.post("/ingestion/graphify", json={"text": "alpha beta gamma delta"})
+    assert ingest.status_code == 200
+
+    market_overview = helper.get_ui_market_overview()
+    ingestion_overview = helper.get_ui_ingestion_overview()
+    remote_status = helper.get_market_remote_status()
+
+    assert "total_listed" in market_overview
+    assert "recent_events" in market_overview
+    assert isinstance(market_overview["recent_events"], list)
+
+    assert "stats" in ingestion_overview
+    assert ingestion_overview["stats"]["total_ingestions"] >= 1
+    assert isinstance(ingestion_overview["recent_ingestions"], list)
+
+    assert "synced" in remote_status
+
+
 def test_diagnostics_query_latency_guardrail() -> None:
     app = create_app(Path(".").resolve())
     runtime = app.state.runtime

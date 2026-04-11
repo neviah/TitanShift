@@ -8,7 +8,7 @@ import httpx
 
 @dataclass(slots=True)
 class HarnessApiClient:
-    """Small helper wrapper for incident and diagnosis report workflows."""
+    """Helper wrapper for incident, diagnosis, market, and UI overview workflows."""
 
     base_url: str
     api_key: str | None = None
@@ -97,5 +97,29 @@ class HarnessApiClient:
             json={"path": path},
             headers=self._headers(),
         )
+        response.raise_for_status()
+        return dict(response.json())
+
+    def sync_remote_market(self, *, source: str, force: bool = False) -> dict[str, Any]:
+        response = self.client.post(
+            "/skills/market/remote/sync",
+            json={"source": source, "force": force},
+            headers=self._headers(admin=True),
+        )
+        response.raise_for_status()
+        return dict(response.json())
+
+    def get_market_remote_status(self) -> dict[str, Any]:
+        response = self.client.get("/skills/market/remote/status", headers=self._headers())
+        response.raise_for_status()
+        return dict(response.json())
+
+    def get_ui_market_overview(self) -> dict[str, Any]:
+        response = self.client.get("/ui/market/overview", headers=self._headers())
+        response.raise_for_status()
+        return dict(response.json())
+
+    def get_ui_ingestion_overview(self) -> dict[str, Any]:
+        response = self.client.get("/ui/ingestion/overview", headers=self._headers())
         response.raise_for_status()
         return dict(response.json())
