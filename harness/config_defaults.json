@@ -46,7 +46,9 @@
     }
   },
   "ingestion": {
-    "enable_graphify_plugin": false
+    "enable_graphify_plugin": false,
+    "dedupe_threshold": 1.0,
+    "confidence_min": 0.0
   },
   "logging": {
     "file": "events.log",

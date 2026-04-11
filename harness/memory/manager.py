@@ -53,6 +53,12 @@ class MemoryManager:
     def semantic_search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         return self.semantic.semantic_search(query=query, limit=limit)
 
+    def graph_has_node(self, node_id: str) -> bool:
+        return self.graph.has_node(node_id)
+
+    def graph_has_edge(self, source: str, target: str) -> bool:
+        return self.graph.has_edge(source, target)
+
     def graph_add_node(self, node_id: str, node_type: str, properties: dict[str, str] | None = None) -> None:
         self.graph.add_node(GraphNode(node_id=node_id, node_type=node_type, properties=properties or {}))
 

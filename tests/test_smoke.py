@@ -1740,6 +1740,116 @@ def test_ingestion_graphify_emits_ingestion_complete_log_event(tmp_path: Path) -
     assert isinstance(payload["node_ids"], list)
 
 
+# ---------------------------------------------------------------------------
+# P4-02 Ingestion dedupe and confidence policy
+# ---------------------------------------------------------------------------
+
+def test_ingestion_dedupe_suppresses_existing_nodes(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    text = "knowledge graph ingestion pipeline"
+    # First ingest — all nodes should be new
+    r1 = client.post("/ingestion/graphify", json={"text": text})
+    assert r1.status_code == 200
+    b1 = r1.json()
+    assert b1["nodes_added"] > 0
+    assert b1["nodes_skipped"] == 0
+
+    # Second ingest same text — all nodes already exist
+    r2 = client.post("/ingestion/graphify", json={"text": text})
+    assert r2.status_code == 200
+    b2 = r2.json()
+    assert b2["nodes_added"] == 0
+    assert b2["nodes_skipped"] == b1["nodes_added"]
+
+
+def test_ingestion_dedupe_suppresses_existing_edges(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    text = "memory retrieval pipeline management"
+    r1 = client.post("/ingestion/graphify", json={"text": text})
+    assert r1.json()["edges_added"] > 0
+    assert r1.json()["edges_skipped"] == 0
+
+    r2 = client.post("/ingestion/graphify", json={"text": text})
+    assert r2.json()["edges_added"] == 0
+    assert r2.json()["edges_skipped"] > 0
+
+
+def test_ingestion_dedupe_emits_audit_log_events(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    client = TestClient(app)
+    text = "planning orchestration memory management"
+    client.post("/ingestion/graphify", json={"text": text})
+    # Second run creates INGESTION_DEDUPE events
+    client.post("/ingestion/graphify", json={"text": text})
+    rows = runtime.logger.query(event_type="INGESTION_DEDUPE", limit=100)
+    assert len(rows) > 0
+    for row in rows:
+        assert row["payload"]["reason"] == "already_exists"
+        assert "node_id" in row["payload"]
+        assert "confidence" in row["payload"]
+
+
+def test_ingestion_dedupe_log_endpoint_returns_entries(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    text = "autonomous agent scheduling pipeline"
+    client.post("/ingestion/graphify", json={"text": text})
+    client.post("/ingestion/graphify", json={"text": text})
+    resp = client.get("/ingestion/dedupe-log?limit=50")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["items"]
+    assert all(e["reason"] == "already_exists" for e in body["items"])
+    assert all(e["node_id"].startswith("concept:") for e in body["items"])
+
+
+def test_ingestion_dedupe_log_filters_by_reason(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    text = "memory graph retrieval pipeline"
+    client.post("/ingestion/graphify", json={"text": text})
+    client.post("/ingestion/graphify", json={"text": text})
+    resp = client.get("/ingestion/dedupe-log?reason=already_exists")
+    assert resp.status_code == 200
+    assert resp.json()["items"]
+    resp_empty = client.get("/ingestion/dedupe-log?reason=below_confidence_threshold")
+    assert resp_empty.json()["items"] == []
+
+
+def test_ingestion_confidence_min_suppresses_low_frequency_concepts(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    # confidence_min = 0.5 means a concept must make up ≥50% of concept tokens — very aggressive
+    # Use a text where one concept dominates: "memory memory memory noise"
+    app.state.runtime.config.set("ingestion.confidence_min", 0.5)
+    client = TestClient(app)
+    # "memory" appears 3 times, "noise" once — out of 4 total concept tokens
+    # memory confidence = 3/4 = 0.75 ≥ 0.5 → included
+    # noise confidence = 1/4 = 0.25 < 0.5 → skipped
+    text = "memory memory memory noise"
+    r = client.post("/ingestion/graphify", json={"text": text})
+    assert r.status_code == 200
+    body = r.json()
+    assert "concept:memory" in body["node_ids"]
+    assert "concept:noise" not in body["node_ids"]
+    assert body["nodes_skipped"] >= 1
+
+
+def test_ingestion_stats_tracks_skipped_counts(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    text = "knowledge graph pipeline retrieval"
+    client.post("/ingestion/graphify", json={"text": text})
+    client.post("/ingestion/graphify", json={"text": text})
+    stats = client.get("/ingestion/stats")
+    assert stats.status_code == 200
+    body = stats.json()
+    assert body["total_nodes_skipped"] > 0
+    assert body["total_edges_skipped"] > 0
+
+
 def test_incident_report_unknown_execution_id_returns_404() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)

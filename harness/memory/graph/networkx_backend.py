@@ -24,6 +24,12 @@ class NetworkXGraphBackend(GraphBackend):
     def add_edge(self, edge: GraphEdge) -> None:
         self._graph.add_edge(edge.source, edge.target, edge_type=edge.edge_type, **edge.properties)
 
+    def has_node(self, node_id: str) -> bool:
+        return bool(self._graph.has_node(node_id))
+
+    def has_edge(self, source: str, target: str) -> bool:
+        return bool(self._graph.has_edge(source, target))
+
     def query_neighbors(self, node_id: str) -> list[str]:
         if node_id not in self._graph:
             return []

@@ -36,6 +36,8 @@ from harness.api.schemas import (
     ConfigUpdateResponse,
     GraphifyRequest,
     GraphifyResponse,
+    IngestionDedupeEntry,
+    IngestionDedupeLogResponse,
     IngestionStatsResponse,
     EmergencyDiagnosisExportRequest,
     EmergencyDiagnosisExportResponse,
@@ -1999,6 +2001,15 @@ def create_app(workspace_root: Path) -> FastAPI:
         "about", "than", "other", "each", "their", "they", "we", "you",
     })
 
+    def _concept_sequence_from_text(text: str) -> list[str]:
+        """Return the filtered concept token sequence (with repeats) for frequency scoring."""
+        tokens: list[str] = re.findall(r"[A-Za-z][A-Za-z0-9_-]*", text)
+        return [
+            f"concept:{tok.lower()}"
+            for tok in tokens
+            if len(tok) >= 4 and tok.lower() not in _INGESTION_STOPWORDS
+        ]
+
     def _extract_entities_relations(text: str) -> tuple[list[str], list[tuple[str, str]]]:
         """Return (unique node_ids, edge pairs) extracted from text using simple tokenization."""
         tokens: list[str] = re.findall(r"[A-Za-z][A-Za-z0-9_-]*", text)
@@ -2028,54 +2039,154 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.post("/ingestion/graphify", response_model=GraphifyResponse, dependencies=[Depends(require_admin_api_key)])
     async def ingestion_graphify(body: GraphifyRequest) -> GraphifyResponse:
+        confidence_min = float(runtime.config.get("ingestion.confidence_min", 0.0))
+
         node_ids, edges = _extract_entities_relations(body.text)
 
+        # Build frequency map for confidence scoring
+        all_concepts = _concept_sequence_from_text(body.text)
+        total_occurrences = len(all_concepts)
+        freq: dict[str, int] = {}
+        for c in all_concepts:
+            freq[c] = freq.get(c, 0) + 1
+
+        nodes_added: list[str] = []
+        nodes_skipped_count = 0
+
         for node_id in node_ids:
+            confidence = freq.get(node_id, 1) / max(1, total_occurrences)
+
+            # Confidence gate
+            if confidence < confidence_min:
+                nodes_skipped_count += 1
+                runtime.logger.log(
+                    "INGESTION_DEDUPE",
+                    {
+                        "node_id": node_id,
+                        "reason": "below_confidence_threshold",
+                        "confidence": round(confidence, 6),
+                        "threshold": confidence_min,
+                    },
+                )
+                continue
+
+            # Exact deduplication — node already exists in graph
+            if runtime.memory.graph_has_node(node_id):
+                nodes_skipped_count += 1
+                runtime.logger.log(
+                    "INGESTION_DEDUPE",
+                    {
+                        "node_id": node_id,
+                        "reason": "already_exists",
+                        "confidence": round(confidence, 6),
+                        "threshold": confidence_min,
+                    },
+                )
+                continue
+
             concept_name = node_id.split(":", 1)[-1]
             props: dict[str, str] = {"text": concept_name}
             if body.metadata:
                 props["source"] = str(body.metadata.get("source", ""))
             runtime.memory.graph_add_node(node_id, "concept", props)
+            nodes_added.append(node_id)
 
+        # Only add edges between nodes that are now in the graph (added or pre-existing)
+        edges_added_count = 0
+        edges_skipped_count = 0
         for src, tgt in edges:
-            runtime.memory.graph_add_edge(src, tgt, "co_occurs")
+            if runtime.memory.graph_has_edge(src, tgt):
+                edges_skipped_count += 1
+                continue
+            # Both endpoints must exist in graph
+            if runtime.memory.graph_has_node(src) and runtime.memory.graph_has_node(tgt):
+                runtime.memory.graph_add_edge(src, tgt, "co_occurs")
+                edges_added_count += 1
 
         runtime.logger.log(
             "INGESTION_COMPLETE",
             {
-                "nodes_added": len(node_ids),
-                "edges_added": len(edges),
-                "node_ids": node_ids,
+                "nodes_added": len(nodes_added),
+                "nodes_skipped": nodes_skipped_count,
+                "edges_added": edges_added_count,
+                "edges_skipped": edges_skipped_count,
+                "node_ids": nodes_added,
                 "metadata": body.metadata,
             },
         )
 
         return GraphifyResponse(
             ok=True,
-            nodes_added=len(node_ids),
-            edges_added=len(edges),
-            node_ids=node_ids,
+            nodes_added=len(nodes_added),
+            nodes_skipped=nodes_skipped_count,
+            edges_added=edges_added_count,
+            edges_skipped=edges_skipped_count,
+            node_ids=nodes_added,
         )
 
     @app.get("/ingestion/stats", response_model=IngestionStatsResponse, dependencies=[Depends(require_read_api_key)])
     async def ingestion_stats() -> IngestionStatsResponse:
         rows = runtime.logger.query(event_type="INGESTION_COMPLETE", limit=10000)
         total_nodes = 0
+        total_nodes_skipped = 0
         total_edges = 0
+        total_edges_skipped = 0
         last_at: str | None = None
         for row in rows:
             payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
             total_nodes += int(payload.get("nodes_added", 0))
+            total_nodes_skipped += int(payload.get("nodes_skipped", 0))
             total_edges += int(payload.get("edges_added", 0))
+            total_edges_skipped += int(payload.get("edges_skipped", 0))
             ts = row.get("timestamp")
             if ts and (last_at is None or ts > last_at):
                 last_at = str(ts)
         return IngestionStatsResponse(
             total_ingestions=len(rows),
             total_nodes_added=total_nodes,
+            total_nodes_skipped=total_nodes_skipped,
             total_edges_added=total_edges,
+            total_edges_skipped=total_edges_skipped,
             last_ingested_at=last_at,
         )
 
+    @app.get("/ingestion/dedupe-log", response_model=IngestionDedupeLogResponse, dependencies=[Depends(require_read_api_key)])
+    async def ingestion_dedupe_log(
+        node_id: str | None = None,
+        reason: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> IngestionDedupeLogResponse:
+        clamped_limit = max(1, min(limit, 500))
+        clamped_offset = max(0, offset)
+        rows = runtime.logger.query(event_type="INGESTION_DEDUPE", limit=10000)
+
+        entries: list[IngestionDedupeEntry] = []
+        for row in rows:
+            payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+            if node_id and payload.get("node_id") != node_id:
+                continue
+            if reason and payload.get("reason") != reason:
+                continue
+            entries.append(
+                IngestionDedupeEntry(
+                    timestamp=str(row.get("timestamp", "")),
+                    node_id=str(payload.get("node_id", "")),
+                    reason=str(payload.get("reason", "")),
+                    confidence=float(payload.get("confidence", 0.0)),
+                    threshold=float(payload.get("threshold", 0.0)),
+                )
+            )
+
+        paginated, has_more, next_offset = _paginate(entries, offset=clamped_offset, limit=clamped_limit)
+        return IngestionDedupeLogResponse(
+            items=paginated,
+            limit=clamped_limit,
+            offset=clamped_offset,
+            has_more=has_more,
+            next_offset=next_offset,
+        )
+
     return app
+
 

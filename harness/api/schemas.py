@@ -543,12 +543,32 @@ class GraphifyRequest(BaseModel):
 class GraphifyResponse(BaseModel):
     ok: bool
     nodes_added: int
+    nodes_skipped: int
     edges_added: int
+    edges_skipped: int
     node_ids: list[str]
 
 
 class IngestionStatsResponse(BaseModel):
     total_ingestions: int
     total_nodes_added: int
+    total_nodes_skipped: int
     total_edges_added: int
+    total_edges_skipped: int
     last_ingested_at: str | None = None
+
+
+class IngestionDedupeEntry(BaseModel):
+    timestamp: str
+    node_id: str
+    reason: str
+    confidence: float
+    threshold: float
+
+
+class IngestionDedupeLogResponse(BaseModel):
+    items: list[IngestionDedupeEntry]
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None = None
