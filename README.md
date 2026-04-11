@@ -458,7 +458,7 @@ harness --workspace . status
 python -m harness --workspace . lmstudio-check
 ```
 
-Release notes for this baseline are in `RELEASE_NOTES_0.2.1.md`.
+Release notes for this baseline are in `RELEASE_NOTES_0.2.2.md`.
 
 ## Notes
 

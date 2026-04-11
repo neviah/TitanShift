@@ -358,7 +358,7 @@ def test_agent_scoped_skill_execute_endpoint_and_audit_log() -> None:
 
     forbidden = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert forbidden.status_code == 403
 
@@ -367,7 +367,7 @@ def test_agent_scoped_skill_execute_endpoint_and_audit_log() -> None:
 
     executed = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert executed.status_code == 200
     body = executed.json()
@@ -444,7 +444,7 @@ def test_emergency_diagnosis_for_policy_blocked_skill_execution() -> None:
     runtime.tools.policy.allowed_tool_names.clear()
     blocked = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert blocked.status_code == 403
 
@@ -734,7 +734,7 @@ def test_incident_report_by_agent_id() -> None:
     assert assigned.status_code == 200
     executed = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert executed.status_code == 200
 
@@ -778,7 +778,7 @@ def test_incident_report_by_execution_id() -> None:
 
     executed = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert executed.status_code == 200
     execution_id = executed.json()["execution_id"]
@@ -805,7 +805,7 @@ def test_incident_report_export_and_verify() -> None:
     assert assigned.status_code == 200
     executed = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert executed.status_code == 200
 
@@ -993,7 +993,7 @@ def test_api_helper_get_incident_by_execution_id() -> None:
 
     executed = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert executed.status_code == 200
     execution_id = executed.json()["execution_id"]
@@ -1072,7 +1072,7 @@ def test_incident_report_latency_guardrail() -> None:
 
     executed = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
-        json={"input": {"command": "where python"}},
+        json={"input": {"command": "python --version"}},
     )
     assert executed.status_code == 200
     execution_id = executed.json()["execution_id"]
