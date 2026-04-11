@@ -388,7 +388,41 @@ def test_agent_scoped_skill_execute_timeout_emits_emergency_diagnosis() -> None:
     diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&limit=10")
     assert diag_logs.status_code == 200
     rows = diag_logs.json()
-    assert any(r["payload"].get("source") == "orchestrator.skill_execution" for r in rows)
+    matching = [r for r in rows if r["payload"].get("source") == "orchestrator.skill_execution"]
+    assert matching
+    diagnoses = matching[-1]["payload"].get("diagnoses", [])
+    assert any("configured execution budget" in d.get("hypothesis", "") for d in diagnoses)
+    assert any("orchestrator.skill_execution_timeout_s" in d.get("suggested_fix", "") for d in diagnoses)
+
+
+def test_emergency_diagnosis_for_policy_blocked_skill_execution() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    runtime = app.state.runtime
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+
+    assigned = client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]})
+    assert assigned.status_code == 200
+
+    runtime.tools.policy.allowed_tool_names.clear()
+    blocked = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert blocked.status_code == 403
+
+    diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&limit=10")
+    assert diag_logs.status_code == 200
+    rows = diag_logs.json()
+    matching = [r for r in rows if r["payload"].get("source") == "orchestrator.skill_execution"]
+    assert matching
+    diagnoses = matching[-1]["payload"].get("diagnoses", [])
+    assert any("Execution policy blocked" in d.get("hypothesis", "") for d in diagnoses)
+    assert any("allowed_command_prefixes" in d.get("suggested_fix", "") for d in diagnoses)
 
 
 def test_skills_endpoint_and_search() -> None:
