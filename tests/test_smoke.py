@@ -136,8 +136,10 @@ def test_logs_endpoint_returns_list() -> None:
     response = client.get("/logs?limit=5")
     assert response.status_code == 200
     body = response.json()
-    assert isinstance(body, list)
-    assert all("event_type" in row for row in body)
+    assert isinstance(body, dict)
+    assert isinstance(body.get("items"), list)
+    assert all("event_type" in row for row in body["items"])
+    assert "has_more" in body
 
 
 def test_logs_endpoint_supports_offset_and_time_filters() -> None:
@@ -149,14 +151,16 @@ def test_logs_endpoint_supports_offset_and_time_filters() -> None:
 
     baseline = client.get("/logs?event_type=TEST_PAGED_LOG&source=paged-test&limit=3")
     assert baseline.status_code == 200
-    rows = baseline.json()
+    rows = baseline.json()["items"]
     assert len(rows) == 3
 
     paged = client.get("/logs?event_type=TEST_PAGED_LOG&source=paged-test&limit=2&offset=1")
     assert paged.status_code == 200
-    paged_rows = paged.json()
+    paged_body = paged.json()
+    paged_rows = paged_body["items"]
     assert len(paged_rows) == 2
     assert paged_rows[-1]["payload"]["idx"] == rows[-2]["payload"]["idx"]
+    assert paged_body["has_more"] in [True, False]
 
     after = rows[1]["timestamp"]
     filtered = client.get(
@@ -164,7 +168,7 @@ def test_logs_endpoint_supports_offset_and_time_filters() -> None:
         params={"event_type": "TEST_PAGED_LOG", "source": "paged-test", "after": after, "limit": 5},
     )
     assert filtered.status_code == 200
-    filtered_rows = filtered.json()
+    filtered_rows = filtered.json()["items"]
     assert all(r["timestamp"] >= after for r in filtered_rows)
 
 
@@ -373,7 +377,7 @@ def test_agent_scoped_skill_execute_endpoint_and_audit_log() -> None:
 
     logs = client.get("/logs?event_type=AGENT_SKILL_EXECUTED&limit=5")
     assert logs.status_code == 200
-    log_rows = logs.json()
+    log_rows = logs.json()["items"]
     assert any(r["payload"].get("execution_id") == body["execution_id"] for r in log_rows)
 
 
@@ -415,7 +419,7 @@ def test_agent_scoped_skill_execute_timeout_emits_emergency_diagnosis() -> None:
 
     diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&limit=10")
     assert diag_logs.status_code == 200
-    rows = diag_logs.json()
+    rows = diag_logs.json()["items"]
     matching = [r for r in rows if r["payload"].get("source") == "orchestrator.skill_execution"]
     assert matching
     diagnoses = matching[-1]["payload"].get("diagnoses", [])
@@ -445,7 +449,7 @@ def test_emergency_diagnosis_for_policy_blocked_skill_execution() -> None:
 
     diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&limit=10")
     assert diag_logs.status_code == 200
-    rows = diag_logs.json()
+    rows = diag_logs.json()["items"]
     matching = [r for r in rows if r["payload"].get("source") == "orchestrator.skill_execution"]
     assert matching
     diagnoses = matching[-1]["payload"].get("diagnoses", [])
@@ -587,11 +591,12 @@ def test_emergency_diagnosis_endpoint() -> None:
     )
     assert response.status_code == 200
     body = response.json()
-    assert body
-    assert body[0]["source"] == source_name
-    assert body[0]["agent_id"] == agent_name
-    assert body[0]["skill_id"] == skill_name
-    assert body[0]["diagnoses"][0]["confidence"] == 0.95
+    assert body["items"]
+    assert body["items"][0]["source"] == source_name
+    assert body["items"][0]["agent_id"] == agent_name
+    assert body["items"][0]["skill_id"] == skill_name
+    assert body["items"][0]["diagnoses"][0]["confidence"] == 0.95
+    assert "next_offset" in body
 
 
 def test_emergency_diagnosis_endpoint_supports_offset_and_time_filters() -> None:
@@ -611,14 +616,16 @@ def test_emergency_diagnosis_endpoint_supports_offset_and_time_filters() -> None
 
     baseline = client.get("/diagnostics/emergency?source=diag-paged-test&limit=3")
     assert baseline.status_code == 200
-    rows = baseline.json()
+    rows = baseline.json()["items"]
     assert len(rows) == 3
 
     paged = client.get("/diagnostics/emergency?source=diag-paged-test&limit=2&offset=1")
     assert paged.status_code == 200
-    paged_rows = paged.json()
+    paged_body = paged.json()
+    paged_rows = paged_body["items"]
     assert len(paged_rows) == 2
     assert paged_rows[-1]["agent_id"] == rows[-2]["agent_id"]
+    assert paged_body["has_more"] in [True, False]
 
     after = rows[1]["timestamp"]
     filtered = client.get(
@@ -626,7 +633,7 @@ def test_emergency_diagnosis_endpoint_supports_offset_and_time_filters() -> None
         params={"source": "diag-paged-test", "after": after, "limit": 5},
     )
     assert filtered.status_code == 200
-    filtered_rows = filtered.json()
+    filtered_rows = filtered.json()["items"]
     assert all(r["timestamp"] >= after for r in filtered_rows)
 
 
@@ -756,6 +763,68 @@ def test_incident_report_by_task_id() -> None:
     assert body["task_id"] == task_id
     assert body["task"]["task_id"] == task_id
     assert isinstance(body["related_events"], list)
+
+
+def test_incident_report_export_and_verify() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support", "role": "Exec"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+
+    assigned = client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]})
+    assert assigned.status_code == 200
+    executed = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert executed.status_code == 200
+
+    out_path = ".harness/test-incident-export.json"
+    export = client.post("/reports/incident/export", json={"path": out_path, "agent_id": agent_id, "limit": 20})
+    assert export.status_code == 200
+    body = export.json()
+    assert body["ok"] is True
+
+    target = Path(out_path)
+    assert target.exists()
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    assert loaded["report_hash"] == body["report_hash"]
+
+    verify = client.post("/reports/incident/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    verify_body = verify.json()
+    assert verify_body["valid"] is True
+    assert verify_body["stored_hash"] == verify_body["computed_hash"]
+
+    target.unlink(missing_ok=True)
+
+
+def test_incident_report_verify_detects_tamper() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    chat = client.post("/chat", json={"prompt": "tamper incident", "model_backend": "local_stub"})
+    assert chat.status_code == 200
+    task_id = client.get("/tasks").json()[0]["task_id"]
+    out_path = ".harness/test-incident-tamper.json"
+    export = client.post("/reports/incident/export", json={"path": out_path, "task_id": task_id, "limit": 20})
+    assert export.status_code == 200
+
+    target = Path(out_path)
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    loaded["scope"] = "tampered"
+    target.write_text(json.dumps(loaded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verify = client.post("/reports/incident/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    body = verify.json()
+    assert body["valid"] is False
+    assert body["stored_hash"] != body["computed_hash"]
+
+    target.unlink(missing_ok=True)
 
 
 def test_run_history_report_hash_changes_with_redaction_mode() -> None:

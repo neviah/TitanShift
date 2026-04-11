@@ -48,7 +48,18 @@ class LogEntry(BaseModel):
     payload: dict
 
 
+class LogQueryResponse(BaseModel):
+    items: list[LogEntry]
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None = None
+
+
 class IncidentReport(BaseModel):
+    generated_at: datetime
+    signing_version: str
+    report_hash: str
     scope: str
     task_id: str | None = None
     agent_id: str | None = None
@@ -228,6 +239,14 @@ class EmergencyDiagnosisEntry(BaseModel):
     diagnoses: list[EmergencyDiagnosis]
 
 
+class EmergencyDiagnosisQueryResponse(BaseModel):
+    items: list[EmergencyDiagnosisEntry]
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None = None
+
+
 class RunHistoryReport(BaseModel):
     generated_at: datetime
     signing_version: str
@@ -268,6 +287,36 @@ class RunHistoryVerifyRequest(BaseModel):
 
 
 class RunHistoryVerifyResponse(BaseModel):
+    ok: bool
+    path: str
+    valid: bool
+    stored_hash: str
+    computed_hash: str
+    signing_version: str | None = None
+
+
+class IncidentReportExportRequest(BaseModel):
+    path: str = Field(min_length=1)
+    task_id: str | None = None
+    agent_id: str | None = None
+    after: str | None = None
+    before: str | None = None
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class IncidentReportExportResponse(BaseModel):
+    ok: bool
+    path: str
+    bytes_written: int
+    report_hash: str
+
+
+class IncidentReportVerifyRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class IncidentReportVerifyResponse(BaseModel):
     ok: bool
     path: str
     valid: bool

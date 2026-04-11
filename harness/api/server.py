@@ -26,8 +26,14 @@ from harness.api.schemas import (
     ConfigUpdateResponse,
     EmergencyDiagnosis,
     EmergencyDiagnosisEntry,
+    EmergencyDiagnosisQueryResponse,
     IncidentReport,
+    IncidentReportExportRequest,
+    IncidentReportExportResponse,
+    IncidentReportVerifyRequest,
+    IncidentReportVerifyResponse,
     LogEntry,
+    LogQueryResponse,
     RunHistoryExportRequest,
     RunHistoryExportResponse,
     RunHistoryPolicy,
@@ -132,6 +138,25 @@ def create_app(workspace_root: Path) -> FastAPI:
             "health": report_data.get("health"),
             "loaded_modules": report_data.get("loaded_modules"),
             "config_snapshot": report_data.get("config_snapshot"),
+        }
+
+    def _signature_payload_from_incident_report(report_data: dict[str, Any]) -> dict[str, Any]:
+        generated_at = report_data.get("generated_at")
+        if isinstance(generated_at, str) and generated_at.endswith("Z"):
+            generated_at = generated_at[:-1] + "+00:00"
+        return {
+            "generated_at": generated_at,
+            "signing_version": report_data.get("signing_version"),
+            "scope": report_data.get("scope"),
+            "task_id": report_data.get("task_id"),
+            "agent_id": report_data.get("agent_id"),
+            "linked_agent_ids": report_data.get("linked_agent_ids"),
+            "task": report_data.get("task"),
+            "agent": report_data.get("agent"),
+            "executions": report_data.get("executions"),
+            "module_errors": report_data.get("module_errors"),
+            "diagnoses": report_data.get("diagnoses"),
+            "related_events": report_data.get("related_events"),
         }
 
     def _build_run_history_report(task_limit: int, log_limit: int, redact: bool | None) -> RunHistoryReport:
@@ -258,144 +283,20 @@ def create_app(workspace_root: Path) -> FastAPI:
             for r in rows
         ]
 
-    def _storage_root() -> Path:
-        return runtime.logger.log_file.parent.resolve()
+    def _paginate[T](items: list[T], limit: int, offset: int) -> tuple[list[T], bool, int | None]:
+        has_more = len(items) > limit
+        trimmed = items[-limit:] if has_more else items
+        next_offset = offset + len(trimmed) if has_more else None
+        return trimmed, has_more, next_offset
 
-    def _candidate_cleanup_paths(include_logs: bool) -> list[Path]:
-        root = _storage_root()
-        report_glob = str(runtime.config.get("reports.cleanup_glob", "*.json"))
-        candidates = [path for path in root.glob(report_glob) if path.is_file()]
-        if include_logs and runtime.logger.log_file.exists():
-            candidates.append(runtime.logger.log_file.resolve())
-        deduped: dict[str, Path] = {str(path.resolve()): path.resolve() for path in candidates}
-        return list(deduped.values())
-
-    def _cleanup_artifacts(max_age_days: int, include_logs: bool, dry_run: bool) -> tuple[list[str], list[str]]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
-        deleted_paths: list[str] = []
-        skipped_paths: list[str] = []
-        for path in _candidate_cleanup_paths(include_logs=include_logs):
-            if not runtime.execution.policy.is_cwd_allowed(path.parent):
-                skipped_paths.append(str(path))
-                continue
-            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-            if modified_at > cutoff:
-                skipped_paths.append(str(path))
-                continue
-            if dry_run:
-                deleted_paths.append(str(path))
-                continue
-            try:
-                os.remove(path)
-                deleted_paths.append(str(path))
-            except OSError:
-                skipped_paths.append(str(path))
-        return deleted_paths, skipped_paths
-
-    @app.get("/status", dependencies=[Depends(require_read_api_key)])
-    async def status() -> dict:
-        return {
-            "ok": True,
-            "subagents_enabled": runtime.config.get("orchestrator.enable_subagents"),
-            "graph_backend": runtime.config.get("memory.graph_backend"),
-            "semantic_backend": runtime.config.get("memory.semantic_backend"),
-            "default_model_backend": runtime.config.get("model.default_backend"),
-            "health": runtime.health.as_list(),
-        }
-
-    @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_read_api_key)])
-    async def chat(body: ChatRequest) -> ChatResponse:
-        task_input: dict = {}
-        if body.model_backend:
-            task_input["model_backend"] = body.model_backend
-        if body.budget:
-            task_input["budget"] = body.budget.model_dump(exclude_none=True)
-
-        task = Task(
-            id=str(uuid.uuid4()),
-            description=body.prompt,
-            input=task_input,
-        )
-        result = await runtime.orchestrator.run_reactive_task(task)
-        return ChatResponse(
-            success=result.success,
-            response=result.output.get("response", ""),
-            model=result.output.get("model", "unknown"),
-            mode=result.output.get("mode", "reactive"),
-            error=result.error,
-            estimated_total_tokens=result.output.get("estimated_total_tokens"),
-        )
-
-    @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_read_api_key)])
-    async def list_tasks() -> list[TaskSummary]:
-        return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
-
-    @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_read_api_key)])
-    async def get_task(task_id: str) -> TaskDetail:
-        task = runtime.orchestrator.get_task(task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail="Task not found")
-        return TaskDetail(**task)
-
-    @app.get("/logs", response_model=list[LogEntry], dependencies=[Depends(require_read_api_key)])
-    async def get_logs(
-        event_type: str | None = None,
-        task_id: str | None = None,
-        source: str | None = None,
-        agent_id: str | None = None,
-        skill_id: str | None = None,
-        execution_id: str | None = None,
-        after: str | None = None,
-        before: str | None = None,
-        offset: int = 0,
-        limit: int = 100,
-    ) -> list[LogEntry]:
-        clamped_limit = max(1, min(limit, 1000))
-        rows = runtime.logger.query(
-            event_type=event_type,
-            task_id=task_id,
-            source=source,
-            agent_id=agent_id,
-            skill_id=skill_id,
-            execution_id=execution_id,
-            after=after,
-            before=before,
-            offset=offset,
-            limit=clamped_limit,
-        )
-        return [LogEntry(**r) for r in rows]
-
-    @app.get("/diagnostics/emergency", response_model=list[EmergencyDiagnosisEntry], dependencies=[Depends(require_read_api_key)])
-    async def get_emergency_diagnoses(
-        source: str | None = None,
-        agent_id: str | None = None,
-        skill_id: str | None = None,
-        after: str | None = None,
-        before: str | None = None,
-        offset: int = 0,
-        limit: int = 20,
-    ) -> list[EmergencyDiagnosisEntry]:
-        clamped_limit = max(1, min(limit, 200))
-        rows = runtime.logger.query(
-            event_type="EMERGENCY_DIAGNOSIS",
-            source=source,
-            agent_id=agent_id,
-            skill_id=skill_id,
-            after=after,
-            before=before,
-            offset=offset,
-            limit=clamped_limit,
-        )
-        return _diagnosis_entries_from_rows(rows)
-
-    @app.get("/reports/incident", response_model=IncidentReport, dependencies=[Depends(require_read_api_key)])
-    async def incident_report(
-        task_id: str | None = None,
-        agent_id: str | None = None,
-        after: str | None = None,
-        before: str | None = None,
-        offset: int = 0,
-        limit: int = 50,
+    def _build_incident_report(
+        *,
+        task_id: str | None,
+        agent_id: str | None,
+        after: str | None,
+        before: str | None,
+        offset: int,
+        limit: int,
     ) -> IncidentReport:
         if not task_id and not agent_id:
             raise HTTPException(status_code=400, detail="Provide task_id or agent_id")
@@ -493,19 +394,167 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
 
         dedupe = lambda rows: list({json.dumps(r, sort_keys=True): r for r in rows}.values())
+        generated_at = datetime.now(timezone.utc)
+        signing_version = "v1"
+        payload = {
+            "generated_at": generated_at.isoformat(),
+            "signing_version": signing_version,
+            "scope": "agent" if agent_id and not task_id else "task" if task_id and not agent_id else "mixed",
+            "task_id": task_id or (task_detail.task_id if task_detail else None),
+            "agent_id": agent_id,
+            "linked_agent_ids": sorted(set(linked_agent_ids)),
+            "task": task_detail.model_dump(mode="json") if task_detail else None,
+            "agent": agent_summary.model_dump(mode="json") if agent_summary else None,
+            "executions": [LogEntry(**row).model_dump(mode="json") for row in dedupe(executions_rows)],
+            "module_errors": [LogEntry(**row).model_dump(mode="json") for row in dedupe(module_error_rows)],
+            "diagnoses": [r.model_dump(mode="json") for r in _diagnosis_entries_from_rows(dedupe(diagnosis_rows))],
+            "related_events": [LogEntry(**row).model_dump(mode="json") for row in dedupe(related_event_rows)],
+        }
+        report_hash = _compute_report_hash_from_payload(payload)
+        return IncidentReport(report_hash=report_hash, **payload)
 
-        return IncidentReport(
-            scope="agent" if agent_id and not task_id else "task" if task_id and not agent_id else "mixed",
-            task_id=task_id or (task_detail.task_id if task_detail else None),
-            agent_id=agent_id,
-            linked_agent_ids=sorted(set(linked_agent_ids)),
-            task=task_detail,
-            agent=agent_summary,
-            executions=[LogEntry(**row) for row in dedupe(executions_rows)],
-            module_errors=[LogEntry(**row) for row in dedupe(module_error_rows)],
-            diagnoses=_diagnosis_entries_from_rows(dedupe(diagnosis_rows)),
-            related_events=[LogEntry(**row) for row in dedupe(related_event_rows)],
+    def _storage_root() -> Path:
+        return runtime.logger.log_file.parent.resolve()
+
+    def _candidate_cleanup_paths(include_logs: bool) -> list[Path]:
+        root = _storage_root()
+        report_glob = str(runtime.config.get("reports.cleanup_glob", "*.json"))
+        candidates = [path for path in root.glob(report_glob) if path.is_file()]
+        if include_logs and runtime.logger.log_file.exists():
+            candidates.append(runtime.logger.log_file.resolve())
+        deduped: dict[str, Path] = {str(path.resolve()): path.resolve() for path in candidates}
+        return list(deduped.values())
+
+    def _cleanup_artifacts(max_age_days: int, include_logs: bool, dry_run: bool) -> tuple[list[str], list[str]]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        deleted_paths: list[str] = []
+        skipped_paths: list[str] = []
+        for path in _candidate_cleanup_paths(include_logs=include_logs):
+            if not runtime.execution.policy.is_cwd_allowed(path.parent):
+                skipped_paths.append(str(path))
+                continue
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            if modified_at > cutoff:
+                skipped_paths.append(str(path))
+                continue
+            if dry_run:
+                deleted_paths.append(str(path))
+                continue
+            try:
+                os.remove(path)
+                deleted_paths.append(str(path))
+            except OSError:
+                skipped_paths.append(str(path))
+        return deleted_paths, skipped_paths
+
+    @app.get("/status", dependencies=[Depends(require_read_api_key)])
+    async def status() -> dict:
+        return {
+            "ok": True,
+            "subagents_enabled": runtime.config.get("orchestrator.enable_subagents"),
+            "graph_backend": runtime.config.get("memory.graph_backend"),
+            "semantic_backend": runtime.config.get("memory.semantic_backend"),
+            "default_model_backend": runtime.config.get("model.default_backend"),
+            "health": runtime.health.as_list(),
+        }
+
+    @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_read_api_key)])
+    async def chat(body: ChatRequest) -> ChatResponse:
+        task_input: dict = {}
+        if body.model_backend:
+            task_input["model_backend"] = body.model_backend
+        if body.budget:
+            task_input["budget"] = body.budget.model_dump(exclude_none=True)
+
+        task = Task(
+            id=str(uuid.uuid4()),
+            description=body.prompt,
+            input=task_input,
         )
+        result = await runtime.orchestrator.run_reactive_task(task)
+        return ChatResponse(
+            success=result.success,
+            response=result.output.get("response", ""),
+            model=result.output.get("model", "unknown"),
+            mode=result.output.get("mode", "reactive"),
+            error=result.error,
+            estimated_total_tokens=result.output.get("estimated_total_tokens"),
+        )
+
+    @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_read_api_key)])
+    async def list_tasks() -> list[TaskSummary]:
+        return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
+
+    @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_read_api_key)])
+    async def get_task(task_id: str) -> TaskDetail:
+        task = runtime.orchestrator.get_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return TaskDetail(**task)
+
+    @app.get("/logs", response_model=LogQueryResponse, dependencies=[Depends(require_read_api_key)])
+    async def get_logs(
+        event_type: str | None = None,
+        task_id: str | None = None,
+        source: str | None = None,
+        agent_id: str | None = None,
+        skill_id: str | None = None,
+        execution_id: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> LogQueryResponse:
+        clamped_limit = max(1, min(limit, 1000))
+        rows = runtime.logger.query(
+            event_type=event_type,
+            task_id=task_id,
+            source=source,
+            agent_id=agent_id,
+            skill_id=skill_id,
+            execution_id=execution_id,
+            after=after,
+            before=before,
+            offset=offset,
+            limit=clamped_limit + 1,
+        )
+        items, has_more, next_offset = _paginate([LogEntry(**r) for r in rows], clamped_limit, offset)
+        return LogQueryResponse(items=items, limit=clamped_limit, offset=max(0, offset), has_more=has_more, next_offset=next_offset)
+
+    @app.get("/diagnostics/emergency", response_model=EmergencyDiagnosisQueryResponse, dependencies=[Depends(require_read_api_key)])
+    async def get_emergency_diagnoses(
+        source: str | None = None,
+        agent_id: str | None = None,
+        skill_id: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> EmergencyDiagnosisQueryResponse:
+        clamped_limit = max(1, min(limit, 200))
+        rows = runtime.logger.query(
+            event_type="EMERGENCY_DIAGNOSIS",
+            source=source,
+            agent_id=agent_id,
+            skill_id=skill_id,
+            after=after,
+            before=before,
+            offset=offset,
+            limit=clamped_limit + 1,
+        )
+        items, has_more, next_offset = _paginate(_diagnosis_entries_from_rows(rows), clamped_limit, offset)
+        return EmergencyDiagnosisQueryResponse(items=items, limit=clamped_limit, offset=max(0, offset), has_more=has_more, next_offset=next_offset)
+
+    @app.get("/reports/incident", response_model=IncidentReport, dependencies=[Depends(require_read_api_key)])
+    async def incident_report(
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> IncidentReport:
+        return _build_incident_report(task_id=task_id, agent_id=agent_id, after=after, before=before, offset=offset, limit=limit)
 
     @app.get("/config", dependencies=[Depends(require_read_api_key)])
     async def get_config() -> dict:
@@ -875,6 +924,60 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
 
         return RunHistoryVerifyResponse(
+            ok=True,
+            path=str(target),
+            valid=valid,
+            stored_hash=stored_hash,
+            computed_hash=computed_hash,
+            signing_version=str(loaded.get("signing_version")) if loaded.get("signing_version") is not None else None,
+        )
+
+    @app.post("/reports/incident/export", response_model=IncidentReportExportResponse, dependencies=[Depends(require_admin_api_key)])
+    async def incident_export(body: IncidentReportExportRequest) -> IncidentReportExportResponse:
+        target = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(target.parent):
+            raise HTTPException(status_code=403, detail="Export path blocked by execution policy")
+
+        report = _build_incident_report(
+            task_id=body.task_id,
+            agent_id=body.agent_id,
+            after=body.after,
+            before=body.before,
+            offset=body.offset,
+            limit=body.limit,
+        )
+        payload = report.model_dump(mode="json")
+        text = json.dumps(payload, indent=2, sort_keys=True)
+        export_bytes = (text + "\n").encode("utf-8")
+        max_export_bytes = int(runtime.config.get("reports.max_export_bytes", 262144))
+        if len(export_bytes) > max_export_bytes:
+            raise HTTPException(status_code=413, detail=f"Export payload exceeds limit ({len(export_bytes)} > {max_export_bytes})")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(export_bytes)
+        runtime.logger.log("REPORT_EXPORTED", {"path": str(target), "report_hash": report.report_hash, "source": "api", "report_type": "incident"})
+        return IncidentReportExportResponse(ok=True, path=str(target), bytes_written=len(export_bytes), report_hash=report.report_hash)
+
+    @app.post("/reports/incident/verify", response_model=IncidentReportVerifyResponse, dependencies=[Depends(require_read_api_key)])
+    async def incident_verify(body: IncidentReportVerifyRequest) -> IncidentReportVerifyResponse:
+        target = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(target.parent):
+            raise HTTPException(status_code=403, detail="Verify path blocked by execution policy")
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="Report file not found")
+
+        try:
+            loaded = json.loads(target.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid report JSON: {exc}") from exc
+        if not isinstance(loaded, dict):
+            raise HTTPException(status_code=400, detail="Invalid report format")
+
+        stored_hash = str(loaded.get("report_hash", ""))
+        computed_hash = _compute_report_hash_from_payload(_signature_payload_from_incident_report(loaded))
+        valid = stored_hash == computed_hash
+        runtime.logger.log("REPORT_VERIFIED", {"path": str(target), "valid": valid, "stored_hash": stored_hash, "computed_hash": computed_hash, "source": "api", "report_type": "incident"})
+        return IncidentReportVerifyResponse(
             ok=True,
             path=str(target),
             valid=valid,

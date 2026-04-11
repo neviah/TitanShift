@@ -93,6 +93,7 @@ curl "http://127.0.0.1:8000/logs?after=2026-04-10T00:00:00%2B00:00&before=2026-0
 ```
 
 `/logs` now supports `agent_id`, `skill_id`, `execution_id`, `after`, `before`, and `offset` for incident pagination.
+The response now includes `items`, `limit`, `offset`, `has_more`, and `next_offset`.
 
 Runtime config API (in-memory override for current process):
 
@@ -167,6 +168,7 @@ curl "http://127.0.0.1:8000/diagnostics/emergency?after=2026-04-10T00:00:00%2B00
 ```
 
 Each diagnosis entry includes `timestamp`, `source`, optional `agent_id`, optional `skill_id`, and structured diagnosis suggestions.
+The response now includes `items`, `limit`, `offset`, `has_more`, and `next_offset`.
 
 Incident report API:
 
@@ -174,9 +176,12 @@ Incident report API:
 curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&limit=50"
 curl "http://127.0.0.1:8000/reports/incident?task_id=<task_id>&limit=50"
 curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&after=2026-04-10T00:00:00%2B00:00&before=2026-04-10T23:59:59%2B00:00&limit=50"
+curl -X POST http://127.0.0.1:8000/reports/incident/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\",\"agent_id\":\"<agent_id>\",\"limit\":50}"
+curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\"}"
 ```
 
 Incident reports bundle task context, agent context, execution logs, module errors, emergency diagnoses, and related events for a single agent or task.
+They are signed with `signing_version` and `report_hash`, and exported incident documents can be verified independently.
 
 Run history export report:
 
@@ -200,6 +205,12 @@ Artifact cleanup is restricted to the storage directory and supports dry-run pre
 - redaction_applied
 - config_snapshot (safe runtime config subset)
 - recent_diagnoses (recent emergency diagnosis entries included in the signed payload)
+
+`/reports/incident` also returns signing metadata:
+
+- generated_at
+- signing_version
+- report_hash
 
 Status now includes runtime module health:
 
@@ -333,6 +344,8 @@ curl "http://127.0.0.1:8000/logs?event_type=EMERGENCY_DIAGNOSIS&limit=20"
 curl "http://127.0.0.1:8000/logs?event_type=AGENT_SKILL_EXECUTED&limit=20"
 curl "http://127.0.0.1:8000/diagnostics/emergency?agent_id=<agent_id>&skill_id=<skill_id>&limit=20"
 curl "http://127.0.0.1:8000/reports/incident?task_id=<task_id>&limit=50"
+curl -X POST http://127.0.0.1:8000/reports/incident/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\",\"task_id\":\"<task_id>\",\"limit\":50}"
+curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\"}"
 curl -X POST http://127.0.0.1:8000/reports/run-history/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\",\"task_limit\":20,\"log_limit\":200}"
 curl -X POST http://127.0.0.1:8000/reports/run-history/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\"}"
 curl -X POST http://127.0.0.1:8000/artifacts/cleanup -H "Content-Type: application/json" -d "{\"max_age_days\":7,\"include_logs\":false,\"dry_run\":true}"
