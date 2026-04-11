@@ -1,0 +1,14 @@
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 80px;
+}
+
+.text {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-transform: capitalize;
+}

@@ -1,0 +1,194 @@
+/* =====================================================
+   TitanShift UI — Global Styles & Theme Variables
+   ===================================================== */
+
+/* --- Dark theme (default) --- */
+:root,
+[data-theme='dark'] {
+  --bg-base:        #0d0d0f;
+  --bg-surface:     #131316;
+  --bg-elevated:    #1a1a1f;
+  --bg-overlay:     #22222a;
+
+  --border-subtle:  #2a2a35;
+  --border-default: #363645;
+  --border-active:  #ff2255;
+
+  --accent-primary: #ff2255;
+  --accent-glow:    rgba(255, 34, 85, 0.25);
+  --accent-dim:     rgba(255, 34, 85, 0.08);
+  --accent-hover:   #ff4470;
+
+  --text-primary:   #e8e8f0;
+  --text-secondary: #8888a8;
+  --text-muted:     #55556a;
+  --text-inverse:   #0d0d0f;
+
+  --status-ok:      #22dd88;
+  --status-warn:    #ffaa22;
+  --status-error:   #ff3355;
+  --status-info:    #2299ff;
+
+  --pane-bg:        #111114;
+  --pane-border:    #2a2a35;
+  --resize-handle:  #2a2a35;
+  --resize-handle-hover: var(--accent-primary);
+
+  --scrollbar-track: #1a1a1f;
+  --scrollbar-thumb: #363645;
+  --scrollbar-thumb-hover: #555570;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+
+  --transition-fast: 100ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 350ms ease;
+
+  color-scheme: dark;
+}
+
+/* --- Light theme --- */
+[data-theme='light'] {
+  --bg-base:        #f5f5f8;
+  --bg-surface:     #ffffff;
+  --bg-elevated:    #eeeeF4;
+  --bg-overlay:     #e8e8f2;
+
+  --border-subtle:  #d8d8e0;
+  --border-default: #c8c8d8;
+  --border-active:  #cc0033;
+
+  --accent-primary: #cc0033;
+  --accent-glow:    rgba(204, 0, 51, 0.15);
+  --accent-dim:     rgba(204, 0, 51, 0.06);
+  --accent-hover:   #ee1144;
+
+  --text-primary:   #111122;
+  --text-secondary: #555577;
+  --text-muted:     #9999aa;
+  --text-inverse:   #ffffff;
+
+  --status-ok:      #009955;
+  --status-warn:    #cc7700;
+  --status-error:   #cc1133;
+  --status-info:    #0066cc;
+
+  --pane-bg:        #fafafa;
+  --pane-border:    #d8d8e0;
+  --resize-handle:  #d8d8e0;
+  --resize-handle-hover: var(--accent-primary);
+
+  --scrollbar-track: #eeeeF4;
+  --scrollbar-thumb: #c8c8d8;
+  --scrollbar-thumb-hover: #aaaacc;
+
+  color-scheme: light;
+}
+
+/* --- Alt-dark (blue tinted) theme --- */
+[data-theme='alt-dark'] {
+  --bg-base:        #0a0f1a;
+  --bg-surface:     #0f1827;
+  --bg-elevated:    #162033;
+  --bg-overlay:     #1e2d44;
+
+  --border-subtle:  #1e3050;
+  --border-default: #2a4060;
+  --border-active:  #00aaff;
+
+  --accent-primary: #00aaff;
+  --accent-glow:    rgba(0, 170, 255, 0.25);
+  --accent-dim:     rgba(0, 170, 255, 0.08);
+  --accent-hover:   #33bbff;
+
+  --text-primary:   #d8e8f8;
+  --text-secondary: #6688aa;
+  --text-muted:     #334455;
+  --text-inverse:   #0a0f1a;
+
+  --status-ok:      #22dd88;
+  --status-warn:    #ffaa22;
+  --status-error:   #ff3355;
+  --status-info:    #2299ff;
+
+  --pane-bg:        #0c1520;
+  --pane-border:    #1e3050;
+  --resize-handle:  #1e3050;
+  --resize-handle-hover: var(--accent-primary);
+
+  --scrollbar-track: #162033;
+  --scrollbar-thumb: #2a4060;
+  --scrollbar-thumb-hover: #3a5570;
+
+  color-scheme: dark;
+}
+
+/* ================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+/* Utility text */
+.text-primary   { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted     { color: var(--text-muted); }
+.text-accent    { color: var(--accent-primary); }
+.text-ok        { color: var(--status-ok); }
+.text-warn      { color: var(--status-warn); }
+.text-error     { color: var(--status-error); }
+.text-info      { color: var(--status-info); }
+.font-mono      { font-family: var(--font-mono); }
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.badge-ok    { background: rgba(34,221,136,0.12); color: var(--status-ok); }
+.badge-warn  { background: rgba(255,170,34,0.12);  color: var(--status-warn); }
+.badge-error { background: rgba(255,51,85,0.12);   color: var(--status-error); }
+.badge-info  { background: rgba(34,153,255,0.12);  color: var(--status-info); }
+.badge-dim   { background: var(--bg-overlay);      color: var(--text-secondary); }
+
+/* Pulse animation for active node indicators */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--accent-glow); }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.pulse { animation: pulse-ring 2s ease infinite; }
+.glow-accent { box-shadow: 0 0 8px var(--accent-glow); }
