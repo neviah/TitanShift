@@ -232,6 +232,21 @@ class EmergencyDiagnosis(BaseModel):
     suggested_fix: str
 
 
+class EmergencyFixAction(BaseModel):
+    action_type: str
+    target_id: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class EmergencyFixPlan(BaseModel):
+    failure_id: str
+    recommended_hypothesis: str
+    risk_level: str
+    requires_user_approval: bool = True
+    actions: list[EmergencyFixAction] = Field(default_factory=list)
+    notes: str
+
+
 class EmergencyDiagnosisEntry(BaseModel):
     timestamp: str
     source: str
@@ -246,6 +261,35 @@ class EmergencyDiagnosisQueryResponse(BaseModel):
     offset: int
     has_more: bool
     next_offset: int | None = None
+
+
+class EmergencyAnalyzeRequest(BaseModel):
+    source: str = Field(min_length=1)
+    error: str = Field(min_length=1)
+    agent_id: str | None = None
+    skill_id: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class EmergencyAnalyzeResponse(BaseModel):
+    ok: bool
+    failure_id: str
+    diagnoses: list[EmergencyDiagnosis]
+    fix_plan: EmergencyFixPlan
+
+
+class EmergencyFixApplyRequest(BaseModel):
+    fix_plan: EmergencyFixPlan
+    approved: bool = False
+    dry_run: bool = True
+
+
+class EmergencyFixApplyResponse(BaseModel):
+    ok: bool
+    applied: bool
+    dry_run: bool
+    results: list[dict[str, Any]]
+    message: str
 
 
 class EmergencyDiagnosisSnapshot(BaseModel):

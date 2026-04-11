@@ -11,6 +11,12 @@ from typing import Any, TypeVar
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from harness.api.schemas import (
+    EmergencyAnalyzeRequest,
+    EmergencyAnalyzeResponse,
+    EmergencyFixAction,
+    EmergencyFixApplyRequest,
+    EmergencyFixApplyResponse,
+    EmergencyFixPlan,
     AgentAssignSkillsRequest,
     AgentAssignSkillsResponse,
     AgentSkillExecuteRequest,
@@ -526,6 +532,73 @@ def create_app(workspace_root: Path) -> FastAPI:
         deduped: dict[str, Path] = {str(path.resolve()): path.resolve() for path in candidates}
         return list(deduped.values())
 
+    def _recompute_agent_tools(agent_id: str) -> None:
+        agent = runtime.orchestrator.get_agent(agent_id)
+        if agent is None:
+            return
+        allowed_tools = sorted(
+            {
+                tool_name
+                for sid in list(agent.assigned_skills)
+                for tool_name in (
+                    runtime.skills.get_skill(sid).required_tools if runtime.skills.get_skill(sid) is not None else []
+                )
+            }
+        )
+        agent.allowed_tools = allowed_tools
+
+    def _apply_fix_action(action: EmergencyFixAction, *, dry_run: bool) -> dict[str, Any]:
+        if action.action_type == "restart_module":
+            return {
+                "action_type": action.action_type,
+                "target_id": action.target_id,
+                "status": "simulated" if dry_run else "queued",
+            }
+
+        if action.action_type == "disable_skill":
+            changed_agents: list[str] = []
+            for agent in runtime.orchestrator.agents.values():
+                if action.target_id and action.target_id in agent.assigned_skills:
+                    changed_agents.append(agent.agent_id)
+                    if not dry_run:
+                        agent.assigned_skills = [s for s in agent.assigned_skills if s != action.target_id]
+                        _recompute_agent_tools(agent.agent_id)
+            return {
+                "action_type": action.action_type,
+                "target_id": action.target_id,
+                "status": "simulated" if dry_run else "applied",
+                "changed_agents": changed_agents,
+            }
+
+        if action.action_type == "disable_tool":
+            tool_name = str(action.target_id or "")
+            if tool_name:
+                if not dry_run:
+                    runtime.tools.policy.blocked_tool_names.add(tool_name)
+                    runtime.tools.policy.allowed_tool_names.discard(tool_name)
+            return {
+                "action_type": action.action_type,
+                "target_id": action.target_id,
+                "status": "simulated" if dry_run else "applied",
+            }
+
+        if action.action_type == "update_config":
+            key = str(action.params.get("key", "")) if action.params else ""
+            value = action.params.get("value") if action.params else None
+            if key and not dry_run:
+                runtime.config.set(key, value)
+            return {
+                "action_type": action.action_type,
+                "status": "simulated" if dry_run else "applied",
+                "key": key,
+            }
+
+        return {
+            "action_type": action.action_type,
+            "target_id": action.target_id,
+            "status": "unsupported",
+        }
+
     def _cleanup_artifacts(max_age_days: int, include_logs: bool, dry_run: bool) -> tuple[list[str], list[str]]:
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
         deleted_paths: list[str] = []
@@ -647,6 +720,106 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
         items, has_more, next_offset = _paginate(_diagnosis_entries_from_rows(rows), clamped_limit, offset)
         return EmergencyDiagnosisQueryResponse(items=items, limit=clamped_limit, offset=max(0, offset), has_more=has_more, next_offset=next_offset)
+
+    @app.post(
+        "/diagnostics/emergency/analyze",
+        response_model=EmergencyAnalyzeResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def analyze_emergency_failure(body: EmergencyAnalyzeRequest) -> EmergencyAnalyzeResponse:
+        payload = {
+            "source": body.source,
+            "error": body.error,
+            "agent_id": body.agent_id,
+            "skill_id": body.skill_id,
+            **body.context,
+        }
+        analysis = await runtime.emergency.analyze_failure(payload)
+        runtime.logger.log(
+            "EMERGENCY_DIAGNOSIS",
+            {
+                "source": body.source,
+                "agent_id": body.agent_id,
+                "skill_id": body.skill_id,
+                "failure_id": analysis.failure_id,
+                "diagnoses": [
+                    {
+                        "hypothesis": d.hypothesis,
+                        "confidence": d.confidence,
+                        "suggested_fix": d.suggested_fix,
+                    }
+                    for d in analysis.diagnoses
+                ],
+            },
+        )
+        runtime.logger.log(
+            "EMERGENCY_FIX_PLAN",
+            {
+                "failure_id": analysis.failure_id,
+                "source": body.source,
+                "risk_level": analysis.fix_plan.risk_level,
+                "requires_user_approval": analysis.fix_plan.requires_user_approval,
+                "actions": [
+                    {
+                        "action_type": a.action_type,
+                        "target_id": a.target_id,
+                        "params": a.params or {},
+                    }
+                    for a in analysis.fix_plan.actions
+                ],
+            },
+        )
+        return EmergencyAnalyzeResponse(
+            ok=True,
+            failure_id=analysis.failure_id,
+            diagnoses=[
+                EmergencyDiagnosis(
+                    hypothesis=d.hypothesis,
+                    confidence=d.confidence,
+                    suggested_fix=d.suggested_fix,
+                )
+                for d in analysis.diagnoses
+            ],
+            fix_plan=EmergencyFixPlan(
+                failure_id=analysis.fix_plan.failure_id,
+                recommended_hypothesis=analysis.fix_plan.recommended_hypothesis,
+                risk_level=analysis.fix_plan.risk_level,
+                requires_user_approval=analysis.fix_plan.requires_user_approval,
+                actions=[
+                    EmergencyFixAction(action_type=a.action_type, target_id=a.target_id, params=a.params or {})
+                    for a in analysis.fix_plan.actions
+                ],
+                notes=analysis.fix_plan.notes,
+            ),
+        )
+
+    @app.post(
+        "/diagnostics/emergency/fix-apply",
+        response_model=EmergencyFixApplyResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def apply_emergency_fix(body: EmergencyFixApplyRequest) -> EmergencyFixApplyResponse:
+        if not body.approved:
+            raise HTTPException(status_code=400, detail="Fix application requires approved=true")
+
+        results = [_apply_fix_action(action, dry_run=body.dry_run) for action in body.fix_plan.actions]
+        runtime.logger.log(
+            "EMERGENCY_FIX_APPLY",
+            {
+                "failure_id": body.fix_plan.failure_id,
+                "approved": body.approved,
+                "dry_run": body.dry_run,
+                "results": results,
+                "source": "api",
+            },
+        )
+        return EmergencyFixApplyResponse(
+            ok=True,
+            applied=not body.dry_run,
+            dry_run=body.dry_run,
+            results=results,
+            message="Fix actions simulated" if body.dry_run else "Fix actions applied",
+        )
 
     @app.get("/reports/incident", response_model=IncidentReport, dependencies=[Depends(require_read_api_key)])
     async def incident_report(

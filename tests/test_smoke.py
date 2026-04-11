@@ -638,6 +638,87 @@ def test_emergency_diagnosis_endpoint_supports_offset_and_time_filters() -> None
     assert all(r["timestamp"] >= after for r in filtered_rows)
 
 
+def test_emergency_analyze_endpoint_returns_fix_plan() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/diagnostics/emergency/analyze",
+        json={
+            "source": "orchestrator.skill_execution",
+            "error": "Timed out after 0.01s",
+            "agent_id": "agent-x",
+            "skill_id": "slow_skill",
+            "context": {"task_id": "task-x"},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["failure_id"].startswith("failure-")
+    assert body["diagnoses"]
+    assert body["fix_plan"]["requires_user_approval"] is True
+    assert isinstance(body["fix_plan"]["actions"], list)
+
+
+def test_emergency_fix_apply_requires_approval() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": False,
+            "dry_run": True,
+            "fix_plan": {
+                "failure_id": "failure-test",
+                "recommended_hypothesis": "test",
+                "risk_level": "low",
+                "requires_user_approval": True,
+                "actions": [{"action_type": "restart_module", "target_id": "orchestrator"}],
+                "notes": "test",
+            },
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_emergency_fix_apply_updates_config_when_approved() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    old_value = client.get("/config").json()["state_machine.default_budget.max_tokens"]
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-config",
+                "recommended_hypothesis": "Need config update",
+                "risk_level": "medium",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 1337},
+                    }
+                ],
+                "notes": "apply config patch",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    body = apply.json()
+    assert body["ok"] is True
+    assert body["applied"] is True
+    assert any(r.get("status") == "applied" for r in body["results"])
+
+    new_value = client.get("/config").json()["state_machine.default_budget.max_tokens"]
+    assert new_value == 1337
+    assert new_value != old_value
+
+
 def test_api_key_auth_enforced_when_enabled() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("api.require_api_key", True)

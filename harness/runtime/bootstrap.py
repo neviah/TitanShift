@@ -166,14 +166,25 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
             "degraded",
             {"last_error": str(payload.get("error", "unknown"))},
         )
-        diagnoses = await emergency.on_failure(payload)
+        analysis = await emergency.analyze_failure(payload)
         logger.log(
             "EMERGENCY_DIAGNOSIS",
             {
                 "source": payload.get("source", "unknown"),
                 "agent_id": payload.get("agent_id"),
                 "skill_id": payload.get("skill_id"),
-                "diagnoses": [asdict(d) for d in diagnoses],
+                "failure_id": analysis.failure_id,
+                "diagnoses": [asdict(d) for d in analysis.diagnoses],
+            },
+        )
+        logger.log(
+            "EMERGENCY_FIX_PLAN",
+            {
+                "failure_id": analysis.failure_id,
+                "source": analysis.source,
+                "risk_level": analysis.fix_plan.risk_level,
+                "requires_user_approval": analysis.fix_plan.requires_user_approval,
+                "actions": [asdict(a) for a in analysis.fix_plan.actions],
             },
         )
         await hooks.emit(HookPayload(event="MODULE_ERROR", data=payload))
