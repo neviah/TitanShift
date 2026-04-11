@@ -61,6 +61,7 @@ class IncidentCorrelation(BaseModel):
     fix_execution_count: int = 0
     correlation_sources: list[str] = Field(default_factory=list)
     resolved_execution_ids: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class IncidentReport(BaseModel):

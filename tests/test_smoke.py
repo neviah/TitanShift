@@ -1302,6 +1302,7 @@ def test_incident_report_can_exclude_fix_executions() -> None:
     assert body["fix_executions"] == []
     assert body["correlation"]["fix_execution_count"] == 0
     assert body["correlation"]["resolved_execution_ids"] == []
+    assert "fix_executions_excluded_by_filter" in body["correlation"]["warnings"]
 
 
 def test_incident_report_can_filter_fix_event_type() -> None:
@@ -1342,6 +1343,50 @@ def test_incident_report_can_filter_fix_event_type() -> None:
     body = report.json()
     assert body["fix_executions"]
     assert all(row["event_type"] == "EMERGENCY_FIX_ROLLBACK" for row in body["fix_executions"])
+    assert "fix_event_type_filtered:rollback" in body["correlation"]["warnings"]
+
+
+def test_incident_report_correlation_warns_when_multiple_failure_ids_present() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    runtime = app.state.runtime
+
+    runtime.logger.log(
+        "EMERGENCY_DIAGNOSIS",
+        {
+            "source": "warning.test",
+            "agent_id": "main-agent",
+            "failure_id": "failure-a",
+            "diagnoses": [
+                {
+                    "hypothesis": "Execution timeout",
+                    "confidence": 0.8,
+                    "suggested_fix": "Increase timeout",
+                }
+            ],
+        },
+    )
+    runtime.logger.log(
+        "EMERGENCY_DIAGNOSIS",
+        {
+            "source": "warning.test",
+            "agent_id": "main-agent",
+            "failure_id": "failure-b",
+            "diagnoses": [
+                {
+                    "hypothesis": "Policy mismatch",
+                    "confidence": 0.7,
+                    "suggested_fix": "Align tool policy",
+                }
+            ],
+        },
+    )
+
+    report = client.get("/reports/incident?agent_id=main-agent&limit=20")
+    assert report.status_code == 200
+    body = report.json()
+    assert set(body["correlation"]["failure_ids"]) == {"failure-a", "failure-b"}
+    assert "multiple_failure_ids_detected" in body["correlation"]["warnings"]
 
 
 def test_incident_report_export_and_verify() -> None:
@@ -1404,6 +1449,112 @@ def test_incident_report_verify_detects_tamper() -> None:
     assert body["stored_hash"] != body["computed_hash"]
 
     target.unlink(missing_ok=True)
+
+
+def test_incident_report_export_verify_with_include_fix_executions_false() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-export-filter-none",
+                "recommended_hypothesis": "config drift",
+                "risk_level": "low",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 2555},
+                    }
+                ],
+                "notes": "export no fix executions",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+
+    out_path = ".harness/test-incident-export-no-fix.json"
+    export = client.post(
+        "/reports/incident/export",
+        json={
+            "path": out_path,
+            "execution_id": execution_id,
+            "include_fix_executions": False,
+            "limit": 20,
+        },
+    )
+    assert export.status_code == 200
+
+    loaded = json.loads(Path(out_path).read_text(encoding="utf-8"))
+    assert loaded["fix_executions"] == []
+    assert loaded["correlation"]["fix_execution_count"] == 0
+
+    verify = client.post("/reports/incident/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    assert verify.json()["valid"] is True
+
+    Path(out_path).unlink(missing_ok=True)
+
+
+def test_incident_report_export_verify_with_fix_event_type_rollback() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-export-filter-rollback",
+                "recommended_hypothesis": "config drift",
+                "risk_level": "low",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 2666},
+                    }
+                ],
+                "notes": "export rollback only",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+    rollback = client.post(
+        "/diagnostics/emergency/fix-rollback",
+        json={"execution_id": execution_id, "dry_run": False},
+    )
+    assert rollback.status_code == 200
+
+    out_path = ".harness/test-incident-export-rollback-only.json"
+    export = client.post(
+        "/reports/incident/export",
+        json={
+            "path": out_path,
+            "execution_id": execution_id,
+            "include_fix_executions": True,
+            "fix_event_type": "rollback",
+            "limit": 20,
+        },
+    )
+    assert export.status_code == 200
+
+    loaded = json.loads(Path(out_path).read_text(encoding="utf-8"))
+    assert loaded["fix_executions"]
+    assert all(row["event_type"] == "EMERGENCY_FIX_ROLLBACK" for row in loaded["fix_executions"])
+
+    verify = client.post("/reports/incident/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    assert verify.json()["valid"] is True
+
+    Path(out_path).unlink(missing_ok=True)
 
 
 def test_emergency_diagnosis_export_and_verify() -> None:

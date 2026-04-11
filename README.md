@@ -205,6 +205,7 @@ When execution_id is not supplied, fix execution logs are still correlated into 
 `include_fix_executions=false` omits fix execution records and sets fix correlation counts to zero.
 `fix_event_type` supports `all` (default), `apply`, and `rollback` for focused fix-event views.
 Incident report payloads now include a `correlation` block with `failure_ids`, `fix_execution_count`, `correlation_sources`, and `resolved_execution_ids` to make linkage provenance explicit.
+`correlation.warnings` flags ambiguous or filtered linkage states (for example `multiple_failure_ids_detected`, `fix_executions_excluded_by_filter`, and `fix_event_type_filtered:*`).
 They are signed with `signing_version` and `report_hash`, and exported incident documents can be verified independently.
 
 Emergency diagnosis snapshot export API:

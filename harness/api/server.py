@@ -86,7 +86,7 @@ T = TypeVar("T")
 
 def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
-    app = FastAPI(title="TitantShift Harness API", version="0.2.4")
+    app = FastAPI(title="TitantShift Harness API", version="0.3.0")
     app.state.runtime = runtime
     emergency_fix_history: dict[str, dict[str, Any]] = {}
 
@@ -573,6 +573,13 @@ def create_app(workspace_root: Path) -> FastAPI:
         deduped_module_errors = dedupe(module_error_rows)
         deduped_diagnoses = dedupe(diagnosis_rows)
         deduped_related_events = dedupe(related_event_rows)
+        correlation_warnings: list[str] = []
+        if len(failure_ids) > 1:
+            correlation_warnings.append("multiple_failure_ids_detected")
+        if not include_fix_executions:
+            correlation_warnings.append("fix_executions_excluded_by_filter")
+        elif normalized_fix_event_type != "all":
+            correlation_warnings.append(f"fix_event_type_filtered:{normalized_fix_event_type}")
         generated_at = datetime.now(timezone.utc)
         signing_version = "v1"
         payload = {
@@ -605,6 +612,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                         if dict(row.get("payload", {})).get("execution_id")
                     }
                 ),
+                "warnings": correlation_warnings,
             },
             "module_errors": [LogEntry(**row).model_dump(mode="json") for row in deduped_module_errors],
             "diagnoses": [r.model_dump(mode="json") for r in _diagnosis_entries_from_rows(deduped_diagnoses)],
