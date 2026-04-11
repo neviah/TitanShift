@@ -69,7 +69,7 @@ T = TypeVar("T")
 
 def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
-    app = FastAPI(title="TitantShift Harness API", version="0.2.3")
+    app = FastAPI(title="TitantShift Harness API", version="0.2.4")
     app.state.runtime = runtime
 
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
