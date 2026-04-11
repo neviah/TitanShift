@@ -2,6 +2,12 @@
   "orchestrator": {
     "enable_subagents": false
   },
+  "skills": {
+    "market_trusted_public_keys": [
+      "E35LKCz0IaBXidb3PM4HDgos8ChGlsqez2zuFJJXnVc="
+    ],
+    "market_allow_v1_hash_fallback": false
+  },
   "model": {
     "default_backend": "local_stub",
     "allow_cloud_adapters": true,
