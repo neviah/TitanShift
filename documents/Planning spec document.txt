@@ -380,12 +380,39 @@
   - Full Emergency module (diagnostic agents, consensus, user‑approved fixes).
   - Scheduler (heartbeats, cron, maintenance tasks).
 
+- Status update (2026-04-10): Completed in v0.3.0.
+- Completed deliverables:
+  - Emergency analyze/fix apply/fix rollback lifecycle with approval gating.
+  - Consensus scoring traceability in emergency analysis responses.
+  - Scheduler cron/interval execution, heartbeat miss escalation, and maintenance registration jobs.
+  - Signed report parity for incident, diagnosis snapshot, run history, and fix execution snapshot export/verify.
+  - Incident correlation metadata and filter controls for fix execution analysis.
+
 ### Phase 4 — Advanced memory + Skill Market
 
 - Implement:
   - Graphify ingestion for graph memory.
   - Optional Neo4j backend.
   - Skill Market (local + cloud registry, install/uninstall from UI).
+
+- Milestone status (2026-04-10): Open.
+- Scoped tickets (Phase 4 milestone backlog):
+  - P4-01 Graphify ingestion MVP.
+    Acceptance: Ingest text into entity/relation graph records and expose ingest stats endpoint.
+  - P4-02 Ingestion dedupe and confidence policy.
+    Acceptance: Duplicate entity/edge suppression with configurable thresholds and audit logs.
+  - P4-03 Neo4j backend adapter.
+    Acceptance: Graph API parity with in-process backend plus smoke tests against containerized Neo4j.
+  - P4-04 Graph backend migration utility.
+    Acceptance: Export/import utility to move graph state between local backend and Neo4j.
+  - P4-05 Skill Market local registry API.
+    Acceptance: List/install/uninstall/update operations from local registry with dependency validation.
+  - P4-06 Skill Market remote index sync.
+    Acceptance: Pull and cache remote skill index with signed metadata verification.
+  - P4-07 UI surfaces for Market and graph ingestion.
+    Acceptance: UI panels for install/update actions and ingestion status telemetry.
+  - P4-08 Security and policy hardening for market installs.
+    Acceptance: Install-time allowlist checks, signature verification hooks, and rollback path for failed installs.
 
 ### Phase 5 — Full UI
 

@@ -1449,6 +1449,9 @@ Implement:
 - Full Emergency Module  
 - Scheduler (cron + heartbeats)  
 
+Status update (2026-04-10): Completed in v0.3.0.  
+Completed deliverables include emergency fix lifecycle APIs, rollback support, scheduler maintenance jobs, signed report parity, and incident correlation metadata/filtering.  
+
 ---
 
 # **Phase 4 — Advanced Memory + Markets**
@@ -1459,6 +1462,19 @@ Implement:
 - Optional Neo4j backend  
 - Skill Market  
 - Tool Market  
+
+Milestone status (2026-04-10): Open.  
+
+Scoped Phase 4 tickets:
+
+- P4-01 Graphify ingestion MVP: entity/relation extraction pipeline + ingest telemetry endpoint.  
+- P4-02 Ingestion dedupe/confidence policy: configurable suppression and auditable merge behavior.  
+- P4-03 Neo4j backend adapter: graph API parity and backend toggle support.  
+- P4-04 Graph migration utility: local backend <-> Neo4j export/import tooling.  
+- P4-05 Local Skill Market API: list/install/uninstall/update with dependency checks.  
+- P4-06 Remote market sync: signed remote index pull, cache, and refresh controls.  
+- P4-07 UI market and ingestion views: install/update controls and ingestion telemetry cards.  
+- P4-08 Security hardening: signature verification, allowlist checks, and rollback on failed installs.  
 
 ---
 
