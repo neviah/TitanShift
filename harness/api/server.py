@@ -26,6 +26,7 @@ from harness.api.schemas import (
     ConfigUpdateResponse,
     EmergencyDiagnosis,
     EmergencyDiagnosisEntry,
+    IncidentReport,
     LogEntry,
     RunHistoryExportRequest,
     RunHistoryExportResponse,
@@ -223,6 +224,40 @@ def create_app(workspace_root: Path) -> FastAPI:
             config_snapshot=config_snapshot,
         )
 
+    def _agent_summary_from_record(agent: dict[str, Any]) -> AgentSummary:
+        return AgentSummary(
+            agent_id=str(agent["agent_id"]),
+            role=str(agent["role"]),
+            subagents_enabled=bool(runtime.config.get("orchestrator.enable_subagents", False)),
+            model_default_backend=str(runtime.config.get("model.default_backend", "local_stub")),
+            memory_layers=["working", "short_term", "long_term", "semantic", "graph"],
+            assigned_skills=list(agent.get("assigned_skills", [])),
+            allowed_tools=list(agent.get("allowed_tools", [])),
+            spawned_from_task=agent.get("spawned_from_task"),
+            created_at=agent.get("created_at"),
+            active=bool(agent.get("active", True)),
+        )
+
+    def _diagnosis_entries_from_rows(rows: list[dict[str, Any]]) -> list[EmergencyDiagnosisEntry]:
+        return [
+            EmergencyDiagnosisEntry(
+                timestamp=str(r.get("timestamp", "")),
+                source=str(dict(r.get("payload", {})).get("source", "unknown")),
+                agent_id=(
+                    str(dict(r.get("payload", {})).get("agent_id"))
+                    if dict(r.get("payload", {})).get("agent_id") is not None
+                    else None
+                ),
+                skill_id=(
+                    str(dict(r.get("payload", {})).get("skill_id"))
+                    if dict(r.get("payload", {})).get("skill_id") is not None
+                    else None
+                ),
+                diagnoses=[EmergencyDiagnosis(**d) for d in list(dict(r.get("payload", {})).get("diagnoses", []))],
+            )
+            for r in rows
+        ]
+
     def _storage_root() -> Path:
         return runtime.logger.log_file.parent.resolve()
 
@@ -307,6 +342,12 @@ def create_app(workspace_root: Path) -> FastAPI:
         event_type: str | None = None,
         task_id: str | None = None,
         source: str | None = None,
+        agent_id: str | None = None,
+        skill_id: str | None = None,
+        execution_id: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        offset: int = 0,
         limit: int = 100,
     ) -> list[LogEntry]:
         clamped_limit = max(1, min(limit, 1000))
@@ -314,6 +355,12 @@ def create_app(workspace_root: Path) -> FastAPI:
             event_type=event_type,
             task_id=task_id,
             source=source,
+            agent_id=agent_id,
+            skill_id=skill_id,
+            execution_id=execution_id,
+            after=after,
+            before=before,
+            offset=offset,
             limit=clamped_limit,
         )
         return [LogEntry(**r) for r in rows]
@@ -323,34 +370,142 @@ def create_app(workspace_root: Path) -> FastAPI:
         source: str | None = None,
         agent_id: str | None = None,
         skill_id: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        offset: int = 0,
         limit: int = 20,
     ) -> list[EmergencyDiagnosisEntry]:
         clamped_limit = max(1, min(limit, 200))
-        rows = runtime.logger.query(event_type="EMERGENCY_DIAGNOSIS", limit=clamped_limit)
-        if source:
-            rows = [r for r in rows if str(dict(r.get("payload", {})).get("source", "")) == source]
-        if agent_id:
-            rows = [r for r in rows if str(dict(r.get("payload", {})).get("agent_id", "")) == agent_id]
-        if skill_id:
-            rows = [r for r in rows if str(dict(r.get("payload", {})).get("skill_id", "")) == skill_id]
-        return [
-            EmergencyDiagnosisEntry(
-                timestamp=str(r.get("timestamp", "")),
-                source=str(dict(r.get("payload", {})).get("source", "unknown")),
-                agent_id=(
-                    str(dict(r.get("payload", {})).get("agent_id"))
-                    if dict(r.get("payload", {})).get("agent_id") is not None
-                    else None
-                ),
-                skill_id=(
-                    str(dict(r.get("payload", {})).get("skill_id"))
-                    if dict(r.get("payload", {})).get("skill_id") is not None
-                    else None
-                ),
-                diagnoses=[EmergencyDiagnosis(**d) for d in list(dict(r.get("payload", {})).get("diagnoses", []))],
+        rows = runtime.logger.query(
+            event_type="EMERGENCY_DIAGNOSIS",
+            source=source,
+            agent_id=agent_id,
+            skill_id=skill_id,
+            after=after,
+            before=before,
+            offset=offset,
+            limit=clamped_limit,
+        )
+        return _diagnosis_entries_from_rows(rows)
+
+    @app.get("/reports/incident", response_model=IncidentReport, dependencies=[Depends(require_read_api_key)])
+    async def incident_report(
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> IncidentReport:
+        if not task_id and not agent_id:
+            raise HTTPException(status_code=400, detail="Provide task_id or agent_id")
+
+        clamped_limit = max(1, min(limit, 500))
+        linked_agent_ids: list[str] = []
+        task_detail: TaskDetail | None = None
+        agent_summary: AgentSummary | None = None
+
+        if task_id:
+            task = runtime.orchestrator.get_task(task_id)
+            if task is None:
+                raise HTTPException(status_code=404, detail="Task not found")
+            task_detail = TaskDetail(**task)
+            spawn_rows = runtime.logger.query(
+                event_type="AGENT_SPAWNED",
+                task_id=task_id,
+                after=after,
+                before=before,
+                offset=offset,
+                limit=clamped_limit,
             )
-            for r in rows
-        ]
+            linked_agent_ids = [
+                str(dict(row.get("payload", {})).get("agent_id"))
+                for row in spawn_rows
+                if dict(row.get("payload", {})).get("agent_id")
+            ]
+        if agent_id:
+            agent = runtime.orchestrator.get_agent(agent_id)
+            if agent is None:
+                raise HTTPException(status_code=404, detail="Agent not found")
+            agent_record = next((row for row in runtime.orchestrator.list_agents() if row.get("agent_id") == agent_id), None)
+            if agent_record is None:
+                raise HTTPException(status_code=404, detail="Agent not found")
+            agent_summary = _agent_summary_from_record(agent_record)
+            linked_agent_ids = sorted(set(linked_agent_ids + [agent_id]))
+            if agent.spawned_from_task:
+                task = runtime.orchestrator.get_task(agent.spawned_from_task)
+                if task is not None:
+                    task_detail = TaskDetail(**task)
+
+        if not linked_agent_ids and agent_id:
+            linked_agent_ids = [agent_id]
+
+        executions_rows: list[dict[str, Any]] = []
+        diagnosis_rows: list[dict[str, Any]] = []
+        module_error_rows: list[dict[str, Any]] = []
+        related_event_rows: list[dict[str, Any]] = []
+
+        if task_id:
+            related_event_rows.extend(
+                runtime.logger.query(task_id=task_id, after=after, before=before, offset=offset, limit=clamped_limit)
+            )
+            module_error_rows.extend(
+                runtime.logger.query(
+                    event_type="MODULE_ERROR",
+                    task_id=task_id,
+                    after=after,
+                    before=before,
+                    offset=offset,
+                    limit=clamped_limit,
+                )
+            )
+
+        for linked_agent_id in linked_agent_ids:
+            executions_rows.extend(
+                runtime.logger.query(
+                    event_type="AGENT_SKILL_EXECUTED",
+                    agent_id=linked_agent_id,
+                    after=after,
+                    before=before,
+                    offset=offset,
+                    limit=clamped_limit,
+                )
+            )
+            diagnosis_rows.extend(
+                runtime.logger.query(
+                    event_type="EMERGENCY_DIAGNOSIS",
+                    agent_id=linked_agent_id,
+                    after=after,
+                    before=before,
+                    offset=offset,
+                    limit=clamped_limit,
+                )
+            )
+            module_error_rows.extend(
+                runtime.logger.query(
+                    event_type="MODULE_ERROR",
+                    agent_id=linked_agent_id,
+                    after=after,
+                    before=before,
+                    offset=offset,
+                    limit=clamped_limit,
+                )
+            )
+
+        dedupe = lambda rows: list({json.dumps(r, sort_keys=True): r for r in rows}.values())
+
+        return IncidentReport(
+            scope="agent" if agent_id and not task_id else "task" if task_id and not agent_id else "mixed",
+            task_id=task_id or (task_detail.task_id if task_detail else None),
+            agent_id=agent_id,
+            linked_agent_ids=sorted(set(linked_agent_ids)),
+            task=task_detail,
+            agent=agent_summary,
+            executions=[LogEntry(**row) for row in dedupe(executions_rows)],
+            module_errors=[LogEntry(**row) for row in dedupe(module_error_rows)],
+            diagnoses=_diagnosis_entries_from_rows(dedupe(diagnosis_rows)),
+            related_events=[LogEntry(**row) for row in dedupe(related_event_rows)],
+        )
 
     @app.get("/config", dependencies=[Depends(require_read_api_key)])
     async def get_config() -> dict:

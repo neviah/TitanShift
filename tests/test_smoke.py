@@ -140,6 +140,34 @@ def test_logs_endpoint_returns_list() -> None:
     assert all("event_type" in row for row in body)
 
 
+def test_logs_endpoint_supports_offset_and_time_filters() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    for idx in range(3):
+        runtime.logger.log("TEST_PAGED_LOG", {"source": "paged-test", "idx": idx})
+    client = TestClient(app)
+
+    baseline = client.get("/logs?event_type=TEST_PAGED_LOG&source=paged-test&limit=3")
+    assert baseline.status_code == 200
+    rows = baseline.json()
+    assert len(rows) == 3
+
+    paged = client.get("/logs?event_type=TEST_PAGED_LOG&source=paged-test&limit=2&offset=1")
+    assert paged.status_code == 200
+    paged_rows = paged.json()
+    assert len(paged_rows) == 2
+    assert paged_rows[-1]["payload"]["idx"] == rows[-2]["payload"]["idx"]
+
+    after = rows[1]["timestamp"]
+    filtered = client.get(
+        "/logs",
+        params={"event_type": "TEST_PAGED_LOG", "source": "paged-test", "after": after, "limit": 5},
+    )
+    assert filtered.status_code == 200
+    filtered_rows = filtered.json()
+    assert all(r["timestamp"] >= after for r in filtered_rows)
+
+
 def test_config_update_endpoint_runtime_override() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -566,6 +594,42 @@ def test_emergency_diagnosis_endpoint() -> None:
     assert body[0]["diagnoses"][0]["confidence"] == 0.95
 
 
+def test_emergency_diagnosis_endpoint_supports_offset_and_time_filters() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    for idx in range(3):
+        runtime.logger.log(
+            "EMERGENCY_DIAGNOSIS",
+            {
+                "source": "diag-paged-test",
+                "agent_id": f"agent-{idx}",
+                "skill_id": "skill-paged",
+                "diagnoses": [{"hypothesis": f"diag-{idx}", "confidence": 0.5, "suggested_fix": "fix"}],
+            },
+        )
+    client = TestClient(app)
+
+    baseline = client.get("/diagnostics/emergency?source=diag-paged-test&limit=3")
+    assert baseline.status_code == 200
+    rows = baseline.json()
+    assert len(rows) == 3
+
+    paged = client.get("/diagnostics/emergency?source=diag-paged-test&limit=2&offset=1")
+    assert paged.status_code == 200
+    paged_rows = paged.json()
+    assert len(paged_rows) == 2
+    assert paged_rows[-1]["agent_id"] == rows[-2]["agent_id"]
+
+    after = rows[1]["timestamp"]
+    filtered = client.get(
+        "/diagnostics/emergency",
+        params={"source": "diag-paged-test", "after": after, "limit": 5},
+    )
+    assert filtered.status_code == 200
+    filtered_rows = filtered.json()
+    assert all(r["timestamp"] >= after for r in filtered_rows)
+
+
 def test_api_key_auth_enforced_when_enabled() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("api.require_api_key", True)
@@ -647,6 +711,51 @@ def test_run_history_report_endpoint() -> None:
     assert any(d.get("agent_id") == "subagent-report" for d in body.get("recent_diagnoses", []))
     assert any(d.get("skill_id") == "slow_skill" for d in body.get("recent_diagnoses", []))
     assert isinstance(body.get("health"), list)
+
+
+def test_incident_report_by_agent_id() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support", "role": "Exec"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+
+    assigned = client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]})
+    assert assigned.status_code == 200
+    executed = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert executed.status_code == 200
+
+    response = client.get(f"/reports/incident?agent_id={agent_id}&limit=20")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "agent"
+    assert body["agent_id"] == agent_id
+    assert body["agent"]["agent_id"] == agent_id
+    assert any(log["event_type"] == "AGENT_SKILL_EXECUTED" for log in body["executions"])
+
+
+def test_incident_report_by_task_id() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    chat = client.post("/chat", json={"prompt": "incident task", "model_backend": "local_stub"})
+    assert chat.status_code == 200
+    tasks = client.get("/tasks")
+    assert tasks.status_code == 200
+    task_id = tasks.json()[0]["task_id"]
+
+    response = client.get(f"/reports/incident?task_id={task_id}&limit=20")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "task"
+    assert body["task_id"] == task_id
+    assert body["task"]["task_id"] == task_id
+    assert isinstance(body["related_events"], list)
 
 
 def test_run_history_report_hash_changes_with_redaction_mode() -> None:

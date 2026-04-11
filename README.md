@@ -87,7 +87,12 @@ Logs endpoint (with filters):
 curl "http://127.0.0.1:8000/logs?limit=100"
 curl "http://127.0.0.1:8000/logs?event_type=MODULE_ERROR&limit=20"
 curl "http://127.0.0.1:8000/logs?task_id=<task_id>"
+curl "http://127.0.0.1:8000/logs?agent_id=<agent_id>&skill_id=<skill_id>&limit=20"
+curl "http://127.0.0.1:8000/logs?event_type=AGENT_SKILL_EXECUTED&offset=20&limit=20"
+curl "http://127.0.0.1:8000/logs?after=2026-04-10T00:00:00%2B00:00&before=2026-04-10T23:59:59%2B00:00&limit=50"
 ```
+
+`/logs` now supports `agent_id`, `skill_id`, `execution_id`, `after`, `before`, and `offset` for incident pagination.
 
 Runtime config API (in-memory override for current process):
 
@@ -157,9 +162,21 @@ Emergency diagnostics API:
 curl "http://127.0.0.1:8000/diagnostics/emergency?limit=20"
 curl "http://127.0.0.1:8000/diagnostics/emergency?source=orchestrator.skill_execution&limit=20"
 curl "http://127.0.0.1:8000/diagnostics/emergency?agent_id=<agent_id>&skill_id=<skill_id>&limit=20"
+curl "http://127.0.0.1:8000/diagnostics/emergency?offset=20&limit=20"
+curl "http://127.0.0.1:8000/diagnostics/emergency?after=2026-04-10T00:00:00%2B00:00&before=2026-04-10T23:59:59%2B00:00&limit=50"
 ```
 
 Each diagnosis entry includes `timestamp`, `source`, optional `agent_id`, optional `skill_id`, and structured diagnosis suggestions.
+
+Incident report API:
+
+```bash
+curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&limit=50"
+curl "http://127.0.0.1:8000/reports/incident?task_id=<task_id>&limit=50"
+curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&after=2026-04-10T00:00:00%2B00:00&before=2026-04-10T23:59:59%2B00:00&limit=50"
+```
+
+Incident reports bundle task context, agent context, execution logs, module errors, emergency diagnoses, and related events for a single agent or task.
 
 Run history export report:
 
@@ -297,6 +314,7 @@ curl http://127.0.0.1:8000/scheduler/jobs
 curl http://127.0.0.1:8000/agents
 curl "http://127.0.0.1:8000/skills?related_node_id=tool:shell_command"
 curl "http://127.0.0.1:8000/diagnostics/emergency?source=orchestrator.skill_execution&limit=10"
+curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&limit=20"
 ```
 
 Operational triage flow:
@@ -314,6 +332,7 @@ curl "http://127.0.0.1:8000/logs?event_type=MODULE_ERROR&limit=20"
 curl "http://127.0.0.1:8000/logs?event_type=EMERGENCY_DIAGNOSIS&limit=20"
 curl "http://127.0.0.1:8000/logs?event_type=AGENT_SKILL_EXECUTED&limit=20"
 curl "http://127.0.0.1:8000/diagnostics/emergency?agent_id=<agent_id>&skill_id=<skill_id>&limit=20"
+curl "http://127.0.0.1:8000/reports/incident?task_id=<task_id>&limit=50"
 curl -X POST http://127.0.0.1:8000/reports/run-history/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\",\"task_limit\":20,\"log_limit\":200}"
 curl -X POST http://127.0.0.1:8000/reports/run-history/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\"}"
 curl -X POST http://127.0.0.1:8000/artifacts/cleanup -H "Content-Type: application/json" -d "{\"max_age_days\":7,\"include_logs\":false,\"dry_run\":true}"

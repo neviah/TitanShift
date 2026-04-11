@@ -48,6 +48,19 @@ class LogEntry(BaseModel):
     payload: dict
 
 
+class IncidentReport(BaseModel):
+    scope: str
+    task_id: str | None = None
+    agent_id: str | None = None
+    linked_agent_ids: list[str] = Field(default_factory=list)
+    task: TaskDetail | None = None
+    agent: AgentSummary | None = None
+    executions: list[LogEntry] = Field(default_factory=list)
+    module_errors: list[LogEntry] = Field(default_factory=list)
+    diagnoses: list[EmergencyDiagnosisEntry] = Field(default_factory=list)
+    related_events: list[LogEntry] = Field(default_factory=list)
+
+
 class ConfigUpdateRequest(BaseModel):
     key: str = Field(min_length=1)
     value: object
