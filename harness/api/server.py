@@ -847,6 +847,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         return {
             "model.default_backend": runtime.config.get("model.default_backend"),
             "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
+            "scheduler.heartbeat_timeout_s": runtime.config.get("scheduler.heartbeat_timeout_s"),
             "state_machine.default_budget.max_steps": runtime.config.get("state_machine.default_budget.max_steps"),
             "state_machine.default_budget.max_tokens": runtime.config.get("state_machine.default_budget.max_tokens"),
             "state_machine.default_budget.max_duration_ms": runtime.config.get(
@@ -1096,6 +1097,22 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def scheduler_tick() -> SchedulerTickResponse:
         result = await runtime.scheduler.tick()
         runtime.logger.log("SCHEDULER_TICK", result)
+        if bool(result.get("newly_missed_heartbeat", False)):
+            await runtime.event_bus.publish(
+                "MODULE_ERROR",
+                {
+                    "source": "scheduler.heartbeat",
+                    "error": f"Missed heartbeat threshold exceeded ({result.get('heartbeat_lag_s')}s > {result.get('heartbeat_timeout_s')}s)",
+                },
+            )
+        if bool(result.get("recovered_heartbeat", False)):
+            runtime.logger.log(
+                "SCHEDULER_HEARTBEAT_RECOVERED",
+                {
+                    "source": "scheduler",
+                    "heartbeat_lag_s": result.get("heartbeat_lag_s"),
+                },
+            )
         return SchedulerTickResponse(**result)
 
     @app.post(

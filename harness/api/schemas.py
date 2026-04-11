@@ -87,7 +87,9 @@ class ConfigUpdateResponse(BaseModel):
 class SchedulerJob(BaseModel):
     job_id: str
     description: str
+    schedule_type: str = "interval"
     interval_seconds: int
+    cron: str | None = None
     enabled: bool
     timeout_s: float | None = None
     max_failures: int
@@ -109,6 +111,11 @@ class SchedulerTickResponse(BaseModel):
     timed_out_jobs: list[str]
     auto_disabled_jobs: list[str]
     job_count: int
+    missed_heartbeat: bool = False
+    newly_missed_heartbeat: bool = False
+    recovered_heartbeat: bool = False
+    heartbeat_lag_s: float | None = None
+    heartbeat_timeout_s: float | None = None
 
 
 class SchedulerJobToggleRequest(BaseModel):

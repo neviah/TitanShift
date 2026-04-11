@@ -52,6 +52,9 @@
     "file": "events.log",
     "cleanup_max_age_days": 30
   },
+  "scheduler": {
+    "heartbeat_timeout_s": 120
+  },
   "api": {
     "require_api_key": false,
     "api_key": "",

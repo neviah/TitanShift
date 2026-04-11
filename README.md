@@ -112,8 +112,10 @@ curl -X POST http://127.0.0.1:8000/scheduler/jobs/scheduler_heartbeat/enabled -H
 ```
 
 Scheduler job rows now include `max_failures`, `failure_count`, and `last_error`.
-Scheduler job rows also include `timeout_s`.
+Scheduler job rows also include `timeout_s`, `schedule_type`, and optional `cron`.
 Ticks report `failed_jobs`, `timed_out_jobs`, and `auto_disabled_jobs` so repeated failures and hung jobs can be detected.
+Ticks now also surface heartbeat telemetry: `missed_heartbeat`, `newly_missed_heartbeat`, `recovered_heartbeat`, `heartbeat_lag_s`, and `heartbeat_timeout_s`.
+When a missed heartbeat is first detected, the API escalates through Emergency and records `EMERGENCY_DIAGNOSIS` and `EMERGENCY_FIX_PLAN` events for `scheduler.heartbeat`.
 
 Agents visibility API:
 
@@ -126,7 +128,7 @@ Agent orchestration API:
 ```bash
 curl -X POST http://127.0.0.1:8000/agents/spawn -H "Content-Type: application/json" -d "{\"description\":\"Need shell execution support\",\"role\":\"Execution Specialist\"}"
 curl -X POST http://127.0.0.1:8000/agents/<agent_id>/skills/assign -H "Content-Type: application/json" -d "{\"skill_ids\":[\"safe_shell_command\"]}"
-curl -X POST http://127.0.0.1:8000/agents/<agent_id>/skills/safe_shell_command/execute -H "Content-Type: application/json" -d "{\"input\":{\"command\":\"where python\"}}"
+curl -X POST http://127.0.0.1:8000/agents/<agent_id>/skills/safe_shell_command/execute -H "Content-Type: application/json" -d "{\"input\":{\"command\":\"python --version\"}}"
 ```
 
 Agent-scoped skill execution returns an `execution_id` and emits an `AGENT_SKILL_EXECUTED` log event.
@@ -273,6 +275,7 @@ Phase 1 budget and tool policy keys:
 - state_machine.default_budget.max_duration_ms
 - orchestrator.enable_subagents
 - orchestrator.skill_execution_timeout_s
+- scheduler.heartbeat_timeout_s
 - tools.allowed_tool_names
 - tools.blocked_tool_names
 - tools.allowed_command_prefixes

@@ -285,6 +285,74 @@ def test_scheduler_timeout_counts_as_failure_and_auto_disables() -> None:
     assert job.last_error == "Timed out after 0.01s"
 
 
+def test_scheduler_interval_job_runs_once_without_elapsed_interval() -> None:
+    scheduler = Scheduler()
+    run_count = {"value": 0}
+
+    def interval_job() -> None:
+        run_count["value"] += 1
+
+    scheduler.register_job(
+        ScheduledJob(
+            job_id="interval-job",
+            description="interval due behavior",
+            schedule_type="interval",
+            interval_seconds=60,
+            callback=interval_job,
+        )
+    )
+
+    first = asyncio.run(scheduler.tick())
+    second = asyncio.run(scheduler.tick())
+    assert "interval-job" in first["ran_jobs"]
+    assert "interval-job" not in second["ran_jobs"]
+    assert run_count["value"] == 1
+
+
+def test_scheduler_cron_job_runs_once_per_minute_window() -> None:
+    scheduler = Scheduler()
+    run_count = {"value": 0}
+
+    def cron_job() -> None:
+        run_count["value"] += 1
+
+    scheduler.register_job(
+        ScheduledJob(
+            job_id="cron-job",
+            description="cron due behavior",
+            schedule_type="cron",
+            cron="* * * * *",
+            callback=cron_job,
+        )
+    )
+
+    first = asyncio.run(scheduler.tick())
+    second = asyncio.run(scheduler.tick())
+    assert "cron-job" in first["ran_jobs"]
+    assert "cron-job" not in second["ran_jobs"]
+    assert run_count["value"] == 1
+
+
+def test_scheduler_tick_escalates_missed_heartbeat_to_emergency() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    runtime.scheduler.set_heartbeat_timeout(1.0)
+    runtime.scheduler.last_heartbeat_at = "2000-01-01T00:00:00+00:00"
+    client = TestClient(app)
+
+    tick = client.post("/scheduler/tick")
+    assert tick.status_code == 200
+    body = tick.json()
+    assert body["missed_heartbeat"] is True
+    assert body["newly_missed_heartbeat"] is True
+
+    diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&source=scheduler.heartbeat&limit=5")
+    assert diag_logs.status_code == 200
+    rows = diag_logs.json()["items"]
+    assert rows
+    assert rows[-1]["payload"]["source"] == "scheduler.heartbeat"
+
+
 def test_scheduler_endpoint_returns_failure_guardrail_fields() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)

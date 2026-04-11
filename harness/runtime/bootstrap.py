@@ -140,12 +140,26 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         sys.path.insert(0, workspace_import_root)
     emergency = EmergencyModule()
     scheduler = Scheduler()
+
+    async def _scheduler_heartbeat_job() -> None:
+        hb = scheduler.heartbeat()
+        await bus.publish(
+            "HEARTBEAT_TICK",
+            {
+                "source": "scheduler",
+                "heartbeat_count": hb.get("heartbeat_count"),
+                "last_heartbeat_at": hb.get("last_heartbeat_at"),
+            },
+        )
+
+    scheduler.set_heartbeat_timeout(float(cfg.get("scheduler.heartbeat_timeout_s", 120)))
     scheduler.register_job(
         ScheduledJob(
             job_id="scheduler_heartbeat",
             description="Publish heartbeat tick and keep scheduler health updated",
+            schedule_type="interval",
             interval_seconds=60,
-            callback=lambda: bus.publish("HEARTBEAT_TICK", {"source": "scheduler"}),
+            callback=_scheduler_heartbeat_job,
         )
     )
     health.set("emergency", "healthy")
