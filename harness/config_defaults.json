@@ -10,7 +10,11 @@
   },
   "skills": {
     "market_registry_file": "skills_market_registry.json",
-    "market_installed_file": "skills_market_installed.json"
+    "market_installed_file": "skills_market_installed.json",
+    "market_remote_cache_file": "skills_market_remote_cache.json",
+    "market_remote_status_file": "skills_market_remote_status.json",
+    "market_remote_timeout_s": 10.0,
+    "market_remote_min_sync_seconds": 0
   },
   "model": {
     "default_backend": "local_stub",

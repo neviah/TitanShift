@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TypeVar
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from harness.api.schemas import (
@@ -83,6 +84,9 @@ from harness.api.schemas import (
     SkillMarketItem,
     SkillMarketUninstallRequest,
     SkillMarketUninstallResponse,
+    SkillMarketRemoteStatusResponse,
+    SkillMarketRemoteSyncRequest,
+    SkillMarketRemoteSyncResponse,
     SkillMarketUpdateRequest,
     SkillMarketUpdateResponse,
     SkillSummary,
@@ -376,6 +380,14 @@ def create_app(workspace_root: Path) -> FastAPI:
         storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
         return storage_root / str(runtime.config.get("skills.market_installed_file", "skills_market_installed.json"))
 
+    def _market_remote_cache_path() -> Path:
+        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        return storage_root / str(runtime.config.get("skills.market_remote_cache_file", "skills_market_remote_cache.json"))
+
+    def _market_remote_status_path() -> Path:
+        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        return storage_root / str(runtime.config.get("skills.market_remote_status_file", "skills_market_remote_status.json"))
+
     def _skill_to_market_record(skill: SkillDefinition) -> dict[str, Any]:
         return {
             "skill_id": skill.skill_id,
@@ -411,6 +423,12 @@ def create_app(workspace_root: Path) -> FastAPI:
             out[skill_id] = item
         return out
 
+    def _save_market_registry(registry: dict[str, dict[str, Any]]) -> None:
+        path = _market_registry_path()
+        payload = [registry[k] for k in sorted(registry.keys())]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
     def _load_market_installed(default_ids: list[str]) -> set[str]:
         path = _market_installed_path()
         if not path.exists():
@@ -429,6 +447,55 @@ def create_app(workspace_root: Path) -> FastAPI:
         path = _market_installed_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(sorted(installed_ids), indent=2, sort_keys=True), encoding="utf-8")
+
+    def _load_market_remote_status() -> dict[str, Any]:
+        path = _market_remote_status_path()
+        if not path.exists():
+            return {}
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
+
+    def _save_market_remote_status(status: dict[str, Any]) -> None:
+        path = _market_remote_status_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(status, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _normalize_market_item(item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "skill_id": str(item.get("skill_id", "")).strip(),
+            "description": str(item.get("description", "")),
+            "mode": str(item.get("mode", "prompt")),
+            "domain": str(item.get("domain", "general")),
+            "version": str(item.get("version", "0.1.0")),
+            "tags": [str(v) for v in list(item.get("tags", []))],
+            "required_tools": [str(v) for v in list(item.get("required_tools", []))],
+            "dependencies": [str(v) for v in list(item.get("dependencies", []))],
+            "prompt_template": (
+                str(item.get("prompt_template"))
+                if item.get("prompt_template") is not None
+                else None
+            ),
+        }
+
+    async def _fetch_remote_market_index(source: str) -> dict[str, Any]:
+        source_value = source.strip()
+        if source_value.startswith("file://"):
+            raw = Path(source_value.removeprefix("file://")).read_text(encoding="utf-8")
+        elif Path(source_value).exists():
+            raw = Path(source_value).read_text(encoding="utf-8")
+        else:
+            timeout_s = float(runtime.config.get("skills.market_remote_timeout_s", 10.0))
+            async with httpx.AsyncClient(timeout=timeout_s) as client:
+                response = await client.get(source_value)
+                response.raise_for_status()
+                raw = response.text
+        loaded = json.loads(raw)
+        if not isinstance(loaded, dict):
+            raise HTTPException(status_code=400, detail="Remote index must be a JSON object")
+        return loaded
 
     def _market_to_skill_definition(item: dict[str, Any]) -> SkillDefinition:
         return SkillDefinition(
@@ -1736,6 +1803,114 @@ def create_app(workspace_root: Path) -> FastAPI:
             skill_id=skill_id,
             updated=True,
             version=str(item.get("version", "0.1.0")),
+        )
+
+    @app.post(
+        "/skills/market/remote/sync",
+        response_model=SkillMarketRemoteSyncResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def skills_market_remote_sync(body: SkillMarketRemoteSyncRequest) -> SkillMarketRemoteSyncResponse:
+        source = body.source.strip()
+        now = datetime.now(timezone.utc)
+        status = _load_market_remote_status()
+        last_synced_at_raw = status.get("synced_at")
+        if not body.force and isinstance(last_synced_at_raw, str):
+            try:
+                last_synced_at = datetime.fromisoformat(last_synced_at_raw)
+            except ValueError:
+                last_synced_at = None
+            min_sync_seconds = int(runtime.config.get("skills.market_remote_min_sync_seconds", 0))
+            if last_synced_at is not None and min_sync_seconds > 0:
+                if (now - last_synced_at).total_seconds() < min_sync_seconds:
+                    raise HTTPException(status_code=429, detail="Remote sync called too frequently; use force=true")
+
+        try:
+            loaded = await _fetch_remote_market_index(source)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Remote fetch failed: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Remote index is not valid JSON: {exc}") from exc
+
+        signing_version = str(loaded.get("signing_version", "")).strip()
+        index_hash = str(loaded.get("index_hash", "")).strip()
+        source_from_index = str(loaded.get("source", source)).strip() or source
+        generated_at = str(loaded.get("generated_at", "")).strip()
+        items_raw = loaded.get("items", [])
+        if signing_version != "v1":
+            raise HTTPException(status_code=400, detail="Unsupported remote index signing_version")
+        if not isinstance(items_raw, list):
+            raise HTTPException(status_code=400, detail="Remote index items must be a list")
+
+        signature_payload = {
+            "source": source_from_index,
+            "generated_at": generated_at,
+            "signing_version": signing_version,
+            "items": items_raw,
+        }
+        computed_hash = _compute_report_hash_from_payload(signature_payload)
+        if not index_hash or index_hash != computed_hash:
+            raise HTTPException(status_code=400, detail="Remote index signature validation failed")
+
+        normalized_items: list[dict[str, Any]] = []
+        for candidate in items_raw:
+            if not isinstance(candidate, dict):
+                continue
+            normalized = _normalize_market_item(candidate)
+            if not normalized["skill_id"]:
+                continue
+            normalized_items.append(normalized)
+
+        for item in normalized_items:
+            market_registry[item["skill_id"]] = item
+        _save_market_registry(market_registry)
+
+        remote_cache_path = _market_remote_cache_path()
+        remote_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        remote_cache_path.write_text(json.dumps(loaded, indent=2, sort_keys=True), encoding="utf-8")
+
+        synced_at = now.isoformat()
+        status_payload = {
+            "source": source,
+            "synced_at": synced_at,
+            "pulled_count": len(normalized_items),
+            "index_hash": index_hash,
+        }
+        _save_market_remote_status(status_payload)
+        runtime.logger.log(
+            "SKILL_MARKET_REMOTE_SYNC",
+            {
+                "source": source,
+                "pulled_count": len(normalized_items),
+                "index_hash": index_hash,
+            },
+        )
+
+        return SkillMarketRemoteSyncResponse(
+            ok=True,
+            source=source,
+            pulled_count=len(normalized_items),
+            index_hash=index_hash,
+            synced_at=synced_at,
+        )
+
+    @app.get(
+        "/skills/market/remote/status",
+        response_model=SkillMarketRemoteStatusResponse,
+        dependencies=[Depends(require_read_api_key)],
+    )
+    async def skills_market_remote_status() -> SkillMarketRemoteStatusResponse:
+        status = _load_market_remote_status()
+        if not status:
+            return SkillMarketRemoteStatusResponse(synced=False)
+        return SkillMarketRemoteStatusResponse(
+            synced=True,
+            source=str(status.get("source")) if status.get("source") is not None else None,
+            synced_at=str(status.get("synced_at")) if status.get("synced_at") is not None else None,
+            pulled_count=int(status.get("pulled_count", 0)),
+            index_hash=str(status.get("index_hash")) if status.get("index_hash") is not None else None,
         )
 
     @app.post(

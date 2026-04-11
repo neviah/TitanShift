@@ -237,6 +237,27 @@ class SkillMarketUpdateResponse(BaseModel):
     version: str
 
 
+class SkillMarketRemoteSyncRequest(BaseModel):
+    source: str = Field(min_length=1)
+    force: bool = False
+
+
+class SkillMarketRemoteSyncResponse(BaseModel):
+    ok: bool
+    source: str
+    pulled_count: int
+    index_hash: str
+    synced_at: str
+
+
+class SkillMarketRemoteStatusResponse(BaseModel):
+    synced: bool
+    source: str | None = None
+    synced_at: str | None = None
+    pulled_count: int = 0
+    index_hash: str | None = None
+
+
 class SkillExecuteRequest(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
 

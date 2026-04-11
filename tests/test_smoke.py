@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import hashlib
 import json
 import os
 import time
@@ -794,6 +795,114 @@ def test_skills_market_update_endpoint(tmp_path: Path) -> None:
     body = response.json()
     assert body["updated"] is True
     assert body["version"] == "0.2.0"
+
+
+def test_skills_market_remote_sync_and_status(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(json.dumps([]), encoding="utf-8")
+    installed_path.write_text(json.dumps([]), encoding="utf-8")
+
+    remote_items = [
+        {
+            "skill_id": "remote_alpha",
+            "description": "Remote alpha skill",
+            "mode": "prompt",
+            "domain": "remote",
+            "version": "1.0.0",
+            "tags": ["remote"],
+            "required_tools": [],
+            "dependencies": [],
+            "prompt_template": "remote {input}",
+        }
+    ]
+    signature_payload = {
+        "source": "test-remote",
+        "generated_at": "2026-04-10T00:00:00+00:00",
+        "signing_version": "v1",
+        "items": remote_items,
+    }
+    digest = hashlib.sha256(
+        json.dumps(signature_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    remote_index = {
+        **signature_payload,
+        "index_hash": f"sha256:{digest}",
+    }
+    remote_index_path = tmp_path / "remote-index.json"
+    remote_index_path.write_text(json.dumps(remote_index), encoding="utf-8")
+
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                    "market_remote_cache_file": "remote_cache.json",
+                    "market_remote_status_file": "remote_status.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    sync = client.post("/skills/market/remote/sync", json={"source": str(remote_index_path)})
+    assert sync.status_code == 200
+    sync_body = sync.json()
+    assert sync_body["ok"] is True
+    assert sync_body["pulled_count"] == 1
+
+    market = client.get("/skills/market")
+    assert market.status_code == 200
+    assert any(item["skill_id"] == "remote_alpha" for item in market.json())
+
+    status = client.get("/skills/market/remote/status")
+    assert status.status_code == 200
+    status_body = status.json()
+    assert status_body["synced"] is True
+    assert status_body["pulled_count"] == 1
+    assert status_body["index_hash"] == sync_body["index_hash"]
+
+
+def test_skills_market_remote_sync_rejects_invalid_signature(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(json.dumps([]), encoding="utf-8")
+    installed_path.write_text(json.dumps([]), encoding="utf-8")
+
+    remote_index = {
+        "source": "test-remote",
+        "generated_at": "2026-04-10T00:00:00+00:00",
+        "signing_version": "v1",
+        "items": [],
+        "index_hash": "sha256:deadbeef",
+    }
+    remote_index_path = tmp_path / "remote-index-invalid.json"
+    remote_index_path.write_text(json.dumps(remote_index), encoding="utf-8")
+
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    sync = client.post("/skills/market/remote/sync", json={"source": str(remote_index_path)})
+    assert sync.status_code == 400
 
 
 def test_execute_skill_endpoint_prompt_mode() -> None:
