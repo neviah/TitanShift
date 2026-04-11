@@ -1,4 +1,4 @@
-# TitantShift Universal Harness (Phase 1 Scaffold)
+# TitantShift Universal Harness (Phase 1 + Phase 2)
 
 Python-first, modular, local-first harness scaffold.
 
@@ -12,7 +12,7 @@ Python-first, modular, local-first harness scaffold.
   - Semantic storage via SQLite FTS + embeddings table.
   - Graph backend adapter defaulting to NetworkX.
 - State machine: reactive single-agent loop.
-- Orchestrator: reactive path + sub-agent toggle stub.
+- Orchestrator: reactive path, sub-agent spawning, agent skill assignment, and agent-scoped skill execution.
 - Execution, emergency, scheduler, API hooks, graphify plugin stubs.
 - CLI entrypoint runnable via python -m harness.
 
@@ -24,7 +24,7 @@ Python-first, modular, local-first harness scaffold.
 - Graphify integrated as optional ingestion plugin.
 - Custom memory engine inspired by MemPalace patterns.
 - CLI-first MVP with API hook surface for future UI.
-- Sub-agent spawning behind toggle only.
+- Sub-agent spawning and agent skill execution stay behind runtime policy/config.
 - Tool execution deny-all by default.
 
 ## Quick start
@@ -115,14 +115,32 @@ Agents visibility API:
 curl http://127.0.0.1:8000/agents
 ```
 
+Agent orchestration API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/agents/spawn -H "Content-Type: application/json" -d "{\"description\":\"Need shell execution support\",\"role\":\"Execution Specialist\"}"
+curl -X POST http://127.0.0.1:8000/agents/<agent_id>/skills/assign -H "Content-Type: application/json" -d "{\"skill_ids\":[\"safe_shell_command\"]}"
+curl -X POST http://127.0.0.1:8000/agents/<agent_id>/skills/safe_shell_command/execute -H "Content-Type: application/json" -d "{\"input\":{\"command\":\"where python\"}}"
+```
+
+Agent-scoped skill execution returns an `execution_id` and emits an `AGENT_SKILL_EXECUTED` log event.
+If the skill is not assigned to that agent, the API returns `403`.
+If execution exceeds the configured timeout, the API returns `504`.
+
 Skills and tools API:
 
 ```bash
 curl http://127.0.0.1:8000/skills
 curl "http://127.0.0.1:8000/skills?query=shell"
+curl "http://127.0.0.1:8000/skills?tags=safety"
+curl "http://127.0.0.1:8000/skills?related_node_id=tool:shell_command"
+curl -X POST http://127.0.0.1:8000/skills/reactive_chat/execute -H "Content-Type: application/json" -d "{\"input\":{\"message\":\"hello\"}}"
 curl http://127.0.0.1:8000/tools
 curl "http://127.0.0.1:8000/tools?query=shell"
 ```
+
+`/skills` now returns `mode`, `domain`, `version`, and `ranking_score`.
+Ranking favors direct query hits, tag overlap, and graph-linked tool overlap from `related_node_id`.
 
 Read-only memory inspect API:
 
@@ -130,6 +148,7 @@ Read-only memory inspect API:
 curl http://127.0.0.1:8000/memory/summary
 curl "http://127.0.0.1:8000/memory/semantic-search?query=alpha&limit=5"
 curl "http://127.0.0.1:8000/memory/graph/neighbors?node_id=n1"
+curl "http://127.0.0.1:8000/memory/graph/search?query=shell&node_type=skill&limit=10"
 ```
 
 Run history export report:
@@ -162,6 +181,7 @@ curl http://127.0.0.1:8000/status
 
 On internal module errors, orchestrator isolates failure to the task, publishes a
 `MODULE_ERROR` event, and triggers logging-only Emergency diagnostics.
+Agent skill execution timeouts and execution failures also flow through this path.
 
 7. Run LM Studio health check:
 
@@ -198,6 +218,8 @@ Phase 1 budget and tool policy keys:
 - state_machine.default_budget.max_steps
 - state_machine.default_budget.max_tokens
 - state_machine.default_budget.max_duration_ms
+- orchestrator.enable_subagents
+- orchestrator.skill_execution_timeout_s
 - tools.allowed_tool_names
 - tools.blocked_tool_names
 - tools.allowed_command_prefixes
@@ -261,12 +283,14 @@ python -m harness --workspace . serve-api --host 127.0.0.1 --port 8000
 curl http://127.0.0.1:8000/status
 curl http://127.0.0.1:8000/reports/policy
 curl http://127.0.0.1:8000/scheduler/jobs
+curl http://127.0.0.1:8000/agents
+curl "http://127.0.0.1:8000/skills?related_node_id=tool:shell_command"
 ```
 
 Operational triage flow:
 
 1. Check `/status` for degraded module health.
-2. Query `/logs` for `MODULE_ERROR`, `TASK_COMPLETED`, `REPORT_VERIFIED`, and `ARTIFACTS_CLEANUP` events.
+2. Query `/logs` for `MODULE_ERROR`, `EMERGENCY_DIAGNOSIS`, `AGENT_SKILL_EXECUTED`, `TASK_COMPLETED`, `REPORT_VERIFIED`, and `ARTIFACTS_CLEANUP` events.
 3. Export a signed report with `/reports/run-history/export`.
 4. Verify the exported report with `/reports/run-history/verify`.
 5. If artifacts accumulate, preview cleanup with `/artifacts/cleanup` using `dry_run=true` before deleting.
@@ -275,6 +299,8 @@ Suggested incident commands:
 
 ```bash
 curl "http://127.0.0.1:8000/logs?event_type=MODULE_ERROR&limit=20"
+curl "http://127.0.0.1:8000/logs?event_type=EMERGENCY_DIAGNOSIS&limit=20"
+curl "http://127.0.0.1:8000/logs?event_type=AGENT_SKILL_EXECUTED&limit=20"
 curl -X POST http://127.0.0.1:8000/reports/run-history/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\",\"task_limit\":20,\"log_limit\":200}"
 curl -X POST http://127.0.0.1:8000/reports/run-history/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-report.json\"}"
 curl -X POST http://127.0.0.1:8000/artifacts/cleanup -H "Content-Type: application/json" -d "{\"max_age_days\":7,\"include_logs\":false,\"dry_run\":true}"
