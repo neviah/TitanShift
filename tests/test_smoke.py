@@ -353,6 +353,42 @@ def test_scheduler_tick_escalates_missed_heartbeat_to_emergency() -> None:
     assert rows[-1]["payload"]["source"] == "scheduler.heartbeat"
 
 
+def test_scheduler_register_maintenance_jobs_endpoint_is_idempotent() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    first = client.post("/scheduler/maintenance/register")
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["ok"] is True
+    assert "maintenance_health_snapshot" in first_body["registered_jobs"]
+    assert "maintenance_retention_preview" in first_body["registered_jobs"]
+
+    second = client.post("/scheduler/maintenance/register")
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["ok"] is True
+    assert second_body["registered_jobs"] == []
+
+
+def test_scheduler_maintenance_jobs_emit_telemetry_on_tick() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    registered = client.post("/scheduler/maintenance/register")
+    assert registered.status_code == 200
+
+    tick = client.post("/scheduler/tick")
+    assert tick.status_code == 200
+    body = tick.json()
+    assert "maintenance_health_snapshot" in body["ran_jobs"]
+    assert "maintenance_retention_preview" in body["ran_jobs"]
+
+    logs = client.get("/logs?event_type=MAINTENANCE_HEALTH_SNAPSHOT&limit=5")
+    assert logs.status_code == 200
+    assert logs.json()["items"]
+
+
 def test_scheduler_endpoint_returns_failure_guardrail_fields() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -725,6 +761,10 @@ def test_emergency_analyze_endpoint_returns_fix_plan() -> None:
     assert body["ok"] is True
     assert body["failure_id"].startswith("failure-")
     assert body["diagnoses"]
+    assert body["selected_hypothesis"]
+    assert body["consensus"]
+    assert body["consensus"][0]["hypothesis"] == body["selected_hypothesis"]
+    assert body["consensus"][0]["consensus_score"] >= body["consensus"][-1]["consensus_score"]
     assert body["fix_plan"]["requires_user_approval"] is True
     assert isinstance(body["fix_plan"]["actions"], list)
 

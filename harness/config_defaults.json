@@ -53,7 +53,10 @@
     "cleanup_max_age_days": 30
   },
   "scheduler": {
-    "heartbeat_timeout_s": 120
+    "heartbeat_timeout_s": 120,
+    "enable_maintenance_jobs": false,
+    "maintenance_health_interval_s": 300,
+    "maintenance_retention_interval_s": 1800
   },
   "api": {
     "require_api_key": false,

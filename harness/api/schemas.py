@@ -118,6 +118,11 @@ class SchedulerTickResponse(BaseModel):
     heartbeat_timeout_s: float | None = None
 
 
+class SchedulerMaintenanceRegisterResponse(BaseModel):
+    ok: bool
+    registered_jobs: list[str]
+
+
 class SchedulerJobToggleRequest(BaseModel):
     enabled: bool
 
@@ -254,6 +259,14 @@ class EmergencyFixPlan(BaseModel):
     notes: str
 
 
+class EmergencyConsensusEntry(BaseModel):
+    hypothesis: str
+    confidence_avg: float
+    source_weight: float
+    vote_count: int
+    consensus_score: float
+
+
 class EmergencyDiagnosisEntry(BaseModel):
     timestamp: str
     source: str
@@ -282,6 +295,8 @@ class EmergencyAnalyzeResponse(BaseModel):
     ok: bool
     failure_id: str
     diagnoses: list[EmergencyDiagnosis]
+    selected_hypothesis: str
+    consensus: list[EmergencyConsensusEntry]
     fix_plan: EmergencyFixPlan
 
 

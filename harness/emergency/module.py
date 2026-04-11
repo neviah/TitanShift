@@ -36,6 +36,8 @@ class EmergencyAnalysis:
     source: str
     error: str
     diagnoses: list[Diagnosis]
+    selected_hypothesis: str
+    consensus: list[dict[str, Any]]
     fix_plan: FixPlan
     generated_at: str
 
@@ -51,24 +53,40 @@ class EmergencyModule:
         source = str(event.get("source", "unknown"))
         error = str(event.get("error", "")).strip()
         diagnoses = self._diagnose(event)
-        fix_plan = self._propose_fix_plan(event=event, failure_id=failure_id, diagnoses=diagnoses)
+        consensus = self._build_consensus(event=event, diagnoses=diagnoses)
+        selected_hypothesis = str(consensus[0].get("hypothesis", diagnoses[0].hypothesis if diagnoses else "unknown"))
+        fix_plan = self._propose_fix_plan(
+            event=event,
+            failure_id=failure_id,
+            diagnoses=diagnoses,
+            selected_hypothesis=selected_hypothesis,
+        )
         return EmergencyAnalysis(
             failure_id=failure_id,
             source=source,
             error=error,
             diagnoses=diagnoses,
+            selected_hypothesis=selected_hypothesis,
+            consensus=consensus,
             fix_plan=fix_plan,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
-    def _propose_fix_plan(self, *, event: dict[str, Any], failure_id: str, diagnoses: list[Diagnosis]) -> FixPlan:
+    def _propose_fix_plan(
+        self,
+        *,
+        event: dict[str, Any],
+        failure_id: str,
+        diagnoses: list[Diagnosis],
+        selected_hypothesis: str,
+    ) -> FixPlan:
         top = max(diagnoses, key=lambda d: d.confidence)
         source = str(event.get("source", "unknown"))
         actions: list[FixAction] = []
         risk_level = "low"
         notes = "Apply low-risk actions first and re-run diagnostics."
 
-        lower_hypothesis = top.hypothesis.lower()
+        lower_hypothesis = selected_hypothesis.lower()
         if "configured execution budget" in lower_hypothesis:
             actions.append(
                 FixAction(
@@ -101,12 +119,42 @@ class EmergencyModule:
 
         return FixPlan(
             failure_id=failure_id,
-            recommended_hypothesis=top.hypothesis,
+            recommended_hypothesis=selected_hypothesis,
             risk_level=risk_level,
             requires_user_approval=True,
             actions=actions,
             notes=notes,
         )
+
+    def _build_consensus(self, *, event: dict[str, Any], diagnoses: list[Diagnosis]) -> list[dict[str, Any]]:
+        source = str(event.get("source", "unknown"))
+        source_weights: dict[str, float] = {
+            "orchestrator.skill_execution": 1.10,
+            "scheduler.heartbeat": 1.05,
+            "orchestrator": 1.00,
+        }
+        source_weight = source_weights.get(source, 1.0)
+        buckets: dict[str, list[Diagnosis]] = {}
+        for d in diagnoses:
+            buckets.setdefault(d.hypothesis, []).append(d)
+
+        rows: list[dict[str, Any]] = []
+        for hypothesis, hits in buckets.items():
+            confidence_avg = sum(h.confidence for h in hits) / len(hits)
+            vote_count = len(hits)
+            consensus_score = confidence_avg * source_weight * (1.0 + (vote_count - 1) * 0.05)
+            rows.append(
+                {
+                    "hypothesis": hypothesis,
+                    "confidence_avg": round(confidence_avg, 6),
+                    "source_weight": round(source_weight, 6),
+                    "vote_count": vote_count,
+                    "consensus_score": round(consensus_score, 6),
+                }
+            )
+
+        rows.sort(key=lambda r: (-float(r["consensus_score"]), r["hypothesis"]))
+        return rows
 
     def _diagnose(self, event: dict[str, Any]) -> list[Diagnosis]:
         source = str(event.get("source", "unknown"))

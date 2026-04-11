@@ -106,6 +106,7 @@ Scheduler API (idle by default, explicit triggers only):
 
 ```bash
 curl http://127.0.0.1:8000/scheduler/jobs
+curl -X POST http://127.0.0.1:8000/scheduler/maintenance/register
 curl -X POST http://127.0.0.1:8000/scheduler/heartbeat
 curl -X POST http://127.0.0.1:8000/scheduler/tick
 curl -X POST http://127.0.0.1:8000/scheduler/jobs/scheduler_heartbeat/enabled -H "Content-Type: application/json" -d "{\"enabled\":false}"
@@ -116,6 +117,7 @@ Scheduler job rows also include `timeout_s`, `schedule_type`, and optional `cron
 Ticks report `failed_jobs`, `timed_out_jobs`, and `auto_disabled_jobs` so repeated failures and hung jobs can be detected.
 Ticks now also surface heartbeat telemetry: `missed_heartbeat`, `newly_missed_heartbeat`, `recovered_heartbeat`, `heartbeat_lag_s`, and `heartbeat_timeout_s`.
 When a missed heartbeat is first detected, the API escalates through Emergency and records `EMERGENCY_DIAGNOSIS` and `EMERGENCY_FIX_PLAN` events for `scheduler.heartbeat`.
+Use `/scheduler/maintenance/register` to install default non-destructive maintenance jobs (`maintenance_health_snapshot`, `maintenance_retention_preview`).
 
 Agents visibility API:
 
@@ -176,6 +178,7 @@ Each diagnosis entry includes `timestamp`, `source`, optional `agent_id`, option
 The response now includes `items`, `limit`, `offset`, `has_more`, and `next_offset`.
 `/diagnostics/emergency/analyze` returns a `failure_id`, ranked diagnoses, and a proposed fix plan.
 `/diagnostics/emergency/fix-apply` requires explicit `approved=true`; keep `dry_run=true` to preview actions safely.
+Analyze responses include `selected_hypothesis` and `consensus` entries (`confidence_avg`, `source_weight`, `vote_count`, `consensus_score`) for traceability.
 Successful non-dry-run fix application returns `execution_id` and `rollback_available` metadata.
 `/diagnostics/emergency/fix-rollback` replays rollback actions for a prior fix execution when available.
 

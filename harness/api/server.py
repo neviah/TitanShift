@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from harness.api.schemas import (
     EmergencyAnalyzeRequest,
     EmergencyAnalyzeResponse,
+    EmergencyConsensusEntry,
     EmergencyFixAction,
     EmergencyFixApplyRequest,
     EmergencyFixApplyResponse,
@@ -57,6 +58,7 @@ from harness.api.schemas import (
     SchedulerJobToggleResponse,
     SchedulerHeartbeatResponse,
     SchedulerJob,
+    SchedulerMaintenanceRegisterResponse,
     SchedulerTickResponse,
     MemoryGraphNeighbors,
     MemoryGraphNodeHit,
@@ -69,6 +71,7 @@ from harness.api.schemas import (
     TaskSummary,
     ToolSummary,
 )
+from harness.scheduler.module import ScheduledJob
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.types import Task
 
@@ -741,6 +744,67 @@ def create_app(workspace_root: Path) -> FastAPI:
                 skipped_paths.append(str(path))
         return deleted_paths, skipped_paths
 
+    def _register_maintenance_jobs() -> list[str]:
+        registered: list[str] = []
+
+        async def _health_snapshot_job() -> None:
+            statuses = runtime.health.as_list()
+            degraded = [row for row in statuses if row.get("status") != "healthy"]
+            runtime.logger.log(
+                "MAINTENANCE_HEALTH_SNAPSHOT",
+                {
+                    "source": "scheduler.maintenance",
+                    "total_modules": len(statuses),
+                    "degraded_modules": len(degraded),
+                },
+            )
+
+        async def _retention_preview_job() -> None:
+            report_default = int(runtime.config.get("reports.cleanup_max_age_days", 7))
+            cutoff = datetime.now(timezone.utc) - timedelta(days=report_default)
+            candidates = [
+                p
+                for p in _candidate_cleanup_paths(include_logs=False)
+                if datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc) <= cutoff
+            ]
+            runtime.logger.log(
+                "MAINTENANCE_RETENTION_PREVIEW",
+                {
+                    "source": "scheduler.maintenance",
+                    "max_age_days": report_default,
+                    "candidate_count": len(candidates),
+                },
+            )
+
+        if runtime.scheduler.get_job("maintenance_health_snapshot") is None:
+            runtime.scheduler.register_job(
+                ScheduledJob(
+                    job_id="maintenance_health_snapshot",
+                    description="Periodic health snapshot for maintenance telemetry",
+                    schedule_type="interval",
+                    interval_seconds=int(runtime.config.get("scheduler.maintenance_health_interval_s", 300)),
+                    callback=_health_snapshot_job,
+                )
+            )
+            registered.append("maintenance_health_snapshot")
+
+        if runtime.scheduler.get_job("maintenance_retention_preview") is None:
+            runtime.scheduler.register_job(
+                ScheduledJob(
+                    job_id="maintenance_retention_preview",
+                    description="Periodic artifact-retention preview (non-destructive)",
+                    schedule_type="interval",
+                    interval_seconds=int(runtime.config.get("scheduler.maintenance_retention_interval_s", 1800)),
+                    callback=_retention_preview_job,
+                )
+            )
+            registered.append("maintenance_retention_preview")
+
+        return registered
+
+    if bool(runtime.config.get("scheduler.enable_maintenance_jobs", False)):
+        _register_maintenance_jobs()
+
     @app.get("/status", dependencies=[Depends(require_read_api_key)])
     async def status() -> dict:
         return {
@@ -900,6 +964,8 @@ def create_app(workspace_root: Path) -> FastAPI:
                 )
                 for d in analysis.diagnoses
             ],
+            selected_hypothesis=analysis.selected_hypothesis,
+            consensus=[EmergencyConsensusEntry(**entry) for entry in analysis.consensus],
             fix_plan=EmergencyFixPlan(
                 failure_id=analysis.fix_plan.failure_id,
                 recommended_hypothesis=analysis.fix_plan.recommended_hypothesis,
@@ -1317,6 +1383,22 @@ def create_app(workspace_root: Path) -> FastAPI:
             raise HTTPException(status_code=404, detail="Job not found")
         runtime.logger.log("SCHEDULER_JOB_TOGGLED", {"job_id": job_id, "enabled": body.enabled, "source": "api"})
         return SchedulerJobToggleResponse(job_id=job_id, enabled=job.enabled)
+
+    @app.post(
+        "/scheduler/maintenance/register",
+        response_model=SchedulerMaintenanceRegisterResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def scheduler_register_maintenance_jobs() -> SchedulerMaintenanceRegisterResponse:
+        registered = _register_maintenance_jobs()
+        runtime.logger.log(
+            "SCHEDULER_MAINTENANCE_REGISTERED",
+            {
+                "source": "api",
+                "registered_jobs": registered,
+            },
+        )
+        return SchedulerMaintenanceRegisterResponse(ok=True, registered_jobs=registered)
 
     @app.get("/memory/summary", response_model=MemorySummary, dependencies=[Depends(require_read_api_key)])
     async def memory_summary() -> MemorySummary:
