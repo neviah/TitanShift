@@ -140,6 +140,7 @@ class SkillSummary(BaseModel):
     version: str
     tags: list[str]
     required_tools: list[str]
+    ranking_score: float | None = None
 
 
 class SkillExecuteRequest(BaseModel):
@@ -148,6 +149,18 @@ class SkillExecuteRequest(BaseModel):
 
 class SkillExecuteResponse(BaseModel):
     ok: bool
+    skill_id: str
+    result: dict[str, Any]
+
+
+class AgentSkillExecuteRequest(BaseModel):
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentSkillExecuteResponse(BaseModel):
+    ok: bool
+    execution_id: str
+    agent_id: str
     skill_id: str
     result: dict[str, Any]
 

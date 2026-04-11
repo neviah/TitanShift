@@ -313,6 +313,41 @@ def test_agents_assign_skills_endpoint() -> None:
     assert "shell_command" in body["allowed_tools"]
 
 
+def test_agent_scoped_skill_execute_endpoint_and_audit_log() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+
+    forbidden = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert forbidden.status_code == 403
+
+    assigned = client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]})
+    assert assigned.status_code == 200
+
+    executed = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["ok"] is True
+    assert body["execution_id"].startswith("exec-")
+    assert body["agent_id"] == agent_id
+    assert body["skill_id"] == "safe_shell_command"
+
+    logs = client.get("/logs?event_type=AGENT_SKILL_EXECUTED&limit=5")
+    assert logs.status_code == 200
+    log_rows = logs.json()
+    assert any(r["payload"].get("execution_id") == body["execution_id"] for r in log_rows)
+
+
 def test_skills_endpoint_and_search() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
@@ -338,6 +373,8 @@ def test_skills_endpoint_and_search() -> None:
     assert response_related.status_code == 200
     body_related = response_related.json()
     assert any(row["skill_id"] == "safe_shell_command" for row in body_related)
+    assert body_related[0]["skill_id"] == "safe_shell_command"
+    assert body_related[0]["ranking_score"] is not None
 
 
 def test_execute_skill_endpoint_prompt_mode() -> None:

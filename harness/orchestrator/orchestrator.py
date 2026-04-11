@@ -140,6 +140,30 @@ class Orchestrator:
     async def execute_skill(self, skill_id: str, skill_input: dict[str, object]) -> dict[str, object]:
         return await self.skills.execute_skill(skill_id, skill_input)
 
+    async def execute_skill_as_agent(
+        self,
+        agent_id: str,
+        skill_id: str,
+        skill_input: dict[str, object],
+    ) -> dict[str, object]:
+        agent = self.agents.get(agent_id)
+        if agent is None:
+            raise KeyError(f"Agent not found: {agent_id}")
+        if self.skills.get_skill(skill_id) is None:
+            raise KeyError(f"Skill not found: {skill_id}")
+        if skill_id not in agent.assigned_skills:
+            raise PermissionError(f"Skill {skill_id} is not assigned to agent {agent_id}")
+
+        result = await self.skills.execute_skill(skill_id, skill_input)
+        self.memory.append_short_term(
+            agent_id,
+            {"skill_execution": {"skill_id": skill_id, "ok": bool(result.get("ok", False))}},
+        )
+        return result
+
+    def get_agent(self, agent_id: str) -> AgentRecord | None:
+        return self.agents.get(agent_id)
+
     def list_agents(self) -> list[dict]:
         return [asdict(r) for r in sorted(self.agents.values(), key=lambda x: x.created_at)]
 

@@ -13,6 +13,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from harness.api.schemas import (
     AgentAssignSkillsRequest,
     AgentAssignSkillsResponse,
+    AgentSkillExecuteRequest,
+    AgentSkillExecuteResponse,
     AgentSpawnRequest,
     AgentSpawnResponse,
     AgentSummary,
@@ -389,6 +391,34 @@ def create_app(workspace_root: Path) -> FastAPI:
             allowed_skill_ids = {n.removeprefix("skill:") for n in neighbors if n.startswith("skill:")}
             rows = [s for s in rows if s.skill_id in allowed_skill_ids]
 
+        related_tools: set[str] = set()
+        if related_node_id:
+            if related_node_id.startswith("tool:"):
+                related_tools.add(related_node_id.removeprefix("tool:"))
+            for n in runtime.memory.graph_neighbors(related_node_id):
+                if n.startswith("tool:"):
+                    related_tools.add(n.removeprefix("tool:"))
+
+        normalized_tags = {t.lower() for t in tag_list}
+        ranked_rows: list[tuple[float, Any]] = []
+        for s in rows:
+            query_score = 0.0
+            if query:
+                q = query.lower()
+                if q in s.skill_id.lower():
+                    query_score += 2.0
+                if q in s.description.lower():
+                    query_score += 1.5
+                if any(q in tag.lower() for tag in s.tags):
+                    query_score += 1.0
+
+            tag_overlap = len({t.lower() for t in s.tags}.intersection(normalized_tags))
+            tool_overlap = len(set(s.required_tools).intersection(related_tools))
+            score = query_score + float(tag_overlap * 2) + float(tool_overlap * 3)
+            ranked_rows.append((score, s))
+
+        ranked_rows.sort(key=lambda item: (-item[0], item[1].skill_id))
+
         return [
             SkillSummary(
                 skill_id=s.skill_id,
@@ -398,8 +428,9 @@ def create_app(workspace_root: Path) -> FastAPI:
                 version=s.version,
                 tags=list(s.tags),
                 required_tools=list(s.required_tools),
+                ranking_score=score,
             )
-            for s in rows
+            for score, s in ranked_rows
         ]
 
     @app.post(
@@ -413,6 +444,59 @@ def create_app(workspace_root: Path) -> FastAPI:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return SkillExecuteResponse(ok=bool(result.get("ok", False)), skill_id=skill_id, result=result)
+
+    @app.post(
+        "/agents/{agent_id}/skills/{skill_id}/execute",
+        response_model=AgentSkillExecuteResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def execute_agent_skill(agent_id: str, skill_id: str, body: AgentSkillExecuteRequest) -> AgentSkillExecuteResponse:
+        execution_id = f"exec-{uuid.uuid4().hex[:12]}"
+        try:
+            result = await runtime.orchestrator.execute_skill_as_agent(agent_id, skill_id, body.input)
+            runtime.logger.log(
+                "AGENT_SKILL_EXECUTED",
+                {
+                    "execution_id": execution_id,
+                    "agent_id": agent_id,
+                    "skill_id": skill_id,
+                    "ok": bool(result.get("ok", False)),
+                    "source": "api",
+                },
+            )
+            return AgentSkillExecuteResponse(
+                ok=bool(result.get("ok", False)),
+                execution_id=execution_id,
+                agent_id=agent_id,
+                skill_id=skill_id,
+                result=result,
+            )
+        except KeyError as exc:
+            runtime.logger.log(
+                "AGENT_SKILL_EXECUTED",
+                {
+                    "execution_id": execution_id,
+                    "agent_id": agent_id,
+                    "skill_id": skill_id,
+                    "ok": False,
+                    "error": str(exc),
+                    "source": "api",
+                },
+            )
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PermissionError as exc:
+            runtime.logger.log(
+                "AGENT_SKILL_EXECUTED",
+                {
+                    "execution_id": execution_id,
+                    "agent_id": agent_id,
+                    "skill_id": skill_id,
+                    "ok": False,
+                    "error": str(exc),
+                    "source": "api",
+                },
+            )
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     @app.get("/tools", response_model=list[ToolSummary], dependencies=[Depends(require_read_api_key)])
     async def tools(query: str | None = None) -> list[ToolSummary]:
