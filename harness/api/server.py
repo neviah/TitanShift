@@ -24,9 +24,14 @@ from harness.api.schemas import (
     ChatResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
+    EmergencyDiagnosisExportRequest,
+    EmergencyDiagnosisExportResponse,
     EmergencyDiagnosis,
     EmergencyDiagnosisEntry,
     EmergencyDiagnosisQueryResponse,
+    EmergencyDiagnosisSnapshot,
+    EmergencyDiagnosisVerifyRequest,
+    EmergencyDiagnosisVerifyResponse,
     IncidentReport,
     IncidentReportExportRequest,
     IncidentReportExportResponse,
@@ -148,6 +153,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "generated_at": generated_at,
             "signing_version": report_data.get("signing_version"),
             "scope": report_data.get("scope"),
+            "execution_id": report_data.get("execution_id"),
             "task_id": report_data.get("task_id"),
             "agent_id": report_data.get("agent_id"),
             "linked_agent_ids": report_data.get("linked_agent_ids"),
@@ -157,6 +163,25 @@ def create_app(workspace_root: Path) -> FastAPI:
             "module_errors": report_data.get("module_errors"),
             "diagnoses": report_data.get("diagnoses"),
             "related_events": report_data.get("related_events"),
+        }
+
+    def _signature_payload_from_diagnosis_snapshot(report_data: dict[str, Any]) -> dict[str, Any]:
+        generated_at = report_data.get("generated_at")
+        if isinstance(generated_at, str) and generated_at.endswith("Z"):
+            generated_at = generated_at[:-1] + "+00:00"
+        return {
+            "generated_at": generated_at,
+            "signing_version": report_data.get("signing_version"),
+            "source": report_data.get("source"),
+            "agent_id": report_data.get("agent_id"),
+            "skill_id": report_data.get("skill_id"),
+            "after": report_data.get("after"),
+            "before": report_data.get("before"),
+            "limit": report_data.get("limit"),
+            "offset": report_data.get("offset"),
+            "has_more": report_data.get("has_more"),
+            "next_offset": report_data.get("next_offset"),
+            "items": report_data.get("items"),
         }
 
     def _build_run_history_report(task_limit: int, log_limit: int, redact: bool | None) -> RunHistoryReport:
@@ -293,18 +318,35 @@ def create_app(workspace_root: Path) -> FastAPI:
         *,
         task_id: str | None,
         agent_id: str | None,
+        execution_id: str | None,
         after: str | None,
         before: str | None,
         offset: int,
         limit: int,
     ) -> IncidentReport:
-        if not task_id and not agent_id:
-            raise HTTPException(status_code=400, detail="Provide task_id or agent_id")
+        if not task_id and not agent_id and not execution_id:
+            raise HTTPException(status_code=400, detail="Provide task_id, agent_id, or execution_id")
 
+        requested_execution_scope = execution_id is not None and task_id is None and agent_id is None
         clamped_limit = max(1, min(limit, 500))
         linked_agent_ids: list[str] = []
         task_detail: TaskDetail | None = None
         agent_summary: AgentSummary | None = None
+
+        if execution_id:
+            execution_rows = runtime.logger.query(
+                event_type="AGENT_SKILL_EXECUTED",
+                execution_id=execution_id,
+                after=after,
+                before=before,
+                limit=1,
+            )
+            if not execution_rows:
+                raise HTTPException(status_code=404, detail="Execution not found")
+            execution_payload = dict(execution_rows[-1].get("payload", {}))
+            inferred_agent_id = execution_payload.get("agent_id")
+            if inferred_agent_id and not agent_id:
+                agent_id = str(inferred_agent_id)
 
         if task_id:
             task = runtime.orchestrator.get_task(task_id)
@@ -399,7 +441,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         payload = {
             "generated_at": generated_at.isoformat(),
             "signing_version": signing_version,
-            "scope": "agent" if agent_id and not task_id else "task" if task_id and not agent_id else "mixed",
+            "scope": "execution" if requested_execution_scope else "agent" if agent_id and not task_id else "task" if task_id and not agent_id else "mixed",
+            "execution_id": execution_id,
             "task_id": task_id or (task_detail.task_id if task_detail else None),
             "agent_id": agent_id,
             "linked_agent_ids": sorted(set(linked_agent_ids)),
@@ -412,6 +455,47 @@ def create_app(workspace_root: Path) -> FastAPI:
         }
         report_hash = _compute_report_hash_from_payload(payload)
         return IncidentReport(report_hash=report_hash, **payload)
+
+    def _build_diagnosis_snapshot(
+        *,
+        source: str | None,
+        agent_id: str | None,
+        skill_id: str | None,
+        after: str | None,
+        before: str | None,
+        offset: int,
+        limit: int,
+    ) -> EmergencyDiagnosisSnapshot:
+        clamped_limit = max(1, min(limit, 500))
+        rows = runtime.logger.query(
+            event_type="EMERGENCY_DIAGNOSIS",
+            source=source,
+            agent_id=agent_id,
+            skill_id=skill_id,
+            after=after,
+            before=before,
+            offset=offset,
+            limit=clamped_limit + 1,
+        )
+        items, has_more, next_offset = _paginate(_diagnosis_entries_from_rows(rows), clamped_limit, offset)
+        generated_at = datetime.now(timezone.utc)
+        signing_version = "v1"
+        payload = {
+            "generated_at": generated_at.isoformat(),
+            "signing_version": signing_version,
+            "source": source,
+            "agent_id": agent_id,
+            "skill_id": skill_id,
+            "after": after,
+            "before": before,
+            "limit": clamped_limit,
+            "offset": max(0, offset),
+            "has_more": has_more,
+            "next_offset": next_offset,
+            "items": [item.model_dump(mode="json") for item in items],
+        }
+        report_hash = _compute_report_hash_from_payload(payload)
+        return EmergencyDiagnosisSnapshot(report_hash=report_hash, **payload)
 
     def _storage_root() -> Path:
         return runtime.logger.log_file.parent.resolve()
@@ -549,12 +633,21 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def incident_report(
         task_id: str | None = None,
         agent_id: str | None = None,
+        execution_id: str | None = None,
         after: str | None = None,
         before: str | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> IncidentReport:
-        return _build_incident_report(task_id=task_id, agent_id=agent_id, after=after, before=before, offset=offset, limit=limit)
+        return _build_incident_report(
+            task_id=task_id,
+            agent_id=agent_id,
+            execution_id=execution_id,
+            after=after,
+            before=before,
+            offset=offset,
+            limit=limit,
+        )
 
     @app.get("/config", dependencies=[Depends(require_read_api_key)])
     async def get_config() -> dict:
@@ -941,6 +1034,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         report = _build_incident_report(
             task_id=body.task_id,
             agent_id=body.agent_id,
+            execution_id=body.execution_id,
             after=body.after,
             before=body.before,
             offset=body.offset,
@@ -957,6 +1051,61 @@ def create_app(workspace_root: Path) -> FastAPI:
         target.write_bytes(export_bytes)
         runtime.logger.log("REPORT_EXPORTED", {"path": str(target), "report_hash": report.report_hash, "source": "api", "report_type": "incident"})
         return IncidentReportExportResponse(ok=True, path=str(target), bytes_written=len(export_bytes), report_hash=report.report_hash)
+
+    @app.post("/diagnostics/emergency/export", response_model=EmergencyDiagnosisExportResponse, dependencies=[Depends(require_admin_api_key)])
+    async def emergency_diagnosis_export(body: EmergencyDiagnosisExportRequest) -> EmergencyDiagnosisExportResponse:
+        target = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(target.parent):
+            raise HTTPException(status_code=403, detail="Export path blocked by execution policy")
+
+        snapshot = _build_diagnosis_snapshot(
+            source=body.source,
+            agent_id=body.agent_id,
+            skill_id=body.skill_id,
+            after=body.after,
+            before=body.before,
+            offset=body.offset,
+            limit=body.limit,
+        )
+        payload = snapshot.model_dump(mode="json")
+        text = json.dumps(payload, indent=2, sort_keys=True)
+        export_bytes = (text + "\n").encode("utf-8")
+        max_export_bytes = int(runtime.config.get("reports.max_export_bytes", 262144))
+        if len(export_bytes) > max_export_bytes:
+            raise HTTPException(status_code=413, detail=f"Export payload exceeds limit ({len(export_bytes)} > {max_export_bytes})")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(export_bytes)
+        runtime.logger.log("REPORT_EXPORTED", {"path": str(target), "report_hash": snapshot.report_hash, "source": "api", "report_type": "diagnosis_snapshot"})
+        return EmergencyDiagnosisExportResponse(ok=True, path=str(target), bytes_written=len(export_bytes), report_hash=snapshot.report_hash)
+
+    @app.post("/diagnostics/emergency/verify", response_model=EmergencyDiagnosisVerifyResponse, dependencies=[Depends(require_read_api_key)])
+    async def emergency_diagnosis_verify(body: EmergencyDiagnosisVerifyRequest) -> EmergencyDiagnosisVerifyResponse:
+        target = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(target.parent):
+            raise HTTPException(status_code=403, detail="Verify path blocked by execution policy")
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="Report file not found")
+
+        try:
+            loaded = json.loads(target.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid report JSON: {exc}") from exc
+        if not isinstance(loaded, dict):
+            raise HTTPException(status_code=400, detail="Invalid report format")
+
+        stored_hash = str(loaded.get("report_hash", ""))
+        computed_hash = _compute_report_hash_from_payload(_signature_payload_from_diagnosis_snapshot(loaded))
+        valid = stored_hash == computed_hash
+        runtime.logger.log("REPORT_VERIFIED", {"path": str(target), "valid": valid, "stored_hash": stored_hash, "computed_hash": computed_hash, "source": "api", "report_type": "diagnosis_snapshot"})
+        return EmergencyDiagnosisVerifyResponse(
+            ok=True,
+            path=str(target),
+            valid=valid,
+            stored_hash=stored_hash,
+            computed_hash=computed_hash,
+            signing_version=str(loaded.get("signing_version")) if loaded.get("signing_version") is not None else None,
+        )
 
     @app.post("/reports/incident/verify", response_model=IncidentReportVerifyResponse, dependencies=[Depends(require_read_api_key)])
     async def incident_verify(body: IncidentReportVerifyRequest) -> IncidentReportVerifyResponse:

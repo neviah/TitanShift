@@ -175,6 +175,7 @@ Incident report API:
 ```bash
 curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&limit=50"
 curl "http://127.0.0.1:8000/reports/incident?task_id=<task_id>&limit=50"
+curl "http://127.0.0.1:8000/reports/incident?execution_id=<execution_id>&limit=50"
 curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&after=2026-04-10T00:00:00%2B00:00&before=2026-04-10T23:59:59%2B00:00&limit=50"
 curl -X POST http://127.0.0.1:8000/reports/incident/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\",\"agent_id\":\"<agent_id>\",\"limit\":50}"
 curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\"}"
@@ -182,6 +183,15 @@ curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: app
 
 Incident reports bundle task context, agent context, execution logs, module errors, emergency diagnoses, and related events for a single agent or task.
 They are signed with `signing_version` and `report_hash`, and exported incident documents can be verified independently.
+
+Emergency diagnosis snapshot export API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/diagnostics/emergency/export -H "Content-Type: application/json" -d "{\"path\":\".harness/diagnosis-snapshot.json\",\"source\":\"orchestrator.skill_execution\",\"agent_id\":\"<agent_id>\",\"limit\":50}"
+curl -X POST http://127.0.0.1:8000/diagnostics/emergency/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/diagnosis-snapshot.json\"}"
+```
+
+Diagnosis snapshots are signed artifacts containing the paged `items` set and filter context used to produce it.
 
 Run history export report:
 
@@ -325,7 +335,7 @@ curl http://127.0.0.1:8000/scheduler/jobs
 curl http://127.0.0.1:8000/agents
 curl "http://127.0.0.1:8000/skills?related_node_id=tool:shell_command"
 curl "http://127.0.0.1:8000/diagnostics/emergency?source=orchestrator.skill_execution&limit=10"
-curl "http://127.0.0.1:8000/reports/incident?agent_id=<agent_id>&limit=20"
+curl "http://127.0.0.1:8000/reports/incident?execution_id=<execution_id>&limit=20"
 ```
 
 Operational triage flow:
@@ -343,6 +353,8 @@ curl "http://127.0.0.1:8000/logs?event_type=MODULE_ERROR&limit=20"
 curl "http://127.0.0.1:8000/logs?event_type=EMERGENCY_DIAGNOSIS&limit=20"
 curl "http://127.0.0.1:8000/logs?event_type=AGENT_SKILL_EXECUTED&limit=20"
 curl "http://127.0.0.1:8000/diagnostics/emergency?agent_id=<agent_id>&skill_id=<skill_id>&limit=20"
+curl -X POST http://127.0.0.1:8000/diagnostics/emergency/export -H "Content-Type: application/json" -d "{\"path\":\".harness/diagnosis-snapshot.json\",\"agent_id\":\"<agent_id>\",\"skill_id\":\"<skill_id>\",\"limit\":50}"
+curl -X POST http://127.0.0.1:8000/diagnostics/emergency/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/diagnosis-snapshot.json\"}"
 curl "http://127.0.0.1:8000/reports/incident?task_id=<task_id>&limit=50"
 curl -X POST http://127.0.0.1:8000/reports/incident/export -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\",\"task_id\":\"<task_id>\",\"limit\":50}"
 curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\"}"

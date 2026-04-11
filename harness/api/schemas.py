@@ -61,6 +61,7 @@ class IncidentReport(BaseModel):
     signing_version: str
     report_hash: str
     scope: str
+    execution_id: str | None = None
     task_id: str | None = None
     agent_id: str | None = None
     linked_agent_ids: list[str] = Field(default_factory=list)
@@ -247,6 +248,22 @@ class EmergencyDiagnosisQueryResponse(BaseModel):
     next_offset: int | None = None
 
 
+class EmergencyDiagnosisSnapshot(BaseModel):
+    generated_at: datetime
+    signing_version: str
+    report_hash: str
+    source: str | None = None
+    agent_id: str | None = None
+    skill_id: str | None = None
+    after: str | None = None
+    before: str | None = None
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None = None
+    items: list[EmergencyDiagnosisEntry]
+
+
 class RunHistoryReport(BaseModel):
     generated_at: datetime
     signing_version: str
@@ -299,6 +316,7 @@ class IncidentReportExportRequest(BaseModel):
     path: str = Field(min_length=1)
     task_id: str | None = None
     agent_id: str | None = None
+    execution_id: str | None = None
     after: str | None = None
     before: str | None = None
     offset: int = Field(default=0, ge=0)
@@ -317,6 +335,37 @@ class IncidentReportVerifyRequest(BaseModel):
 
 
 class IncidentReportVerifyResponse(BaseModel):
+    ok: bool
+    path: str
+    valid: bool
+    stored_hash: str
+    computed_hash: str
+    signing_version: str | None = None
+
+
+class EmergencyDiagnosisExportRequest(BaseModel):
+    path: str = Field(min_length=1)
+    source: str | None = None
+    agent_id: str | None = None
+    skill_id: str | None = None
+    after: str | None = None
+    before: str | None = None
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class EmergencyDiagnosisExportResponse(BaseModel):
+    ok: bool
+    path: str
+    bytes_written: int
+    report_hash: str
+
+
+class EmergencyDiagnosisVerifyRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class EmergencyDiagnosisVerifyResponse(BaseModel):
     ok: bool
     path: str
     valid: bool

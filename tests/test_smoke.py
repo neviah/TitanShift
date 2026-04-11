@@ -765,6 +765,32 @@ def test_incident_report_by_task_id() -> None:
     assert isinstance(body["related_events"], list)
 
 
+def test_incident_report_by_execution_id() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support", "role": "Exec"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+    assert client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]}).status_code == 200
+
+    executed = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert executed.status_code == 200
+    execution_id = executed.json()["execution_id"]
+
+    response = client.get(f"/reports/incident?execution_id={execution_id}&limit=20")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "execution"
+    assert body["execution_id"] == execution_id
+    assert body["agent_id"] == agent_id
+    assert any(log["payload"].get("execution_id") == execution_id for log in body["executions"])
+
+
 def test_incident_report_export_and_verify() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("orchestrator.enable_subagents", True)
@@ -819,6 +845,88 @@ def test_incident_report_verify_detects_tamper() -> None:
     target.write_text(json.dumps(loaded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verify = client.post("/reports/incident/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    body = verify.json()
+    assert body["valid"] is False
+    assert body["stored_hash"] != body["computed_hash"]
+
+    target.unlink(missing_ok=True)
+
+
+def test_emergency_diagnosis_export_and_verify() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    client = TestClient(app)
+    runtime.logger.log(
+        "EMERGENCY_DIAGNOSIS",
+        {
+            "source": "test.snapshot",
+            "agent_id": "agent-snap",
+            "skill_id": "skill-snap",
+            "diagnoses": [
+                {
+                    "hypothesis": "Execution policy blocked the requested tool or command",
+                    "confidence": 0.95,
+                    "suggested_fix": "Update tool allowlists or execution.allowed_command_prefixes before retrying",
+                }
+            ],
+        },
+    )
+
+    out_path = ".harness/test-diagnosis-snapshot.json"
+    export = client.post(
+        "/diagnostics/emergency/export",
+        json={"path": out_path, "source": "test.snapshot", "agent_id": "agent-snap", "limit": 20},
+    )
+    assert export.status_code == 200
+    body = export.json()
+    assert body["ok"] is True
+
+    target = Path(out_path)
+    assert target.exists()
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    assert loaded["report_hash"] == body["report_hash"]
+
+    verify = client.post("/diagnostics/emergency/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    verify_body = verify.json()
+    assert verify_body["valid"] is True
+    assert verify_body["stored_hash"] == verify_body["computed_hash"]
+
+    target.unlink(missing_ok=True)
+
+
+def test_emergency_diagnosis_verify_detects_tamper() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    client = TestClient(app)
+    runtime.logger.log(
+        "EMERGENCY_DIAGNOSIS",
+        {
+            "source": "test.snapshot.tamper",
+            "diagnoses": [
+                {
+                    "hypothesis": "Failure observed",
+                    "confidence": 0.3,
+                    "suggested_fix": "Inspect logs",
+                }
+            ],
+        },
+    )
+
+    out_path = ".harness/test-diagnosis-snapshot-tamper.json"
+    export = client.post(
+        "/diagnostics/emergency/export",
+        json={"path": out_path, "source": "test.snapshot.tamper", "limit": 20},
+    )
+    assert export.status_code == 200
+
+    target = Path(out_path)
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    loaded["source"] = "tampered"
+    target.write_text(json.dumps(loaded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verify = client.post("/diagnostics/emergency/verify", json={"path": out_path})
     assert verify.status_code == 200
     body = verify.json()
     assert body["valid"] is False
