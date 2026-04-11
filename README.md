@@ -341,10 +341,23 @@ curl "http://127.0.0.1:8000/reports/incident?execution_id=<execution_id>&limit=2
 Operational triage flow:
 
 1. Check `/status` for degraded module health.
-2. Query `/logs` for `MODULE_ERROR`, `EMERGENCY_DIAGNOSIS`, `AGENT_SKILL_EXECUTED`, `TASK_COMPLETED`, `REPORT_VERIFIED`, and `ARTIFACTS_CLEANUP` events.
-3. Export a signed report with `/reports/run-history/export`.
-4. Verify the exported report with `/reports/run-history/verify`.
-5. If artifacts accumulate, preview cleanup with `/artifacts/cleanup` using `dry_run=true` before deleting.
+2. Locate the relevant execution using `/logs?event_type=AGENT_SKILL_EXECUTED`.
+3. Pull the focused incident bundle via `/reports/incident?execution_id=<execution_id>`.
+4. Export a signed diagnosis snapshot via `/diagnostics/emergency/export`.
+5. Verify the diagnosis snapshot signature via `/diagnostics/emergency/verify`.
+6. If broader context is needed, export and verify run history via `/reports/run-history/export` and `/reports/run-history/verify`.
+7. If artifacts accumulate, preview cleanup with `/artifacts/cleanup` using `dry_run=true` before deleting.
+
+Optional Python helper workflow:
+
+```python
+from harness.api import HarnessApiClient
+
+with HarnessApiClient(base_url="http://127.0.0.1:8000", api_key="<read_key>", admin_api_key="<admin_key>") as api:
+  incident = api.get_incident_by_execution_id(execution_id="<execution_id>")
+  exported = api.export_diagnosis_snapshot(path=".harness/diagnosis-snapshot.json", source="orchestrator.skill_execution")
+  verified = api.verify_diagnosis_snapshot(path=".harness/diagnosis-snapshot.json")
+```
 
 Suggested incident commands:
 
@@ -433,7 +446,7 @@ harness --workspace . status
 python -m harness --workspace . lmstudio-check
 ```
 
-Release notes for this baseline are in `RELEASE_NOTES_0.1.0.md`.
+Release notes for this baseline are in `RELEASE_NOTES_0.2.0.md`.
 
 ## Notes
 

@@ -5,6 +5,7 @@ import os
 import time
 from fastapi.testclient import TestClient
 
+from harness.api.client import HarnessApiClient
 from harness.api.server import create_app
 from harness.execution.policy import ExecutionPolicy
 from harness.execution.runner import ExecutionDeniedError, ExecutionModule
@@ -894,6 +895,195 @@ def test_emergency_diagnosis_export_and_verify() -> None:
     assert verify_body["stored_hash"] == verify_body["computed_hash"]
 
     target.unlink(missing_ok=True)
+
+
+def test_emergency_diagnosis_export_empty_page_and_verify() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    out_path = ".harness/test-diagnosis-empty-snapshot.json"
+    export = client.post(
+        "/diagnostics/emergency/export",
+        json={"path": out_path, "source": "no.such.source", "limit": 20},
+    )
+    assert export.status_code == 200
+    body = export.json()
+    assert body["ok"] is True
+
+    target = Path(out_path)
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    assert loaded["items"] == []
+    assert loaded["has_more"] is False
+    assert loaded["next_offset"] is None
+
+    verify = client.post("/diagnostics/emergency/verify", json={"path": out_path})
+    assert verify.status_code == 200
+    assert verify.json()["valid"] is True
+
+    target.unlink(missing_ok=True)
+
+
+def test_emergency_diagnosis_export_limit_boundary_500() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    client = TestClient(app)
+    source_name = f"diag-limit-500-{time.time_ns()}"
+
+    for idx in range(500):
+        runtime.logger.log(
+            "EMERGENCY_DIAGNOSIS",
+            {
+                    "source": source_name,
+                "agent_id": f"agent-{idx}",
+                "skill_id": "skill-limit",
+                "diagnoses": [{"hypothesis": "ok", "confidence": 0.5, "suggested_fix": "none"}],
+            },
+        )
+
+    out_path = ".harness/test-diagnosis-limit-500.json"
+    export = client.post(
+        "/diagnostics/emergency/export",
+        json={"path": out_path, "source": source_name, "limit": 500},
+    )
+    assert export.status_code == 200
+
+    target = Path(out_path)
+    loaded = json.loads(target.read_text(encoding="utf-8"))
+    assert loaded["limit"] == 500
+    assert len(loaded["items"]) == 500
+    assert loaded["has_more"] is False
+
+    target.unlink(missing_ok=True)
+
+
+def test_incident_report_unknown_execution_id_returns_404() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.get("/reports/incident?execution_id=exec-does-not-exist")
+    assert response.status_code == 404
+
+
+def test_export_rejects_invalid_time_window() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/diagnostics/emergency/export",
+        json={
+            "path": ".harness/test-invalid-window.json",
+            "source": "diag",
+            "after": "2026-04-10T23:59:59+00:00",
+            "before": "2026-04-10T00:00:00+00:00",
+            "limit": 10,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_api_helper_get_incident_by_execution_id() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support", "role": "Exec"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+    assert client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]}).status_code == 200
+
+    executed = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert executed.status_code == 200
+    execution_id = executed.json()["execution_id"]
+
+    helper = HarnessApiClient(base_url="http://testserver", client=client)
+    incident = helper.get_incident_by_execution_id(execution_id=execution_id, limit=20)
+    assert incident["execution_id"] == execution_id
+    assert incident["agent_id"] == agent_id
+
+
+def test_api_helper_export_and_verify_diagnosis_snapshot() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    client = TestClient(app)
+    runtime.logger.log(
+        "EMERGENCY_DIAGNOSIS",
+        {
+            "source": "helper.snapshot",
+            "agent_id": "agent-helper",
+            "skill_id": "skill-helper",
+            "diagnoses": [
+                {
+                    "hypothesis": "Execution policy blocked",
+                    "confidence": 0.95,
+                    "suggested_fix": "Update allowlist",
+                }
+            ],
+        },
+    )
+
+    helper = HarnessApiClient(base_url="http://testserver", client=client)
+    out_path = ".harness/test-helper-diagnosis-snapshot.json"
+    exported = helper.export_diagnosis_snapshot(path=out_path, source="helper.snapshot", limit=20)
+    assert exported["ok"] is True
+    verified = helper.verify_diagnosis_snapshot(path=out_path)
+    assert verified["valid"] is True
+
+    Path(out_path).unlink(missing_ok=True)
+
+
+def test_diagnostics_query_latency_guardrail() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    client = TestClient(app)
+    source_name = f"diag-latency-{time.time_ns()}"
+
+    for idx in range(300):
+        runtime.logger.log(
+            "EMERGENCY_DIAGNOSIS",
+            {
+                "source": source_name,
+                "agent_id": f"agent-lat-{idx}",
+                "skill_id": "skill-lat",
+                "diagnoses": [{"hypothesis": "h", "confidence": 0.5, "suggested_fix": "s"}],
+            },
+        )
+
+    started = time.perf_counter()
+    response = client.get(f"/diagnostics/emergency?source={source_name}&offset=100&limit=100")
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 100
+    assert elapsed < 1.5
+
+
+def test_incident_report_latency_guardrail() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    spawned = client.post("/agents/spawn", json={"description": "Need shell execution support", "role": "Exec"})
+    assert spawned.status_code == 200
+    agent_id = spawned.json()["agent_id"]
+    assert client.post(f"/agents/{agent_id}/skills/assign", json={"skill_ids": ["safe_shell_command"]}).status_code == 200
+
+    executed = client.post(
+        f"/agents/{agent_id}/skills/safe_shell_command/execute",
+        json={"input": {"command": "where python"}},
+    )
+    assert executed.status_code == 200
+    execution_id = executed.json()["execution_id"]
+
+    started = time.perf_counter()
+    response = client.get(f"/reports/incident?execution_id={execution_id}&limit=50")
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    assert response.json()["execution_id"] == execution_id
+    assert elapsed < 1.5
 
 
 def test_emergency_diagnosis_verify_detects_tamper() -> None:

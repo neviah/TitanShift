@@ -67,7 +67,7 @@ from harness.runtime.types import Task
 
 def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
-    app = FastAPI(title="TitantShift Harness API", version="0.1.0")
+    app = FastAPI(title="TitantShift Harness API", version="0.2.0")
     app.state.runtime = runtime
 
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
@@ -500,6 +500,21 @@ def create_app(workspace_root: Path) -> FastAPI:
     def _storage_root() -> Path:
         return runtime.logger.log_file.parent.resolve()
 
+    def _parse_iso_timestamp(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid timestamp format: {value}")
+
+    def _validate_time_window(after: str | None, before: str | None) -> None:
+        after_dt = _parse_iso_timestamp(after)
+        before_dt = _parse_iso_timestamp(before)
+        if after_dt and before_dt and after_dt > before_dt:
+            raise HTTPException(status_code=400, detail="Invalid time window: 'after' must be <= 'before'")
+
     def _candidate_cleanup_paths(include_logs: bool) -> list[Path]:
         root = _storage_root()
         report_glob = str(runtime.config.get("reports.cleanup_glob", "*.json"))
@@ -589,6 +604,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         offset: int = 0,
         limit: int = 100,
     ) -> LogQueryResponse:
+        _validate_time_window(after, before)
         clamped_limit = max(1, min(limit, 1000))
         rows = runtime.logger.query(
             event_type=event_type,
@@ -615,6 +631,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         offset: int = 0,
         limit: int = 20,
     ) -> EmergencyDiagnosisQueryResponse:
+        _validate_time_window(after, before)
         clamped_limit = max(1, min(limit, 200))
         rows = runtime.logger.query(
             event_type="EMERGENCY_DIAGNOSIS",
@@ -639,6 +656,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         offset: int = 0,
         limit: int = 50,
     ) -> IncidentReport:
+        _validate_time_window(after, before)
         return _build_incident_report(
             task_id=task_id,
             agent_id=agent_id,
@@ -1027,6 +1045,7 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.post("/reports/incident/export", response_model=IncidentReportExportResponse, dependencies=[Depends(require_admin_api_key)])
     async def incident_export(body: IncidentReportExportRequest) -> IncidentReportExportResponse:
+        _validate_time_window(body.after, body.before)
         target = (workspace_root / body.path).resolve()
         if not runtime.execution.policy.is_cwd_allowed(target.parent):
             raise HTTPException(status_code=403, detail="Export path blocked by execution policy")
@@ -1054,6 +1073,7 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.post("/diagnostics/emergency/export", response_model=EmergencyDiagnosisExportResponse, dependencies=[Depends(require_admin_api_key)])
     async def emergency_diagnosis_export(body: EmergencyDiagnosisExportRequest) -> EmergencyDiagnosisExportResponse:
+        _validate_time_window(body.after, body.before)
         target = (workspace_root / body.path).resolve()
         if not runtime.execution.policy.is_cwd_allowed(target.parent):
             raise HTTPException(status_code=403, detail="Export path blocked by execution policy")
