@@ -10,3 +10,8 @@ __pycache__/
 
 # Harness local runtime storage
 .harness/
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/

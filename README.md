@@ -332,6 +332,26 @@ Delivered in this milestone:
 
 Recommended stable checkpoint tag: `phase1-milestone`
 
+## Release and packaging
+
+Build release artifacts:
+
+```bash
+python -m pip install build twine
+python -m build
+python -m twine check dist/*
+```
+
+Install the built wheel locally for smoke validation:
+
+```bash
+python -m pip install --force-reinstall dist/*.whl
+harness --workspace . status
+python -m harness --workspace . lmstudio-check
+```
+
+Release notes for this baseline are in `RELEASE_NOTES_0.1.0.md`.
+
 ## Notes
 
 - This is phase 1 plus forward-compatible stubs.

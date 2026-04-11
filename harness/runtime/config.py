@@ -12,6 +12,9 @@ class ConfigManager:
     def __init__(self, workspace_root: Path) -> None:
         self.workspace_root = workspace_root
         defaults_file = workspace_root / "harness" / "config_defaults.json"
+        if not defaults_file.exists():
+            # Fallback for installed package usage outside the source checkout.
+            defaults_file = Path(__file__).resolve().parents[1] / "config_defaults.json"
         self._defaults = self._load_json(defaults_file)
         self._file_config = self._load_json(workspace_root / "harness.config.json")
         self._overrides: dict[str, Any] = {}

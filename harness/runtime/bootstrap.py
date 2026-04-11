@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -101,6 +102,9 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     health.set("api_hooks", "healthy")
 
     module_loader = ModuleLoader(modules_root=workspace_root / cfg.get("runtime.module_path", "modules"))
+    workspace_import_root = str(workspace_root.resolve())
+    if workspace_import_root not in sys.path:
+        sys.path.insert(0, workspace_import_root)
     emergency = EmergencyModule()
     scheduler = Scheduler()
     scheduler.register_job(

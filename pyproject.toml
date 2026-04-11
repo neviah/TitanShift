@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "titantshift-harness"
+version = "0.1.0"
+description = "Local-first modular Python harness for orchestration, memory, tools, and safe runtime controls"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "TitantShift Contributors" }
+]
+dependencies = [
+  "networkx>=3.2",
+  "fastapi>=0.116",
+  "uvicorn>=0.35",
+  "httpx>=0.28"
+]
+
+[project.scripts]
+harness = "harness.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["harness*"]
+
+[tool.setuptools.package-data]
+harness = ["config_defaults.json"]
