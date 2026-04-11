@@ -145,12 +145,23 @@ curl "http://127.0.0.1:8000/skills?query=shell"
 curl "http://127.0.0.1:8000/skills?tags=safety"
 curl "http://127.0.0.1:8000/skills?related_node_id=tool:shell_command"
 curl -X POST http://127.0.0.1:8000/skills/reactive_chat/execute -H "Content-Type: application/json" -d "{\"input\":{\"message\":\"hello\"}}"
+curl http://127.0.0.1:8000/skills/market
+curl -X POST http://127.0.0.1:8000/skills/market/install -H "Content-Type: application/json" -d "{\"skill_id\":\"web-search-basic\"}"
+curl -X POST http://127.0.0.1:8000/skills/market/update -H "Content-Type: application/json" -d "{\"skill_id\":\"web-search-basic\"}"
+curl -X POST http://127.0.0.1:8000/skills/market/uninstall -H "Content-Type: application/json" -d "{\"skill_id\":\"web-search-basic\"}"
+curl -X POST http://127.0.0.1:8000/skills/market/remote/sync -H "Content-Type: application/json" -d "{\"source\":\"https://raw.githubusercontent.com/neviah/titanshift_marketplace_index/main/market/index.json\",\"force\":true}"
+curl http://127.0.0.1:8000/skills/market/remote/status
+curl http://127.0.0.1:8000/ui/market/overview
+curl http://127.0.0.1:8000/ui/ingestion/overview
 curl http://127.0.0.1:8000/tools
 curl "http://127.0.0.1:8000/tools?query=shell"
 ```
 
 `/skills` now returns `mode`, `domain`, `version`, and `ranking_score`.
 Ranking favors direct query hits, tag overlap, and graph-linked tool overlap from `related_node_id`.
+`/skills/market` returns installability flags and dependency/tool gaps for each listed skill.
+`/skills/market/remote/sync` validates remote index signatures and caches sync status.
+`/ui/market/overview` and `/ui/ingestion/overview` are UI-oriented summary endpoints for dashboard cards.
 
 Read-only memory inspect API:
 
@@ -323,6 +334,17 @@ Report export keys:
 - reports.max_export_bytes
 - reports.cleanup_max_age_days
 - reports.cleanup_glob
+
+Skills market keys:
+
+- skills.market_registry_file
+- skills.market_installed_file
+- skills.market_remote_cache_file
+- skills.market_remote_status_file
+- skills.market_remote_timeout_s
+- skills.market_remote_min_sync_seconds
+- skills.market_trusted_public_keys
+- skills.market_allow_v1_hash_fallback
 
 Logging retention keys:
 
