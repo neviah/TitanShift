@@ -911,6 +911,96 @@ def test_emergency_fix_rollback_restores_tool_policy_state() -> None:
     assert "shell_command" in runtime.tools.policy.allowed_tool_names
 
 
+def test_emergency_fix_execution_query_returns_apply_and_rollback() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-query-fix",
+                "recommended_hypothesis": "config drift",
+                "risk_level": "medium",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 1888},
+                    }
+                ],
+                "notes": "query coverage",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+
+    rollback = client.post(
+        "/diagnostics/emergency/fix-rollback",
+        json={"execution_id": execution_id, "dry_run": False},
+    )
+    assert rollback.status_code == 200
+
+    query = client.get(f"/diagnostics/emergency/fix-executions?execution_id={execution_id}&limit=20")
+    assert query.status_code == 200
+    body = query.json()
+    assert isinstance(body["items"], list)
+    event_types = {row["event_type"] for row in body["items"]}
+    assert "EMERGENCY_FIX_APPLY" in event_types
+    assert "EMERGENCY_FIX_ROLLBACK" in event_types
+
+
+def test_emergency_fix_execution_export_and_verify() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-export-fix",
+                "recommended_hypothesis": "config drift",
+                "risk_level": "medium",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 1999},
+                    }
+                ],
+                "notes": "export coverage",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    execution_id = apply.json()["execution_id"]
+
+    out_path = ".harness/test-fix-executions.json"
+    export = client.post(
+        "/diagnostics/emergency/fix-executions/export",
+        json={"path": out_path, "execution_id": execution_id, "limit": 20},
+    )
+    assert export.status_code == 200
+    export_body = export.json()
+    assert export_body["ok"] is True
+
+    verify = client.post(
+        "/diagnostics/emergency/fix-executions/verify",
+        json={"path": out_path},
+    )
+    assert verify.status_code == 200
+    verify_body = verify.json()
+    assert verify_body["valid"] is True
+    assert verify_body["stored_hash"] == verify_body["computed_hash"]
+
+    Path(out_path).unlink(missing_ok=True)
+
+
 def test_api_key_auth_enforced_when_enabled() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("api.require_api_key", True)
@@ -1063,6 +1153,50 @@ def test_incident_report_by_execution_id() -> None:
     assert body["execution_id"] == execution_id
     assert body["agent_id"] == agent_id
     assert any(log["payload"].get("execution_id") == execution_id for log in body["executions"])
+    assert body["fix_executions"] == []
+
+
+def test_incident_report_includes_fix_execution_records_for_fix_execution_id() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    apply = client.post(
+        "/diagnostics/emergency/fix-apply",
+        json={
+            "approved": True,
+            "dry_run": False,
+            "fix_plan": {
+                "failure_id": "failure-incident-fix",
+                "recommended_hypothesis": "policy drift",
+                "risk_level": "low",
+                "requires_user_approval": True,
+                "actions": [
+                    {
+                        "action_type": "update_config",
+                        "params": {"key": "state_machine.default_budget.max_tokens", "value": 2111},
+                    }
+                ],
+                "notes": "incident report coverage",
+            },
+        },
+    )
+    assert apply.status_code == 200
+    fix_execution_id = apply.json()["execution_id"]
+
+    rollback = client.post(
+        "/diagnostics/emergency/fix-rollback",
+        json={"execution_id": fix_execution_id, "dry_run": False},
+    )
+    assert rollback.status_code == 200
+
+    response = client.get(f"/reports/incident?execution_id={fix_execution_id}&limit=20")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "execution"
+    assert body["execution_id"] == fix_execution_id
+    event_types = {row["event_type"] for row in body["fix_executions"]}
+    assert "EMERGENCY_FIX_APPLY" in event_types
+    assert "EMERGENCY_FIX_ROLLBACK" in event_types
 
 
 def test_incident_report_export_and_verify() -> None:

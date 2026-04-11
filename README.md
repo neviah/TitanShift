@@ -172,6 +172,9 @@ curl "http://127.0.0.1:8000/diagnostics/emergency?after=2026-04-10T00:00:00%2B00
 curl -X POST http://127.0.0.1:8000/diagnostics/emergency/analyze -H "Content-Type: application/json" -d "{\"source\":\"orchestrator.skill_execution\",\"error\":\"Timed out after 15.0s\",\"agent_id\":\"<agent_id>\",\"skill_id\":\"<skill_id>\",\"context\":{\"task_id\":\"<task_id>\"}}"
 curl -X POST http://127.0.0.1:8000/diagnostics/emergency/fix-apply -H "Content-Type: application/json" -d "{\"approved\":true,\"dry_run\":true,\"fix_plan\":{\"failure_id\":\"failure-123\",\"recommended_hypothesis\":\"Execution budget exceeded\",\"risk_level\":\"medium\",\"requires_user_approval\":true,\"actions\":[{\"action_type\":\"update_config\",\"params\":{\"key\":\"orchestrator.skill_execution_timeout_s\",\"value\":30.0}}],\"notes\":\"Review before apply\"}}"
 curl -X POST http://127.0.0.1:8000/diagnostics/emergency/fix-rollback -H "Content-Type: application/json" -d "{\"execution_id\":\"fix-abc123\",\"dry_run\":true}"
+curl "http://127.0.0.1:8000/diagnostics/emergency/fix-executions?execution_id=fix-abc123&limit=20"
+curl -X POST http://127.0.0.1:8000/diagnostics/emergency/fix-executions/export -H "Content-Type: application/json" -d "{\"path\":\".harness/fix-executions.json\",\"execution_id\":\"fix-abc123\",\"limit\":50}"
+curl -X POST http://127.0.0.1:8000/diagnostics/emergency/fix-executions/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/fix-executions.json\"}"
 ```
 
 Each diagnosis entry includes `timestamp`, `source`, optional `agent_id`, optional `skill_id`, and structured diagnosis suggestions.
@@ -181,6 +184,8 @@ The response now includes `items`, `limit`, `offset`, `has_more`, and `next_offs
 Analyze responses include `selected_hypothesis` and `consensus` entries (`confidence_avg`, `source_weight`, `vote_count`, `consensus_score`) for traceability.
 Successful non-dry-run fix application returns `execution_id` and `rollback_available` metadata.
 `/diagnostics/emergency/fix-rollback` replays rollback actions for a prior fix execution when available.
+`/diagnostics/emergency/fix-executions` provides paginated apply/rollback event history filtered by `execution_id`, `failure_id`, and time windows.
+Fix execution snapshots support signed export and verification through `/diagnostics/emergency/fix-executions/export` and `/diagnostics/emergency/fix-executions/verify`.
 
 Incident report API:
 
@@ -193,7 +198,7 @@ curl -X POST http://127.0.0.1:8000/reports/incident/export -H "Content-Type: app
 curl -X POST http://127.0.0.1:8000/reports/incident/verify -H "Content-Type: application/json" -d "{\"path\":\".harness/incident-single.json\"}"
 ```
 
-Incident reports bundle task context, agent context, execution logs, module errors, emergency diagnoses, and related events for a single agent or task.
+Incident reports bundle task context, agent context, execution logs, fix execution logs, module errors, emergency diagnoses, and related events for a single agent or task.
 They are signed with `signing_version` and `report_hash`, and exported incident documents can be verified independently.
 
 Emergency diagnosis snapshot export API:

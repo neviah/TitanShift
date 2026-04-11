@@ -68,6 +68,7 @@ class IncidentReport(BaseModel):
     task: TaskDetail | None = None
     agent: AgentSummary | None = None
     executions: list[LogEntry] = Field(default_factory=list)
+    fix_executions: list[LogEntry] = Field(default_factory=list)
     module_errors: list[LogEntry] = Field(default_factory=list)
     diagnoses: list[EmergencyDiagnosisEntry] = Field(default_factory=list)
     related_events: list[LogEntry] = Field(default_factory=list)
@@ -448,6 +449,59 @@ class EmergencyDiagnosisVerifyRequest(BaseModel):
 
 
 class EmergencyDiagnosisVerifyResponse(BaseModel):
+    ok: bool
+    path: str
+    valid: bool
+    stored_hash: str
+    computed_hash: str
+    signing_version: str | None = None
+
+
+class EmergencyFixExecutionQueryResponse(BaseModel):
+    items: list[LogEntry]
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None = None
+
+
+class EmergencyFixExecutionSnapshot(BaseModel):
+    generated_at: datetime
+    signing_version: str
+    report_hash: str
+    execution_id: str | None = None
+    failure_id: str | None = None
+    after: str | None = None
+    before: str | None = None
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None = None
+    items: list[LogEntry]
+
+
+class EmergencyFixExecutionExportRequest(BaseModel):
+    path: str = Field(min_length=1)
+    execution_id: str | None = None
+    failure_id: str | None = None
+    after: str | None = None
+    before: str | None = None
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class EmergencyFixExecutionExportResponse(BaseModel):
+    ok: bool
+    path: str
+    bytes_written: int
+    report_hash: str
+
+
+class EmergencyFixExecutionVerifyRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class EmergencyFixExecutionVerifyResponse(BaseModel):
     ok: bool
     path: str
     valid: bool
