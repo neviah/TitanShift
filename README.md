@@ -438,6 +438,18 @@ python -m build
 python -m twine check dist/*
 ```
 
+Automated GitHub release workflow:
+
+- Push a version tag like `v0.2.1` to trigger `.github/workflows/release.yml`.
+- The workflow runs tests, builds `dist/*`, verifies package metadata, and publishes a GitHub Release with wheel and sdist artifacts attached.
+
+Tag and publish example:
+
+```bash
+git tag v0.2.1
+git push origin v0.2.1
+```
+
 Install the built wheel locally for smoke validation:
 
 ```bash
