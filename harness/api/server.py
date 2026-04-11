@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,6 +34,9 @@ from harness.api.schemas import (
     ChatResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
+    GraphifyRequest,
+    GraphifyResponse,
+    IngestionStatsResponse,
     EmergencyDiagnosisExportRequest,
     EmergencyDiagnosisExportResponse,
     EmergencyDiagnosis,
@@ -1985,4 +1989,93 @@ def create_app(workspace_root: Path) -> FastAPI:
             max_export_bytes=int(runtime.config.get("reports.max_export_bytes", 262144)),
         )
 
+    _INGESTION_STOPWORDS: frozenset[str] = frozenset({
+        "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "a", "an",
+        "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+        "do", "does", "did", "will", "would", "could", "should", "may", "might",
+        "can", "with", "from", "by", "this", "that", "these", "those", "then",
+        "when", "where", "how", "what", "which", "who", "not", "also", "more",
+        "such", "if", "as", "it", "its", "into", "over", "after", "before",
+        "about", "than", "other", "each", "their", "they", "we", "you",
+    })
+
+    def _extract_entities_relations(text: str) -> tuple[list[str], list[tuple[str, str]]]:
+        """Return (unique node_ids, edge pairs) extracted from text using simple tokenization."""
+        tokens: list[str] = re.findall(r"[A-Za-z][A-Za-z0-9_-]*", text)
+        concepts: list[str] = []
+        for tok in tokens:
+            normalized = tok.lower()
+            if len(normalized) >= 4 and normalized not in _INGESTION_STOPWORDS:
+                node_id = f"concept:{normalized}"
+                concepts.append(node_id)
+
+        # Deduplicate preserving first-seen order for node_ids list
+        seen: set[str] = set()
+        unique_nodes: list[str] = []
+        for c in concepts:
+            if c not in seen:
+                seen.add(c)
+                unique_nodes.append(c)
+
+        # Co-occurrence edges between adjacent concept tokens (sliding window = 1)
+        edge_set: set[tuple[str, str]] = set()
+        for i in range(len(concepts) - 1):
+            src, tgt = concepts[i], concepts[i + 1]
+            if src != tgt:
+                edge_set.add((src, tgt))
+
+        return unique_nodes, list(edge_set)
+
+    @app.post("/ingestion/graphify", response_model=GraphifyResponse, dependencies=[Depends(require_admin_api_key)])
+    async def ingestion_graphify(body: GraphifyRequest) -> GraphifyResponse:
+        node_ids, edges = _extract_entities_relations(body.text)
+
+        for node_id in node_ids:
+            concept_name = node_id.split(":", 1)[-1]
+            props: dict[str, str] = {"text": concept_name}
+            if body.metadata:
+                props["source"] = str(body.metadata.get("source", ""))
+            runtime.memory.graph_add_node(node_id, "concept", props)
+
+        for src, tgt in edges:
+            runtime.memory.graph_add_edge(src, tgt, "co_occurs")
+
+        runtime.logger.log(
+            "INGESTION_COMPLETE",
+            {
+                "nodes_added": len(node_ids),
+                "edges_added": len(edges),
+                "node_ids": node_ids,
+                "metadata": body.metadata,
+            },
+        )
+
+        return GraphifyResponse(
+            ok=True,
+            nodes_added=len(node_ids),
+            edges_added=len(edges),
+            node_ids=node_ids,
+        )
+
+    @app.get("/ingestion/stats", response_model=IngestionStatsResponse, dependencies=[Depends(require_read_api_key)])
+    async def ingestion_stats() -> IngestionStatsResponse:
+        rows = runtime.logger.query(event_type="INGESTION_COMPLETE", limit=10000)
+        total_nodes = 0
+        total_edges = 0
+        last_at: str | None = None
+        for row in rows:
+            payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+            total_nodes += int(payload.get("nodes_added", 0))
+            total_edges += int(payload.get("edges_added", 0))
+            ts = row.get("timestamp")
+            if ts and (last_at is None or ts > last_at):
+                last_at = str(ts)
+        return IngestionStatsResponse(
+            total_ingestions=len(rows),
+            total_nodes_added=total_nodes,
+            total_edges_added=total_edges,
+            last_ingested_at=last_at,
+        )
+
     return app
+

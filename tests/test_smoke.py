@@ -1659,6 +1659,87 @@ def test_emergency_diagnosis_export_limit_boundary_500() -> None:
     target.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# P4-01 Graphify Ingestion MVP
+# ---------------------------------------------------------------------------
+
+def test_ingestion_graphify_creates_nodes_and_edges() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    text = "Memory management enables efficient knowledge retrieval across multiple sessions"
+    response = client.post("/ingestion/graphify", json={"text": text, "metadata": {"source": "test"}})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["nodes_added"] > 0
+    assert body["edges_added"] > 0
+    assert isinstance(body["node_ids"], list)
+    assert all(nid.startswith("concept:") for nid in body["node_ids"])
+
+
+def test_ingestion_graphify_nodes_appear_in_graph_search() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    text = "Planning orchestration enables autonomous agent scheduling"
+    client.post("/ingestion/graphify", json={"text": text})
+    search = client.get("/memory/graph/search?query=orchestration&node_type=concept&limit=10")
+    assert search.status_code == 200
+    hits = search.json()
+    assert any("orchestration" in h["node_id"] for h in hits)
+
+
+def test_ingestion_graphify_filters_short_words_and_stopwords() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    # "the", "and", "or", "in" are stopwords; "go" is too short
+    text = "the and or in go"
+    response = client.post("/ingestion/graphify", json={"text": text})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["nodes_added"] == 0
+    assert body["edges_added"] == 0
+
+
+def test_ingestion_stats_aggregates_ingestion_events(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    # Two separate ingestions
+    client.post("/ingestion/graphify", json={"text": "autonomous memory retrieval pipeline"})
+    client.post("/ingestion/graphify", json={"text": "diagnostic failure correlation tracing"})
+    stats = client.get("/ingestion/stats")
+    assert stats.status_code == 200
+    body = stats.json()
+    assert body["total_ingestions"] == 2
+    assert body["total_nodes_added"] > 0
+    assert body["total_edges_added"] > 0
+    assert body["last_ingested_at"] is not None
+
+
+def test_ingestion_stats_zero_when_no_ingestions(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    stats = client.get("/ingestion/stats")
+    assert stats.status_code == 200
+    body = stats.json()
+    assert body["total_ingestions"] == 0
+    assert body["total_nodes_added"] == 0
+    assert body["total_edges_added"] == 0
+    assert body["last_ingested_at"] is None
+
+
+def test_ingestion_graphify_emits_ingestion_complete_log_event(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    client = TestClient(app)
+    text = "knowledge graph ingestion pipeline verification"
+    client.post("/ingestion/graphify", json={"text": text})
+    rows = runtime.logger.query(event_type="INGESTION_COMPLETE", limit=10)
+    assert len(rows) == 1
+    payload = rows[0]["payload"]
+    assert payload["nodes_added"] > 0
+    assert isinstance(payload["node_ids"], list)
+
+
 def test_incident_report_unknown_execution_id_returns_404() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)

@@ -533,3 +533,22 @@ class ArtifactCleanupResponse(BaseModel):
     max_age_days: int
     deleted_paths: list[str]
     skipped_paths: list[str]
+
+
+class GraphifyRequest(BaseModel):
+    text: str = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphifyResponse(BaseModel):
+    ok: bool
+    nodes_added: int
+    edges_added: int
+    node_ids: list[str]
+
+
+class IngestionStatsResponse(BaseModel):
+    total_ingestions: int
+    total_nodes_added: int
+    total_edges_added: int
+    last_ingested_at: str | None = None
