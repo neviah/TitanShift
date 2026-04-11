@@ -14,7 +14,9 @@
     "market_remote_cache_file": "skills_market_remote_cache.json",
     "market_remote_status_file": "skills_market_remote_status.json",
     "market_remote_timeout_s": 10.0,
-    "market_remote_min_sync_seconds": 0
+    "market_remote_min_sync_seconds": 0,
+    "market_trusted_public_keys": [],
+    "market_allow_v1_hash_fallback": true
   },
   "model": {
     "default_backend": "local_stub",

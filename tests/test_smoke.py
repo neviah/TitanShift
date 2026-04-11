@@ -4,6 +4,9 @@ import hashlib
 import json
 import os
 import time
+
+from nacl.encoding import Base64Encoder
+from nacl.signing import SigningKey
 from fastapi.testclient import TestClient
 
 from harness.api.client import HarnessApiClient
@@ -818,17 +821,25 @@ def test_skills_market_remote_sync_and_status(tmp_path: Path) -> None:
             "prompt_template": "remote {input}",
         }
     ]
+    signing_key = SigningKey.generate()
+    verify_key_b64 = signing_key.verify_key.encode(encoder=Base64Encoder).decode("utf-8")
     signature_payload = {
         "source": "test-remote",
         "generated_at": "2026-04-10T00:00:00+00:00",
-        "signing_version": "v1",
+        "signing_version": "v2-ed25519",
         "items": remote_items,
     }
+    signature = signing_key.sign(
+        json.dumps(signature_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).signature
+    signature_b64 = Base64Encoder.encode(signature).decode("utf-8")
     digest = hashlib.sha256(
         json.dumps(signature_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     remote_index = {
         **signature_payload,
+        "public_key": verify_key_b64,
+        "signature": signature_b64,
         "index_hash": f"sha256:{digest}",
     }
     remote_index_path = tmp_path / "remote-index.json"
@@ -877,11 +888,17 @@ def test_skills_market_remote_sync_rejects_invalid_signature(tmp_path: Path) -> 
     registry_path.write_text(json.dumps([]), encoding="utf-8")
     installed_path.write_text(json.dumps([]), encoding="utf-8")
 
-    remote_index = {
+    signing_key = SigningKey.generate()
+    signature_payload = {
         "source": "test-remote",
         "generated_at": "2026-04-10T00:00:00+00:00",
-        "signing_version": "v1",
+        "signing_version": "v2-ed25519",
         "items": [],
+    }
+    remote_index = {
+        **signature_payload,
+        "public_key": signing_key.verify_key.encode(encoder=Base64Encoder).decode("utf-8"),
+        "signature": Base64Encoder.encode(b"invalid-signature").decode("utf-8"),
         "index_hash": "sha256:deadbeef",
     }
     remote_index_path = tmp_path / "remote-index-invalid.json"

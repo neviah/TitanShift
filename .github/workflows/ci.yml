@@ -29,6 +29,9 @@ jobs:
       - name: Run test suite
         run: python -m pytest -q
 
+      - name: Validate market index schema
+        run: python scripts/validate_market_index.py --glob "market/*.json"
+
       - name: Build package
         run: python -m build
 

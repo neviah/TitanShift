@@ -15,7 +15,8 @@ dependencies = [
   "networkx>=3.2",
   "fastapi>=0.116",
   "uvicorn>=0.35",
-  "httpx>=0.28"
+  "httpx>=0.28",
+  "pynacl>=1.5"
 ]
 
 [project.scripts]

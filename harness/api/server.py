@@ -480,6 +480,53 @@ def create_app(workspace_root: Path) -> FastAPI:
             ),
         }
 
+    def _market_signature_payload(
+        *,
+        source: str,
+        generated_at: str,
+        signing_version: str,
+        items: list[Any],
+    ) -> dict[str, Any]:
+        return {
+            "source": source,
+            "generated_at": generated_at,
+            "signing_version": signing_version,
+            "items": items,
+        }
+
+    def _verify_ed25519_signature(
+        *,
+        signature_payload: dict[str, Any],
+        signature_b64: str,
+        trusted_public_keys: list[str],
+    ) -> bool:
+        try:
+            from nacl.encoding import Base64Encoder
+            from nacl.signing import VerifyKey
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Ed25519 verification requires pynacl package",
+            ) from exc
+
+        payload_bytes = json.dumps(
+            signature_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        for key_b64 in trusted_public_keys:
+            candidate = key_b64.strip()
+            if not candidate:
+                continue
+            try:
+                verify_key = VerifyKey(candidate, encoder=Base64Encoder)
+                verify_key.verify(payload_bytes, Base64Encoder.decode(signature_b64))
+                return True
+            except Exception:
+                continue
+        return False
+
     async def _fetch_remote_market_index(source: str) -> dict[str, Any]:
         source_value = source.strip()
         if source_value.startswith("file://"):
@@ -1839,20 +1886,47 @@ def create_app(workspace_root: Path) -> FastAPI:
         source_from_index = str(loaded.get("source", source)).strip() or source
         generated_at = str(loaded.get("generated_at", "")).strip()
         items_raw = loaded.get("items", [])
-        if signing_version != "v1":
+        if signing_version not in {"v1", "v2-ed25519"}:
             raise HTTPException(status_code=400, detail="Unsupported remote index signing_version")
         if not isinstance(items_raw, list):
             raise HTTPException(status_code=400, detail="Remote index items must be a list")
 
-        signature_payload = {
-            "source": source_from_index,
-            "generated_at": generated_at,
-            "signing_version": signing_version,
-            "items": items_raw,
-        }
+        signature_payload = _market_signature_payload(
+            source=source_from_index,
+            generated_at=generated_at,
+            signing_version=signing_version,
+            items=items_raw,
+        )
         computed_hash = _compute_report_hash_from_payload(signature_payload)
-        if not index_hash or index_hash != computed_hash:
-            raise HTTPException(status_code=400, detail="Remote index signature validation failed")
+
+        if signing_version == "v2-ed25519":
+            signature = str(loaded.get("signature", "")).strip()
+            if not signature:
+                raise HTTPException(status_code=400, detail="Missing remote index signature")
+
+            cfg_keys = runtime.config.get("skills.market_trusted_public_keys", []) or []
+            trusted_public_keys = [str(v) for v in cfg_keys if str(v).strip()]
+
+            # Convenience for local testing: use embedded key if no pinned keys configured.
+            if not trusted_public_keys and str(loaded.get("public_key", "")).strip():
+                trusted_public_keys = [str(loaded.get("public_key", "")).strip()]
+
+            if not trusted_public_keys:
+                raise HTTPException(status_code=400, detail="No trusted public keys configured for remote sync")
+
+            verified = _verify_ed25519_signature(
+                signature_payload=signature_payload,
+                signature_b64=signature,
+                trusted_public_keys=trusted_public_keys,
+            )
+            if not verified:
+                raise HTTPException(status_code=400, detail="Remote index signature verification failed")
+        else:
+            allow_v1_fallback = bool(runtime.config.get("skills.market_allow_v1_hash_fallback", True))
+            if not allow_v1_fallback:
+                raise HTTPException(status_code=400, detail="v1 hash-only market indexes are disabled")
+            if not index_hash or index_hash != computed_hash:
+                raise HTTPException(status_code=400, detail="Remote index v1 hash validation failed")
 
         normalized_items: list[dict[str, Any]] = []
         for candidate in items_raw:
