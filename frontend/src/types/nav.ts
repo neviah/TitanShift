@@ -1,4 +1,5 @@
 export type NavTab =
+  | 'workspaces'
   | 'chat'
   | 'tasks'
   | 'scheduler'

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ChatSessionsProvider } from './contexts/ChatSessionsContext'
 import { WorkspaceProvider } from './contexts/WorkspaceContext'
+import { TaskDraftsProvider } from './contexts/TaskDraftsContext'
 import { TriPane } from './components/layout/TriPane'
 import { LeftPane } from './components/layout/LeftPane'
 import { CenterPane } from './components/layout/CenterPane'
@@ -65,7 +66,9 @@ function App() {
     <ThemeProvider>
       <WorkspaceProvider>
         <ChatSessionsProvider>
-          <Shell />
+          <TaskDraftsProvider>
+            <Shell />
+          </TaskDraftsProvider>
         </ChatSessionsProvider>
       </WorkspaceProvider>
     </ThemeProvider>

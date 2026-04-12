@@ -1,16 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchConfig, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
+import { useTaskDrafts } from '../contexts/TaskDraftsContext'
 import styles from './ChatView.module.css'
 
 export function ChatView() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
   const [preferredBackend, setPreferredBackend] = useState<string | null>(null)
   const { currentSession, appendMessage } = useChatSessions()
+  const { promoteSessionToDraft } = useTaskDrafts()
 
   const messages = currentSession.messages
+
+  const taskCandidate = useMemo(() => {
+    const userMessages = messages.filter((m) => m.role === 'user')
+    const totalChars = userMessages.reduce((sum, m) => sum + m.text.length, 0)
+    return userMessages.length >= 4 || totalChars >= 500
+  }, [messages])
 
   const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending])
 
@@ -59,8 +68,22 @@ export function ChatView() {
     }
   }
 
+  function promoteCurrentSession() {
+    const draft = promoteSessionToDraft(currentSession)
+    if (draft) {
+      setPromoteMsg(`Draft created: ${draft.title}`)
+    } else {
+      setPromoteMsg('Not enough user instructions to generate a task draft yet.')
+    }
+  }
+
   return (
     <div className={styles.root}>
+      <div className={styles.topBar}>
+        <button className={styles.promoteBtn} onClick={promoteCurrentSession}>Promote To Task</button>
+        {taskCandidate && <span className={styles.candidateHint}>Complex thread detected: good task candidate</span>}
+      </div>
+
       <div className={styles.messages}>
         {messages.length === 0 ? (
           <div className={styles.empty}>
@@ -77,6 +100,7 @@ export function ChatView() {
             ))}
           </div>
         )}
+        {promoteMsg && <p className={`${styles.error} text-info`}>{promoteMsg}</p>}
         {error && <p className={`${styles.error} text-error`}>{error}</p>}
       </div>
 

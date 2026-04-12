@@ -16,13 +16,16 @@ import {
   Archive,
   RotateCcw,
   Trash2,
+  Briefcase,
+  Play,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import styles from './LeftPane.module.css'
 import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
-import { fetchLogs, fetchMarketList, fetchMemorySummary, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree } from '../../api/client'
+import { fetchConfig, fetchLogs, fetchMarketList, fetchMemorySummary, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree, sendChat } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
+import { useTaskDrafts } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import type { TaskDetail, WorkspaceTreeNode } from '../../api/types'
 
@@ -30,6 +33,7 @@ const ACTIVE_SKILLS_KEY = 'titanshift-active-skills-by-workspace-v1'
 const ACTIVE_TOOLS_KEY = 'titanshift-active-tools-by-workspace-v1'
 
 const TABS: { id: NavTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
+  { id: 'workspaces', label: 'Workspaces', Icon: Briefcase },
   { id: 'chat',      label: 'Chat',      Icon: MessageSquare },
   { id: 'tasks',     label: 'Tasks',     Icon: ListTodo },
   { id: 'scheduler', label: 'Scheduler', Icon: Clock },
@@ -48,7 +52,7 @@ interface LeftPaneProps {
 }
 
 export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath }: LeftPaneProps) {
-  const { currentWorkspaceId, currentWorkspaceName } = useWorkspace()
+  const { workspaces, currentWorkspaceId, currentWorkspaceName, selectWorkspace, openWorkspaceFolder } = useWorkspace()
   const { data: taskData } = usePolling(fetchTasks, { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: treeData } = usePolling(fetchWorkspaceTree, { interval: 30000 })
@@ -56,9 +60,11 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
   const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
   const { sessions, currentSessionId, createSession, selectSession, renameSession, archiveSession, restoreSession, deleteSession } = useChatSessions()
+  const { drafts, deleteDraft, setExecutionResult } = useTaskDrafts()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
+  const [executingDraftId, setExecutingDraftId] = useState<string | null>(null)
   const [activeSkillsByWorkspace, setActiveSkillsByWorkspace] = useState<Record<string, Record<string, boolean>>>(() => {
     try {
       return JSON.parse(localStorage.getItem(ACTIVE_SKILLS_KEY) ?? '{}') as Record<string, Record<string, boolean>>
@@ -155,6 +161,25 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }))
   }
 
+  async function executeDraft(draftId: string, steps: string[]) {
+    const prompt = [
+      'Execute the following task checklist strictly in order, and report concise results for each step.',
+      ...steps.map((step, i) => `${i + 1}. ${step}`),
+    ].join('\n')
+
+    setExecutingDraftId(draftId)
+    try {
+      const cfg = await fetchConfig()
+      const backend = typeof cfg['model.default_backend'] === 'string' ? String(cfg['model.default_backend']) : undefined
+      const res = await sendChat({ prompt, ...(backend ? { model_backend: backend } : {}) })
+      setExecutionResult(draftId, (res.response ?? '').slice(0, 1000))
+    } catch (e) {
+      setExecutionResult(draftId, e instanceof Error ? e.message : String(e))
+    } finally {
+      setExecutingDraftId(null)
+    }
+  }
+
   return (
     <div className={styles.root}>
       <div className={styles.header}>
@@ -176,6 +201,22 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       </nav>
 
       <section className={styles.content}>
+        {activeTab === 'workspaces' && (
+          <div className={styles.list}>
+            <button className={styles.newChatBtn} onClick={() => void openWorkspaceFolder()}>New Workspace (Pick Folder)</button>
+            {workspaces.map((workspace) => (
+              <button
+                key={workspace.id}
+                className={`${styles.itemRow} ${workspace.id === currentWorkspaceId ? styles.rowActive : ''}`}
+                onClick={() => selectWorkspace(workspace.id)}
+              >
+                <span className={styles.rowTitle}>{workspace.name}</span>
+                <span className="badge badge-dim">{workspace.source}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {activeTab === 'chat' && (
           <>
             <button className={styles.newChatBtn} onClick={handleNewChat}>New Chat</button>
@@ -235,6 +276,26 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
         {activeTab === 'tasks' && (
           <div className={styles.list}>
             <p className={styles.hint}>Global tasks (not workspace scoped)</p>
+            {drafts.length > 0 && (
+              <>
+                <p className={styles.hint}>Promoted task drafts</p>
+                {drafts.slice(0, 10).map((draft) => (
+                  <div key={draft.id} className={styles.detailCard}>
+                    <p className={styles.rowTitle}>{draft.title}</p>
+                    <p className={styles.rowMeta}>{draft.steps.length} steps</p>
+                    <div className={styles.rowActions}>
+                      <button className={styles.actionBtn} onClick={() => void executeDraft(draft.id, draft.steps)} data-tooltip="Run draft" aria-label="Run draft" disabled={executingDraftId === draft.id}>
+                        <Play size={12} />
+                      </button>
+                      <button className={styles.actionBtn} onClick={() => deleteDraft(draft.id)} data-tooltip="Delete draft" aria-label="Delete draft">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    {draft.lastResult && <p className={styles.detailText}>{draft.lastResult}</p>}
+                  </div>
+                ))}
+              </>
+            )}
             {tasks.length === 0 && <p className={styles.empty}>No tasks yet.</p>}
             {tasks.map((task) => (
               <button

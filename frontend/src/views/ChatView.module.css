@@ -5,6 +5,34 @@
   background: var(--bg-surface);
 }
 
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.promoteBtn {
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.promoteBtn:hover {
+  border-color: var(--accent-primary);
+}
+
+.candidateHint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;
