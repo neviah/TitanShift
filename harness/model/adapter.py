@@ -13,6 +13,7 @@ from harness.runtime.config import ConfigManager
 class ModelRequest:
     prompt: str
     system_prompt: str | None = None
+    available_tools: list[dict[str, str]] | None = None
 
 
 @dataclass(slots=True)
@@ -65,16 +66,32 @@ class LMStudioAdapter:
         self.timeout_s = timeout_s
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
+        messages = [
+            {"role": "system", "content": request.system_prompt or "You are a helpful assistant."},
+            {"role": "user", "content": request.prompt},
+        ]
+        
         payload = {
             "model": self.default_model,
-            "messages": [
-                {"role": "system", "content": request.system_prompt or "You are a helpful assistant."},
-                {"role": "user", "content": request.prompt},
-            ],
+            "messages": messages,
             "temperature": 0.2,
             "max_tokens": 256,
             "reasoning": "off",
         }
+        
+        # Add tools if available
+        if request.available_tools:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.get("name", "unknown"),
+                        "description": tool.get("description", ""),
+                    }
+                }
+                for tool in request.available_tools
+            ]
+        
         endpoint = f"{self.base_url}/chat/completions"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_s) as client:

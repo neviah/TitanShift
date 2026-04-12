@@ -20,6 +20,7 @@ class ReactiveStateMachine:
             return TaskResult(task_id=task.id, output={}, success=False, error="Budget exceeded: max_steps < 1")
 
         preferred_backend = task.input.get("model_backend") if task.input else None
+        available_tools = task.input.get("available_tools", []) if task.input else []
         model = self.models.select_model(preferred_backend)
 
         prompt_tokens = model.estimate_tokens(task.description)
@@ -33,7 +34,10 @@ class ReactiveStateMachine:
 
         try:
             response = await asyncio.wait_for(
-                model.generate(ModelRequest(prompt=task.description)),
+                model.generate(ModelRequest(
+                    prompt=task.description,
+                    available_tools=available_tools or None
+                )),
                 timeout=budget["max_duration_ms"] / 1000.0,
             )
         except TimeoutError:

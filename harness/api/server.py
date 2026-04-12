@@ -1368,6 +1368,17 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_input["model_backend"] = body.model_backend
         if body.budget:
             task_input["budget"] = body.budget.model_dump(exclude_none=True)
+        
+        # Include available tools so the LLM can choose to use them
+        available_tools = runtime.tools.list_tools()
+        task_input["available_tools"] = [
+            {
+                "name": t.name,
+                "description": t.description or "",
+            }
+            for t in available_tools
+            if runtime.tools.preview_policy(t)[0]  # Only include tools allowed by policy
+        ]
 
         task = Task(
             id=str(uuid.uuid4()),
