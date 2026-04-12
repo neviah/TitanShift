@@ -9,6 +9,15 @@ export interface TaskDraft {
   createdAt: string
   lastExecutedAt?: string
   lastResult?: string
+  execution?: {
+    startedAt: string
+    finishedAt?: string
+    steps: Array<{
+      instruction: string
+      status: 'pending' | 'running' | 'done' | 'error'
+      output?: string
+    }>
+  }
 }
 
 interface TaskDraftsContextValue {
@@ -16,6 +25,14 @@ interface TaskDraftsContextValue {
   promoteSessionToDraft: (session: ChatSession) => TaskDraft | null
   deleteDraft: (id: string) => void
   setExecutionResult: (id: string, result: string) => void
+  setDraftTitle: (id: string, title: string) => void
+  setDraftStep: (id: string, index: number, text: string) => void
+  addDraftStep: (id: string) => void
+  removeDraftStep: (id: string, index: number) => void
+  moveDraftStep: (id: string, index: number, direction: -1 | 1) => void
+  startExecution: (id: string, steps: string[]) => void
+  updateExecutionStep: (id: string, index: number, status: 'pending' | 'running' | 'done' | 'error', output?: string) => void
+  finishExecution: (id: string) => void
 }
 
 const STORAGE_KEY = 'titanshift-task-drafts-v1'
@@ -36,6 +53,14 @@ const TaskDraftsContext = createContext<TaskDraftsContextValue>({
   promoteSessionToDraft: () => null,
   deleteDraft: () => {},
   setExecutionResult: () => {},
+  setDraftTitle: () => {},
+  setDraftStep: () => {},
+  addDraftStep: () => {},
+  removeDraftStep: () => {},
+  moveDraftStep: () => {},
+  startExecution: () => {},
+  updateExecutionStep: () => {},
+  finishExecution: () => {},
 })
 
 function extractStepsFromSession(session: ChatSession): string[] {
@@ -95,8 +120,107 @@ export function TaskDraftsProvider({ children }: { children: ReactNode }) {
     )))
   }
 
+  function setDraftTitle(id: string, title: string) {
+    const nextTitle = title.trim()
+    if (!nextTitle) return
+    setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, title: nextTitle } : d)))
+  }
+
+  function setDraftStep(id: string, index: number, text: string) {
+    setDrafts((prev) => prev.map((d) => {
+      if (d.id !== id) return d
+      const next = d.steps.slice()
+      if (index < 0 || index >= next.length) return d
+      next[index] = text
+      return { ...d, steps: next }
+    }))
+  }
+
+  function addDraftStep(id: string) {
+    setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, steps: [...d.steps, ''] } : d)))
+  }
+
+  function removeDraftStep(id: string, index: number) {
+    setDrafts((prev) => prev.map((d) => {
+      if (d.id !== id) return d
+      return { ...d, steps: d.steps.filter((_, i) => i !== index) }
+    }))
+  }
+
+  function moveDraftStep(id: string, index: number, direction: -1 | 1) {
+    setDrafts((prev) => prev.map((d) => {
+      if (d.id !== id) return d
+      const nextIndex = index + direction
+      if (index < 0 || nextIndex < 0 || nextIndex >= d.steps.length) return d
+      const steps = d.steps.slice()
+      const [item] = steps.splice(index, 1)
+      steps.splice(nextIndex, 0, item)
+      return { ...d, steps }
+    }))
+  }
+
+  function startExecution(id: string, steps: string[]) {
+    setDrafts((prev) => prev.map((d) => {
+      if (d.id !== id) return d
+      return {
+        ...d,
+        execution: {
+          startedAt: new Date().toISOString(),
+          steps: steps.map((instruction) => ({ instruction, status: 'pending' as const })),
+        },
+      }
+    }))
+  }
+
+  function updateExecutionStep(id: string, index: number, status: 'pending' | 'running' | 'done' | 'error', output?: string) {
+    setDrafts((prev) => prev.map((d) => {
+      if (d.id !== id || !d.execution) return d
+      const steps = d.execution.steps.slice()
+      if (index < 0 || index >= steps.length) return d
+      steps[index] = {
+        ...steps[index],
+        status,
+        ...(typeof output === 'string' ? { output } : {}),
+      }
+      return {
+        ...d,
+        execution: {
+          ...d.execution,
+          steps,
+        },
+      }
+    }))
+  }
+
+  function finishExecution(id: string) {
+    setDrafts((prev) => prev.map((d) => {
+      if (d.id !== id || !d.execution) return d
+      return {
+        ...d,
+        lastExecutedAt: new Date().toISOString(),
+        execution: {
+          ...d.execution,
+          finishedAt: new Date().toISOString(),
+        },
+      }
+    }))
+  }
+
   const value = useMemo(
-    () => ({ drafts, promoteSessionToDraft, deleteDraft, setExecutionResult }),
+    () => ({
+      drafts,
+      promoteSessionToDraft,
+      deleteDraft,
+      setExecutionResult,
+      setDraftTitle,
+      setDraftStep,
+      addDraftStep,
+      removeDraftStep,
+      moveDraftStep,
+      startExecution,
+      updateExecutionStep,
+      finishExecution,
+    }),
     [drafts],
   )
 

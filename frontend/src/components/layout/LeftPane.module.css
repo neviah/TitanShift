@@ -255,6 +255,56 @@
   white-space: pre-wrap;
 }
 
+.stepsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.stepRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepInput {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  padding: 5px 6px;
+}
+
+.stepInput:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.executionLog {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.executionItem {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executionText {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
 .tree {
   display: flex;
   flex-direction: column;

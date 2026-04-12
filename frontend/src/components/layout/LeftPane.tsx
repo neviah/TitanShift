@@ -18,6 +18,9 @@ import {
   Trash2,
   Briefcase,
   Play,
+  Plus,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import styles from './LeftPane.module.css'
@@ -60,7 +63,19 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
   const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
   const { sessions, currentSessionId, createSession, selectSession, renameSession, archiveSession, restoreSession, deleteSession } = useChatSessions()
-  const { drafts, deleteDraft, setExecutionResult } = useTaskDrafts()
+  const {
+    drafts,
+    deleteDraft,
+    setExecutionResult,
+    setDraftTitle,
+    setDraftStep,
+    addDraftStep,
+    removeDraftStep,
+    moveDraftStep,
+    startExecution,
+    updateExecutionStep,
+    finishExecution,
+  } = useTaskDrafts()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
@@ -162,20 +177,44 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   }
 
   async function executeDraft(draftId: string, steps: string[]) {
-    const prompt = [
-      'Execute the following task checklist strictly in order, and report concise results for each step.',
-      ...steps.map((step, i) => `${i + 1}. ${step}`),
-    ].join('\n')
+    const filteredSteps = steps.map((s) => s.trim()).filter(Boolean)
+    if (filteredSteps.length === 0) {
+      setExecutionResult(draftId, 'Cannot run draft: no non-empty steps.')
+      return
+    }
 
     setExecutingDraftId(draftId)
+    startExecution(draftId, filteredSteps)
+
+    const outputs: string[] = []
     try {
       const cfg = await fetchConfig()
       const backend = typeof cfg['model.default_backend'] === 'string' ? String(cfg['model.default_backend']) : undefined
-      const res = await sendChat({ prompt, ...(backend ? { model_backend: backend } : {}) })
-      setExecutionResult(draftId, (res.response ?? '').slice(0, 1000))
+
+      for (let i = 0; i < filteredSteps.length; i += 1) {
+        const step = filteredSteps[i]
+        updateExecutionStep(draftId, i, 'running')
+        const contextBlock = outputs.length > 0
+          ? `\n\nPrevious completed step outputs:\n${outputs.map((o, idx) => `${idx + 1}. ${o}`).join('\n')}`
+          : ''
+        const prompt = `You are executing a task checklist. Complete step ${i + 1}/${filteredSteps.length}: ${step}${contextBlock}`
+        try {
+          const res = await sendChat({ prompt, ...(backend ? { model_backend: backend } : {}) })
+          const output = (res.response ?? '').slice(0, 400)
+          outputs.push(output)
+          updateExecutionStep(draftId, i, 'done', output)
+        } catch (stepError) {
+          const stepErr = stepError instanceof Error ? stepError.message : String(stepError)
+          updateExecutionStep(draftId, i, 'error', stepErr)
+          throw stepError
+        }
+      }
+
+      setExecutionResult(draftId, outputs.join('\n').slice(0, 1000))
     } catch (e) {
       setExecutionResult(draftId, e instanceof Error ? e.message : String(e))
     } finally {
+      finishExecution(draftId)
       setExecutingDraftId(null)
     }
   }
@@ -281,9 +320,38 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                 <p className={styles.hint}>Promoted task drafts</p>
                 {drafts.slice(0, 10).map((draft) => (
                   <div key={draft.id} className={styles.detailCard}>
-                    <p className={styles.rowTitle}>{draft.title}</p>
+                    <input
+                      className={styles.stepInput}
+                      value={draft.title}
+                      onChange={(e) => setDraftTitle(draft.id, e.target.value)}
+                    />
                     <p className={styles.rowMeta}>{draft.steps.length} steps</p>
+                    <div className={styles.stepsList}>
+                      {draft.steps.map((step, index) => (
+                        <div key={`${draft.id}-step-${index}`} className={styles.stepRow}>
+                          <input
+                            className={styles.stepInput}
+                            value={step}
+                            onChange={(e) => setDraftStep(draft.id, index, e.target.value)}
+                          />
+                          <div className={styles.rowActions}>
+                            <button className={styles.actionBtn} onClick={() => moveDraftStep(draft.id, index, -1)} data-tooltip="Move up" aria-label="Move step up">
+                              <ArrowUp size={12} />
+                            </button>
+                            <button className={styles.actionBtn} onClick={() => moveDraftStep(draft.id, index, 1)} data-tooltip="Move down" aria-label="Move step down">
+                              <ArrowDown size={12} />
+                            </button>
+                            <button className={styles.actionBtn} onClick={() => removeDraftStep(draft.id, index)} data-tooltip="Remove step" aria-label="Remove step">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                     <div className={styles.rowActions}>
+                      <button className={styles.actionBtn} onClick={() => addDraftStep(draft.id)} data-tooltip="Add step" aria-label="Add step">
+                        <Plus size={12} />
+                      </button>
                       <button className={styles.actionBtn} onClick={() => void executeDraft(draft.id, draft.steps)} data-tooltip="Run draft" aria-label="Run draft" disabled={executingDraftId === draft.id}>
                         <Play size={12} />
                       </button>
@@ -291,6 +359,19 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                         <Trash2 size={12} />
                       </button>
                     </div>
+                    {draft.execution && (
+                      <div className={styles.executionLog}>
+                        {draft.execution.steps.map((stepLog, i) => (
+                          <div key={`${draft.id}-log-${i}`} className={styles.executionItem}>
+                            <span className={`badge ${stepLog.status === 'done' ? 'badge-ok' : stepLog.status === 'error' ? 'badge-error' : stepLog.status === 'running' ? 'badge-warn' : 'badge-dim'}`}>
+                              {stepLog.status}
+                            </span>
+                            <span className={styles.executionText}>{stepLog.instruction}</span>
+                            {stepLog.output && <p className={styles.detailText}>{stepLog.output}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {draft.lastResult && <p className={styles.detailText}>{draft.lastResult}</p>}
                   </div>
                 ))}
