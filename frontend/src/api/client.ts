@@ -8,6 +8,10 @@ import type {
   TaskSummary,
   TaskDetail,
   WorkspaceTreeNode,
+  WorkspaceFileResponse,
+  ToolSummary,
+  MemorySummary,
+  LogQueryResponse,
 } from './types'
 
 const API_BASE = '/api'
@@ -99,4 +103,20 @@ export function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
 
 export function fetchWorkspaceTree(): Promise<WorkspaceTreeNode[]> {
   return request('/workspace/tree')
+}
+
+export function fetchWorkspaceFile(path: string): Promise<WorkspaceFileResponse> {
+  return request(`/workspace/file?path=${encodeURIComponent(path)}`)
+}
+
+export function fetchTools(): Promise<ToolSummary[]> {
+  return request('/tools')
+}
+
+export function fetchMemorySummary(): Promise<MemorySummary> {
+  return request('/memory/summary')
+}
+
+export function fetchLogs(limit = 20): Promise<LogQueryResponse> {
+  return request(`/logs?limit=${limit}`)
 }

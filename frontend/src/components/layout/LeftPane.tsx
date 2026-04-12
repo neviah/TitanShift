@@ -12,12 +12,16 @@ import {
   ChevronDown,
   FileText,
   Folder,
+  Pencil,
+  Archive,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import styles from './LeftPane.module.css'
 import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
-import { fetchMarketList, fetchTaskDetail, fetchTasks, fetchWorkspaceTree } from '../../api/client'
+import { fetchLogs, fetchMarketList, fetchMemorySummary, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
 import type { TaskDetail, WorkspaceTreeNode } from '../../api/types'
 
@@ -35,13 +39,18 @@ const TABS: { id: NavTab; label: string; Icon: React.FC<{ size?: number }> }[] =
 interface LeftPaneProps {
   activeTab: NavTab
   onTabChange: (tab: NavTab) => void
+  onOpenFile: (path: string) => void
+  selectedFilePath: string | null
 }
 
-export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
+export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath }: LeftPaneProps) {
   const { data: taskData } = usePolling(fetchTasks, { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: treeData } = usePolling(fetchWorkspaceTree, { interval: 30000 })
-  const { sessions, currentSessionId, createSession, selectSession } = useChatSessions()
+  const { data: toolsData } = usePolling(fetchTools, { interval: 30000 })
+  const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
+  const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
+  const { sessions, currentSessionId, createSession, selectSession, renameSession, archiveSession, restoreSession, deleteSession } = useChatSessions()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
@@ -49,7 +58,11 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
   const tasks = (taskData ?? []).slice().reverse().slice(0, 12)
   const installedSkills = (skillsData ?? []).filter((s) => s.installed).slice(0, 12)
   const recentSessions = useMemo(
-    () => sessions.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
+    () => sessions.filter((s) => !s.archived).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
+    [sessions],
+  )
+  const archivedSessions = useMemo(
+    () => sessions.filter((s) => s.archived).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
     [sessions],
   )
 
@@ -86,6 +99,13 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
     setExpandedPaths((prev) => ({ ...prev, [path]: !prev[path] }))
   }
 
+  function handleRename(id: string, title: string) {
+    const next = window.prompt('Rename chat thread', title)
+    if (typeof next === 'string') {
+      renameSession(id, next)
+    }
+  }
+
   return (
     <div className={styles.root}>
       <div className={styles.header}>
@@ -98,7 +118,8 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
             key={id}
             className={`${styles.tab} ${activeTab === id ? styles.active : ''}`}
             onClick={() => onTabChange(id)}
-            title={label}
+            data-tooltip={label}
+            aria-label={label}
           >
             <Icon size={16} />
           </button>
@@ -112,19 +133,52 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
             <div className={styles.list}>
               {recentSessions.length === 0 && <p className={styles.empty}>No previous chats yet.</p>}
               {recentSessions.map((session) => (
-                <button
-                  key={session.id}
-                  className={`${styles.row} ${currentSessionId === session.id ? styles.rowActive : ''}`}
-                  title={session.title}
-                  onClick={() => {
-                    selectSession(session.id)
-                    onTabChange('chat')
-                  }}
-                >
-                  <span className={styles.rowTitle}>{session.title}</span>
-                  <span className={styles.rowMeta}>{session.messages.length} msgs</span>
-                </button>
+                <div key={session.id} className={`${styles.row} ${currentSessionId === session.id ? styles.rowActive : ''}`}>
+                  <button
+                    className={styles.rowMain}
+                    title={session.title}
+                    onClick={() => {
+                      selectSession(session.id)
+                      onTabChange('chat')
+                    }}
+                  >
+                    <span className={styles.rowTitle}>{session.title}</span>
+                    <span className={styles.rowMeta}>{session.messages.length} msgs</span>
+                  </button>
+                  <div className={styles.rowActions}>
+                    <button className={styles.actionBtn} onClick={() => handleRename(session.id, session.title)} data-tooltip="Rename" aria-label="Rename chat">
+                      <Pencil size={12} />
+                    </button>
+                    <button className={styles.actionBtn} onClick={() => archiveSession(session.id)} data-tooltip="Archive" aria-label="Archive chat">
+                      <Archive size={12} />
+                    </button>
+                    <button className={styles.actionBtn} onClick={() => deleteSession(session.id)} data-tooltip="Delete" aria-label="Delete chat">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
               ))}
+              {archivedSessions.length > 0 && (
+                <>
+                  <p className={styles.hint}>Archived</p>
+                  {archivedSessions.map((session) => (
+                    <div key={session.id} className={styles.row}>
+                      <button className={styles.rowMain} onClick={() => restoreSession(session.id)} title={session.title}>
+                        <span className={styles.rowTitle}>{session.title}</span>
+                        <span className={styles.rowMeta}>archived</span>
+                      </button>
+                      <div className={styles.rowActions}>
+                        <button className={styles.actionBtn} onClick={() => restoreSession(session.id)} data-tooltip="Restore" aria-label="Restore chat">
+                          <RotateCcw size={12} />
+                        </button>
+                        <button className={styles.actionBtn} onClick={() => deleteSession(session.id)} data-tooltip="Delete" aria-label="Delete chat">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </>
         )}
@@ -165,7 +219,7 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
             {!treeData || treeData.length === 0 ? <p className={styles.empty}>No files available.</p> : (
               <div className={styles.tree}>
                 {treeData.map((node) => (
-                  <TreeNode key={node.path} node={node} expandedPaths={expandedPaths} onToggle={togglePath} />
+                  <TreeNode key={node.path} node={node} expandedPaths={expandedPaths} onToggle={togglePath} onOpenFile={onOpenFile} selectedFilePath={selectedFilePath} />
                 ))}
               </div>
             )}
@@ -186,10 +240,50 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
           </div>
         )}
 
-        {(activeTab === 'scheduler' || activeTab === 'tools' || activeTab === 'memory' || activeTab === 'logs') && (
+        {activeTab === 'tools' && (
           <div className={styles.list}>
-            <p className={styles.hint}>Context panel for {activeTab}.</p>
-            <p className={styles.empty}>Select {activeTab} to keep this side panel visible while you continue chatting in the center.</p>
+            <p className={styles.hint}>Available tools</p>
+            {(toolsData ?? []).slice(0, 14).map((tool) => (
+              <div key={tool.name} className={styles.itemRow}>
+                <span className={styles.rowTitle}>{tool.name}</span>
+                <span className={`badge ${tool.allowed_by_policy ? 'badge-ok' : 'badge-error'}`}>{tool.allowed_by_policy ? 'allowed' : 'blocked'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'memory' && (
+          <div className={styles.list}>
+            <p className={styles.hint}>Memory summary</p>
+            {memoryData ? (
+              <div className={styles.detailCard}>
+                <p className={styles.detailLine}><span>Working agents</span><span>{memoryData.working_agents}</span></p>
+                <p className={styles.detailLine}><span>Working entries</span><span>{memoryData.working_entries}</span></p>
+                <p className={styles.detailLine}><span>Short-term agents</span><span>{memoryData.short_term_agents}</span></p>
+                <p className={styles.detailLine}><span>Short-term entries</span><span>{memoryData.short_term_entries}</span></p>
+                <p className={styles.detailLine}><span>Long-term scopes</span><span>{memoryData.long_term_scopes}</span></p>
+                <p className={styles.detailLine}><span>Long-term entries</span><span>{memoryData.long_term_entries}</span></p>
+              </div>
+            ) : <p className={styles.empty}>No memory data yet.</p>}
+          </div>
+        )}
+
+        {activeTab === 'logs' && (
+          <div className={styles.list}>
+            <p className={styles.hint}>Recent logs</p>
+            {(logsData?.items ?? []).slice(0, 12).map((entry, index) => (
+              <div key={`${entry.timestamp}-${entry.event_type}-${index}`} className={styles.row}>
+                <span className={styles.rowTitle}>{entry.event_type}</span>
+                <span className={styles.rowMeta}>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'scheduler' && (
+          <div className={styles.list}>
+            <p className={styles.hint}>Scheduler panel</p>
+            <p className={styles.empty}>Scheduler detail can be added next; chat remains available in the center.</p>
           </div>
         )}
 
@@ -204,7 +298,8 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
         <button
           className={`${styles.tab} ${activeTab === 'settings' ? styles.active : ''}`}
           onClick={() => onTabChange('settings')}
-          title="Settings"
+          data-tooltip="Settings"
+          aria-label="Settings"
         >
           <Settings size={16} />
         </button>
@@ -217,21 +312,25 @@ function TreeNode({
   node,
   expandedPaths,
   onToggle,
+  onOpenFile,
+  selectedFilePath,
   depth = 0,
 }: {
   node: WorkspaceTreeNode
   expandedPaths: Record<string, boolean>
   onToggle: (path: string) => void
+  onOpenFile: (path: string) => void
+  selectedFilePath: string | null
   depth?: number
 }) {
   const isOpen = expandedPaths[node.path] ?? depth < 1
 
   if (!node.is_dir) {
     return (
-      <div className={styles.treeRow} style={{ paddingLeft: `${depth * 14 + 6}px` }} title={node.path}>
+      <button className={`${styles.treeRowButton} ${selectedFilePath === node.path ? styles.rowActive : ''}`} style={{ paddingLeft: `${depth * 14 + 6}px` }} title={node.path} onClick={() => onOpenFile(node.path)}>
         <FileText size={13} className={styles.treeIcon} />
         <span className={styles.treeLabel}>{node.name}</span>
-      </div>
+      </button>
     )
   }
 
@@ -243,7 +342,7 @@ function TreeNode({
         <span className={styles.treeLabel}>{node.name}</span>
       </button>
       {isOpen && node.children?.map((child) => (
-        <TreeNode key={child.path} node={child} expandedPaths={expandedPaths} onToggle={onToggle} depth={depth + 1} />
+        <TreeNode key={child.path} node={child} expandedPaths={expandedPaths} onToggle={onToggle} onOpenFile={onOpenFile} selectedFilePath={selectedFilePath} depth={depth + 1} />
       ))}
     </div>
   )

@@ -10,6 +10,7 @@ export interface ChatSession {
   title: string
   messages: ChatMessage[]
   updatedAt: string
+  archived?: boolean
 }
 
 interface ChatSessionsContextValue {
@@ -19,6 +20,10 @@ interface ChatSessionsContextValue {
   createSession: () => void
   selectSession: (id: string) => void
   appendMessage: (message: ChatMessage) => void
+  renameSession: (id: string, title: string) => void
+  archiveSession: (id: string) => void
+  restoreSession: (id: string) => void
+  deleteSession: (id: string) => void
 }
 
 const STORAGE_KEY = 'titanshift-chat-sessions-v1'
@@ -30,6 +35,7 @@ function makeSession(partial?: Partial<ChatSession>): ChatSession {
     title: partial?.title ?? 'New Chat',
     messages: partial?.messages ?? [],
     updatedAt: partial?.updatedAt ?? now,
+    archived: partial?.archived ?? false,
   }
 }
 
@@ -63,6 +69,10 @@ const ChatSessionsContext = createContext<ChatSessionsContextValue>({
   createSession: () => {},
   selectSession: () => {},
   appendMessage: () => {},
+  renameSession: () => {},
+  archiveSession: () => {},
+  restoreSession: () => {},
+  deleteSession: () => {},
 })
 
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
@@ -110,8 +120,56 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     }))
   }
 
+  function renameSession(id: string, title: string) {
+    const nextTitle = title.trim()
+    if (!nextTitle) return
+    setState((prev) => ({
+      currentSessionId: prev.currentSessionId,
+      sessions: prev.sessions.map((session) => (
+        session.id === id ? { ...session, title: nextTitle, updatedAt: new Date().toISOString() } : session
+      )).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    }))
+  }
+
+  function archiveSession(id: string) {
+    setState((prev) => {
+      const sessions = prev.sessions.map((session) => (
+        session.id === id ? { ...session, archived: true, updatedAt: new Date().toISOString() } : session
+      ))
+      const activeSessions = sessions.filter((session) => !session.archived)
+      const fallback = activeSessions[0] ?? makeSession()
+      return {
+        currentSessionId: prev.currentSessionId === id ? fallback.id : prev.currentSessionId,
+        sessions: activeSessions.length > 0 ? sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [fallback, ...sessions],
+      }
+    })
+  }
+
+  function restoreSession(id: string) {
+    setState((prev) => ({
+      currentSessionId: id,
+      sessions: prev.sessions.map((session) => (
+        session.id === id ? { ...session, archived: false, updatedAt: new Date().toISOString() } : session
+      )).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    }))
+  }
+
+  function deleteSession(id: string) {
+    setState((prev) => {
+      const remaining = prev.sessions.filter((session) => session.id !== id)
+      if (remaining.length === 0) {
+        const next = makeSession()
+        return { sessions: [next], currentSessionId: next.id }
+      }
+      return {
+        sessions: remaining,
+        currentSessionId: prev.currentSessionId === id ? remaining[0].id : prev.currentSessionId,
+      }
+    })
+  }
+
   return (
-    <ChatSessionsContext.Provider value={{ sessions, currentSessionId, currentSession, createSession, selectSession, appendMessage }}>
+    <ChatSessionsContext.Provider value={{ sessions, currentSessionId, currentSession, createSession, selectSession, appendMessage, renameSession, archiveSession, restoreSession, deleteSession }}>
       {children}
     </ChatSessionsContext.Provider>
   )

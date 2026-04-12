@@ -12,6 +12,7 @@ import styles from './App.module.css'
 function Shell() {
   const [activeTab, setActiveTab] = useState<NavTab>('chat')
   const [activeLeftSection, setActiveLeftSection] = useState<NavTab>('chat')
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
 
@@ -31,6 +32,12 @@ function Shell() {
     setActiveTab('chat')
   }
 
+  function handleOpenFile(path: string) {
+    setActiveLeftSection('files')
+    setSelectedFilePath(path)
+    setActiveTab('files')
+  }
+
   return (
     <div className={styles.root}>
       <TopBar
@@ -43,8 +50,8 @@ function Shell() {
         <TriPane
           leftCollapsed={leftCollapsed}
           rightCollapsed={rightCollapsed}
-          left={<LeftPane activeTab={activeLeftSection} onTabChange={handleLeftSectionChange} />}
-          center={<CenterPane activeTab={activeTab} />}
+          left={<LeftPane activeTab={activeLeftSection} onTabChange={handleLeftSectionChange} onOpenFile={handleOpenFile} selectedFilePath={selectedFilePath} />}
+          center={<CenterPane activeTab={activeTab} selectedFilePath={selectedFilePath} />}
           right={<RightPane />}
         />
       </div>

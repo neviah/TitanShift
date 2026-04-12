@@ -94,6 +94,7 @@ from harness.api.schemas import (
     UiMarketOverviewResponse,
     TaskDetail,
     TaskSummary,
+    WorkspaceFileResponse,
     WorkspaceTreeNode,
     ToolSummary,
 )
@@ -1384,6 +1385,19 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.get("/workspace/tree", response_model=list[WorkspaceTreeNode], dependencies=[Depends(require_read_api_key)])
     async def workspace_tree() -> list[WorkspaceTreeNode]:
         return _build_workspace_tree(workspace_root, workspace_root, max_depth=4)
+
+    @app.get("/workspace/file", response_model=WorkspaceFileResponse, dependencies=[Depends(require_read_api_key)])
+    async def workspace_file(path: str) -> WorkspaceFileResponse:
+        target = (workspace_root / path).resolve()
+        if workspace_root.resolve() not in target.parents and target != workspace_root.resolve():
+            raise HTTPException(status_code=400, detail="Path escapes workspace")
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        try:
+            content = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            content = target.read_text(encoding="utf-8", errors="replace")
+        return WorkspaceFileResponse(path=str(path).replace('\\', '/'), content=content[:200000])
 
     @app.get("/logs", response_model=LogQueryResponse, dependencies=[Depends(require_read_api_key)])
     async def get_logs(

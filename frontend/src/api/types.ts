@@ -167,3 +167,41 @@ export interface WorkspaceTreeNode {
   is_dir: boolean
   children?: WorkspaceTreeNode[]
 }
+
+export interface WorkspaceFileResponse {
+  path: string
+  content: string
+}
+
+export interface LogEntry {
+  timestamp: string
+  event_type: string
+  payload: Record<string, unknown>
+}
+
+export interface LogQueryResponse {
+  items: LogEntry[]
+  limit: number
+  offset: number
+  has_more: boolean
+  next_offset?: number | null
+}
+
+export interface ToolSummary {
+  name: string
+  description: string
+  needs_network: boolean
+  required_paths: string[]
+  required_commands: string[]
+  allowed_by_policy: boolean
+  policy_reason: string
+}
+
+export interface MemorySummary {
+  working_agents: number
+  working_entries: number
+  short_term_agents: number
+  short_term_entries: number
+  long_term_scopes: number
+  long_term_entries: number
+}

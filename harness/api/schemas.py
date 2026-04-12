@@ -49,6 +49,11 @@ class WorkspaceTreeNode(BaseModel):
     children: list["WorkspaceTreeNode"] = Field(default_factory=list)
 
 
+class WorkspaceFileResponse(BaseModel):
+    path: str
+    content: str
+
+
 class LogEntry(BaseModel):
     timestamp: str
     event_type: str
