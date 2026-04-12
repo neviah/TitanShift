@@ -21,9 +21,8 @@ export function TriPane({ left, center, right, leftCollapsed = false, rightColla
         <>
           <Panel
             id="left"
-            defaultSize={18}
-            minSize={12}
-            maxSize={30}
+            defaultSize={20}
+            minSize={8}
             className={styles.pane}
           >
             {left}
@@ -32,7 +31,7 @@ export function TriPane({ left, center, right, leftCollapsed = false, rightColla
         </>
       )}
 
-      <Panel id="center" defaultSize={leftCollapsed && rightCollapsed ? 100 : 56} minSize={30} className={styles.pane}>
+      <Panel id="center" defaultSize={leftCollapsed && rightCollapsed ? 100 : 54} minSize={15} className={styles.pane}>
         {center}
       </Panel>
 
@@ -42,8 +41,7 @@ export function TriPane({ left, center, right, leftCollapsed = false, rightColla
           <Panel
             id="right"
             defaultSize={26}
-            minSize={16}
-            maxSize={40}
+            minSize={8}
             className={styles.pane}
           >
             {right}
