@@ -12,6 +12,8 @@ import type {
   ToolSummary,
   MemorySummary,
   LogQueryResponse,
+  GraphifyRequest,
+  GraphifyResponse,
 } from './types'
 
 const API_BASE = '/api'
@@ -36,6 +38,15 @@ export function fetchIngestionOverview(): Promise<UiIngestionOverviewResponse> {
 
 export function fetchMarketOverview(): Promise<UiMarketOverviewResponse> {
   return request('/ui/market/overview')
+}
+
+// ---- Graphify Ingestion ----
+
+export function graphifyIngest(body: GraphifyRequest): Promise<GraphifyResponse> {
+  return request('/ingestion/graphify', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
 
 // ---- Health / Status ----

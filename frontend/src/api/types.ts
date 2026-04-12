@@ -38,6 +38,22 @@ export interface UiIngestionOverviewResponse {
   recent_dedupe_events: DedupeEvent[]
 }
 
+// ---- Graphify Ingestion ----
+
+export interface GraphifyRequest {
+  text: string
+  metadata?: Record<string, unknown>
+}
+
+export interface GraphifyResponse {
+  ok: boolean
+  nodes_added: number
+  nodes_skipped: number
+  edges_added: number
+  edges_skipped: number
+  node_ids: string[]
+}
+
 // ---- Skills Market ----
 
 export interface SkillMarketItem {
