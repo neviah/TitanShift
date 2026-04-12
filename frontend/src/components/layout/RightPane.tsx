@@ -11,7 +11,10 @@ import styles from './RightPane.module.css'
 import type { RightTab } from '../../types/nav'
 import { AgentTab } from './right/AgentTab'
 import { HealthTab } from './right/HealthTab'
-import { PlaceholderTab } from './right/PlaceholderTab'
+import { SkillsTab } from './right/SkillsTab'
+import { ToolsTab } from './right/ToolsTab'
+import { MemoryTab } from './right/MemoryTab'
+import { LogsTab } from './right/LogsTab'
 
 const TABS: { id: RightTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'agent',  label: 'Agent',  Icon: Bot },
@@ -42,11 +45,12 @@ export function RightPane() {
       </div>
 
       <div className={styles.body}>
-        {active === 'agent'  && <AgentTab />}
+        {active === 'agent' && <AgentTab />}
+        {active === 'skills' && <SkillsTab />}
+        {active === 'tools' && <ToolsTab />}
+        {active === 'memory' && <MemoryTab />}
+        {active === 'logs' && <LogsTab />}
         {active === 'health' && <HealthTab />}
-        {active !== 'agent' && active !== 'health' && (
-          <PlaceholderTab label={active} />
-        )}
       </div>
     </div>
   )

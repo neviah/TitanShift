@@ -58,6 +58,18 @@ export function HealthTab() {
       {data && data.health.length === 0 && (
         <p className={`${styles.status} text-muted`}>No component records yet</p>
       )}
+
+      {data?.loaded_modules && data.loaded_modules.length > 0 && (
+        <section>
+          <h3 className={styles.heading}>Loaded Modules</h3>
+          {data.loaded_modules.slice(0, 12).map((name) => (
+            <div key={name} className={styles.component}>
+              <span className={styles.compName}>{name}</span>
+              <span className="badge badge-dim">loaded</span>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   )
 }

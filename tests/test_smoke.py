@@ -638,6 +638,7 @@ def test_skills_market_list_endpoint(tmp_path: Path) -> None:
     body = response.json()
     assert len(body) == 1
     assert body[0]["skill_id"] == "market_alpha"
+    assert body[0]["name"] == "Market Alpha"
     assert body[0]["installed"] is True
 
 
@@ -753,6 +754,31 @@ def test_skills_market_uninstall_blocks_when_dependents_present(tmp_path: Path) 
     client = TestClient(app)
     blocked = client.post("/skills/market/uninstall", json={"skill_id": "dep_skill"})
     assert blocked.status_code == 400
+
+
+def test_skills_market_rejects_invalid_skill_id(tmp_path: Path) -> None:
+    storage = tmp_path / ".harness"
+    storage.mkdir(parents=True, exist_ok=True)
+    registry_path = storage / "market.json"
+    installed_path = storage / "installed.json"
+    registry_path.write_text(json.dumps([]), encoding="utf-8")
+    installed_path.write_text(json.dumps([]), encoding="utf-8")
+    (tmp_path / "harness.config.json").write_text(
+        json.dumps(
+            {
+                "skills": {
+                    "market_registry_file": "market.json",
+                    "market_installed_file": "installed.json",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    response = client.post("/skills/market/install", json={"skill_id": "../bad"})
+    assert response.status_code == 400
 
 
 def test_skills_market_update_endpoint(tmp_path: Path) -> None:

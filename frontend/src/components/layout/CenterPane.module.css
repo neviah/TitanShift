@@ -1,7 +1,18 @@
 .root {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-surface);
+  background:
+    radial-gradient(1200px 500px at 10% 0%, color-mix(in oklab, var(--accent-dim) 20%, transparent), transparent 58%),
+    var(--bg-surface);
   overflow: hidden;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }

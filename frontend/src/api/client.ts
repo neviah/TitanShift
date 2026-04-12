@@ -11,6 +11,7 @@ import type {
   WorkspaceFileResponse,
   ToolSummary,
   MemorySummary,
+  AgentSummary,
   LogQueryResponse,
   GraphifyRequest,
   GraphifyResponse,
@@ -135,6 +136,10 @@ export function sendChat(requestBody: ChatRequest): Promise<ChatResponse> {
 
 export function fetchTasks(): Promise<TaskSummary[]> {
   return request('/tasks')
+}
+
+export function fetchAgents(): Promise<AgentSummary[]> {
+  return request('/agents')
 }
 
 export function fetchTaskDetail(taskId: string): Promise<TaskDetail> {

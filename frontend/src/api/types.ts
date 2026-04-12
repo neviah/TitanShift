@@ -138,7 +138,21 @@ export interface HealthResponse {
   default_model_backend: string
   model_connected?: boolean
   model_connection_reason?: string
+  loaded_modules?: string[]
   health: HealthRecord[]
+}
+
+export interface AgentSummary {
+  agent_id: string
+  role: string
+  subagents_enabled: boolean
+  model_default_backend: string
+  memory_layers: string[]
+  assigned_skills: string[]
+  allowed_tools: string[]
+  spawned_from_task?: string | null
+  created_at?: string | null
+  active: boolean
 }
 
 // ---- Chat ----

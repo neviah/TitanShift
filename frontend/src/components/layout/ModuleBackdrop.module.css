@@ -1,0 +1,52 @@
+.root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0.35;
+}
+
+.node {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transform: translate(-50%, -50%);
+  animation: drift 5.5s ease-in-out infinite;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  box-shadow: 0 0 10px currentColor;
+  background: currentColor;
+}
+
+.label {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: lowercase;
+}
+
+.healthy {
+  color: #21c889;
+}
+
+.warn {
+  color: #f4b942;
+}
+
+.error {
+  color: #f05e6e;
+}
+
+@keyframes drift {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -48%) scale(1.04);
+  }
+}

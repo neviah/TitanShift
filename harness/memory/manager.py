@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from harness.memory.graph.base import GraphEdge, GraphNode
+from harness.memory.graph.base import GraphBackend, GraphEdge, GraphNode
+from harness.memory.graph.neo4j_backend import Neo4jGraphBackend
 from harness.memory.graph.networkx_backend import NetworkXGraphBackend
 from harness.memory.semantic_sqlite import SemanticSQLiteStore
 from harness.runtime.config import ConfigManager
@@ -18,7 +19,8 @@ class MemoryManager:
     short_term: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     long_term: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     semantic: SemanticSQLiteStore = field(init=False)
-    graph: NetworkXGraphBackend = field(init=False)
+    graph: GraphBackend = field(init=False)
+    graph_backend_name: str = field(init=False, default="networkx")
 
     def __post_init__(self) -> None:
         storage_root = self.workspace_root / self.config.get("memory.storage_dir", ".harness")
@@ -26,7 +28,30 @@ class MemoryManager:
         sqlite_name = self.config.get("memory.sqlite_file", "memory.db")
         self.semantic = SemanticSQLiteStore(storage_root / sqlite_name)
         graph_file = str(self.config.get("memory.graph_file", "graph.json"))
+        configured_backend = str(self.config.get("memory.graph_backend", "networkx")).strip().lower()
+
+        if configured_backend == "neo4j":
+            uri = str(self.config.get("memory.neo4j.uri", "")).strip()
+            username = str(self.config.get("memory.neo4j.username", "")).strip()
+            password = str(self.config.get("memory.neo4j.password", "")).strip()
+            database_raw = str(self.config.get("memory.neo4j.database", "")).strip()
+            database = database_raw or None
+            if uri and username and password:
+                try:
+                    self.graph = Neo4jGraphBackend(
+                        uri=uri,
+                        username=username,
+                        password=password,
+                        database=database,
+                    )
+                    self.graph_backend_name = "neo4j"
+                    return
+                except Exception:
+                    # Fall back to local backend if Neo4j is unavailable.
+                    pass
+
         self.graph = NetworkXGraphBackend(persistence_path=storage_root / graph_file)
+        self.graph_backend_name = "networkx"
 
     def save_fact(self, scope: str, fact: dict[str, Any]) -> None:
         self.long_term.setdefault(scope, []).append(fact)

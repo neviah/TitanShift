@@ -33,7 +33,13 @@
     "graph_file": "graph.json",
     "semantic_backend": "sqlite",
     "enable_chroma": false,
-    "graph_backend": "networkx"
+    "graph_backend": "networkx",
+    "neo4j": {
+      "uri": "",
+      "username": "",
+      "password": "",
+      "database": ""
+    }
   },
   "tools": {
     "deny_all_by_default": true,

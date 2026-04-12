@@ -477,16 +477,39 @@ def create_app(workspace_root: Path) -> FastAPI:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(status, indent=2, sort_keys=True), encoding="utf-8")
 
+    def _validate_skill_id(skill_id: str) -> None:
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}", skill_id):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid skill_id format. Expected 2-64 chars with letters, numbers, underscore, or hyphen"
+                ),
+            )
+
+    def _derive_market_name(skill_id: str, preferred: str | None = None) -> str:
+        preferred_value = (preferred or "").strip()
+        if preferred_value:
+            return preferred_value
+        return skill_id.replace("_", " ").replace("-", " ").strip().title() or skill_id
+
     def _normalize_market_item(item: dict[str, Any]) -> dict[str, Any]:
+        skill_id = str(item.get("skill_id", "")).strip()
+        if skill_id:
+            _validate_skill_id(skill_id)
+        tags = sorted({str(v).strip() for v in list(item.get("tags", [])) if str(v).strip()})
+        required_tools = sorted({str(v).strip() for v in list(item.get("required_tools", [])) if str(v).strip()})
+        dependencies = sorted({str(v).strip() for v in list(item.get("dependencies", [])) if str(v).strip()})
+        dependencies = [d for d in dependencies if d != skill_id]
         return {
-            "skill_id": str(item.get("skill_id", "")).strip(),
+            "skill_id": skill_id,
+            "name": _derive_market_name(skill_id, str(item.get("name", ""))),
             "description": str(item.get("description", "")),
             "mode": str(item.get("mode", "prompt")),
             "domain": str(item.get("domain", "general")),
             "version": str(item.get("version", "0.1.0")),
-            "tags": [str(v) for v in list(item.get("tags", []))],
-            "required_tools": [str(v) for v in list(item.get("required_tools", []))],
-            "dependencies": [str(v) for v in list(item.get("dependencies", []))],
+            "tags": tags,
+            "required_tools": required_tools,
+            "dependencies": dependencies,
             "prompt_template": (
                 str(item.get("prompt_template"))
                 if item.get("prompt_template") is not None
@@ -603,6 +626,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             rows.append(
                 SkillMarketItem(
                     skill_id=skill_id,
+                    name=_derive_market_name(skill_id, str(item.get("name", ""))),
                     description=str(item.get("description", "")),
                     mode=str(item.get("mode", "prompt")),
                     domain=str(item.get("domain", "general")),
@@ -1315,6 +1339,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.get("/status", dependencies=[Depends(require_read_api_key)])
     async def status() -> dict:
         model_connected, model_reason = await _resolve_model_connection()
+        loaded_modules = runtime.module_loader.list_modules()
         runtime.health.set(
             "models",
             "healthy" if model_connected else "unhealthy",
@@ -1327,12 +1352,13 @@ def create_app(workspace_root: Path) -> FastAPI:
         return {
             "ok": True,
             "subagents_enabled": runtime.config.get("orchestrator.enable_subagents"),
-            "graph_backend": runtime.config.get("memory.graph_backend"),
+            "graph_backend": runtime.memory.graph_backend_name,
             "semantic_backend": runtime.config.get("memory.semantic_backend"),
             "default_model_backend": runtime.config.get("model.default_backend"),
             "model_connected": model_connected,
             "model_connection_reason": model_reason,
             "health": runtime.health.as_list(),
+            "loaded_modules": loaded_modules,
         }
 
     @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_read_api_key)])
@@ -1857,6 +1883,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     )
     async def skills_market_install(body: SkillMarketInstallRequest) -> SkillMarketInstallResponse:
         skill_id = body.skill_id.strip()
+        _validate_skill_id(skill_id)
         if skill_id not in market_registry:
             raise HTTPException(status_code=404, detail="Skill not found in local market registry")
 
@@ -1901,6 +1928,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     )
     async def skills_market_uninstall(body: SkillMarketUninstallRequest) -> SkillMarketUninstallResponse:
         skill_id = body.skill_id.strip()
+        _validate_skill_id(skill_id)
         if skill_id not in market_installed:
             raise HTTPException(status_code=404, detail="Skill is not installed")
 
@@ -1936,6 +1964,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     )
     async def skills_market_update(body: SkillMarketUpdateRequest) -> SkillMarketUpdateResponse:
         skill_id = body.skill_id.strip()
+        _validate_skill_id(skill_id)
         if skill_id not in market_registry:
             raise HTTPException(status_code=404, detail="Skill not found in local market registry")
         if skill_id not in market_installed:

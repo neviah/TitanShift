@@ -204,6 +204,7 @@ class SkillSummary(BaseModel):
 
 class SkillMarketItem(BaseModel):
     skill_id: str
+    name: str
     description: str
     mode: str
     domain: str
