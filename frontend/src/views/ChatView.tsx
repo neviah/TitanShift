@@ -1,39 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchConfig, sendChat } from '../api/client'
+import { useChatSessions } from '../contexts/ChatSessionsContext'
 import styles from './ChatView.module.css'
-
-interface ChatMessage {
-  role: 'user' | 'assistant'
-  text: string
-}
-
-const CHAT_STORAGE_KEY = 'titanshift-chat-history-v1'
-
-function loadSavedMessages(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as ChatMessage[]
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((m) => typeof m?.text === 'string' && (m?.role === 'user' || m?.role === 'assistant'))
-  } catch {
-    return []
-  }
-}
 
 export function ChatView() {
   const [input, setInput] = useState('')
-  const [messages, setMessages] = useState<ChatMessage[]>(loadSavedMessages)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [preferredBackend, setPreferredBackend] = useState<string | null>(null)
+  const { currentSession, appendMessage } = useChatSessions()
+
+  const messages = currentSession.messages
 
   const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending])
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-100)))
-    window.dispatchEvent(new Event('titanshift:chat-updated'))
-  }, [messages])
 
   useEffect(() => {
     let mounted = true
@@ -52,23 +31,15 @@ export function ChatView() {
   }, [])
 
   useEffect(() => {
-    function handleNewChat() {
-      setMessages([])
-      setError(null)
-      setInput('')
-    }
-
-    window.addEventListener('titanshift:new-chat', handleNewChat)
-    return () => {
-      window.removeEventListener('titanshift:new-chat', handleNewChat)
-    }
-  }, [])
+    setError(null)
+    setInput('')
+  }, [currentSession.id])
 
   async function send() {
     const text = input.trim()
     if (!text || sending) return
 
-    setMessages((prev) => [...prev, { role: 'user', text }])
+    appendMessage({ role: 'user', text })
     setInput('')
     setSending(true)
     setError(null)
@@ -79,13 +50,10 @@ export function ChatView() {
         ...(preferredBackend ? { model_backend: preferredBackend } : {}),
       })
       const reply = (result.response ?? '').trim() || 'No response returned.'
-      setMessages((prev) => [...prev, { role: 'assistant', text: reply }])
+      appendMessage({ role: 'assistant', text: reply })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: 'Request failed. Check Health and provider settings, then try again.' },
-      ])
+      appendMessage({ role: 'assistant', text: 'Request failed. Check Health and provider settings, then try again.' })
     } finally {
       setSending(false)
     }

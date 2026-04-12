@@ -42,6 +42,13 @@ class TaskDetail(TaskSummary):
     output: dict
 
 
+class WorkspaceTreeNode(BaseModel):
+    name: str
+    path: str
+    is_dir: bool
+    children: list["WorkspaceTreeNode"] = Field(default_factory=list)
+
+
 class LogEntry(BaseModel):
     timestamp: str
     event_type: str

@@ -8,12 +8,18 @@ import {
   Brain,
   ScrollText,
   Settings,
+  ChevronRight,
+  ChevronDown,
+  FileText,
+  Folder,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import styles from './LeftPane.module.css'
 import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
-import { fetchMarketList, fetchTasks } from '../../api/client'
+import { fetchMarketList, fetchTaskDetail, fetchTasks, fetchWorkspaceTree } from '../../api/client'
+import { useChatSessions } from '../../contexts/ChatSessionsContext'
+import type { TaskDetail, WorkspaceTreeNode } from '../../api/types'
 
 const TABS: { id: NavTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'chat',      label: 'Chat',      Icon: MessageSquare },
@@ -26,8 +32,6 @@ const TABS: { id: NavTab; label: string; Icon: React.FC<{ size?: number }> }[] =
   { id: 'logs',      label: 'Logs',      Icon: ScrollText },
 ]
 
-const CHAT_STORAGE_KEY = 'titanshift-chat-history-v1'
-
 interface LeftPaneProps {
   activeTab: NavTab
   onTabChange: (tab: NavTab) => void
@@ -36,40 +40,50 @@ interface LeftPaneProps {
 export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
   const { data: taskData } = usePolling(fetchTasks, { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
-  const [chatRev, setChatRev] = useState(0)
-
-  useEffect(() => {
-    const onChatUpdated = () => setChatRev((v) => v + 1)
-    window.addEventListener('titanshift:chat-updated', onChatUpdated)
-    return () => {
-      window.removeEventListener('titanshift:chat-updated', onChatUpdated)
-    }
-  }, [])
-
-  const recentChats = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(CHAT_STORAGE_KEY)
-      if (!raw) return [] as string[]
-      const parsed = JSON.parse(raw) as Array<{ role?: string; text?: string }>
-      if (!Array.isArray(parsed)) return [] as string[]
-      return parsed
-        .filter((m) => m?.role === 'user' && typeof m?.text === 'string')
-        .map((m) => (m.text as string).trim())
-        .filter(Boolean)
-        .slice(-8)
-        .reverse()
-    } catch {
-      return [] as string[]
-    }
-  }, [activeTab, chatRev])
+  const { data: treeData } = usePolling(fetchWorkspaceTree, { interval: 30000 })
+  const { sessions, currentSessionId, createSession, selectSession } = useChatSessions()
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
+  const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
 
   const tasks = (taskData ?? []).slice().reverse().slice(0, 12)
   const installedSkills = (skillsData ?? []).filter((s) => s.installed).slice(0, 12)
+  const recentSessions = useMemo(
+    () => sessions.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
+    [sessions],
+  )
+
+  useEffect(() => {
+    if (!selectedTaskId && tasks.length > 0) {
+      setSelectedTaskId(tasks[0].task_id)
+    }
+  }, [tasks, selectedTaskId])
+
+  useEffect(() => {
+    if (!selectedTaskId) {
+      setSelectedTask(null)
+      return
+    }
+    let mounted = true
+    void fetchTaskDetail(selectedTaskId)
+      .then((task) => {
+        if (mounted) setSelectedTask(task)
+      })
+      .catch(() => {
+        if (mounted) setSelectedTask(null)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [selectedTaskId])
 
   function handleNewChat() {
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([]))
-    window.dispatchEvent(new Event('titanshift:new-chat'))
+    createSession()
     onTabChange('chat')
+  }
+
+  function togglePath(path: string) {
+    setExpandedPaths((prev) => ({ ...prev, [path]: !prev[path] }))
   }
 
   return (
@@ -96,10 +110,19 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
           <>
             <button className={styles.newChatBtn} onClick={handleNewChat}>New Chat</button>
             <div className={styles.list}>
-              {recentChats.length === 0 && <p className={styles.empty}>No previous chats yet.</p>}
-              {recentChats.map((msg, idx) => (
-                <button key={`${msg}-${idx}`} className={styles.row} title={msg} onClick={() => onTabChange('chat')}>
-                  {msg}
+              {recentSessions.length === 0 && <p className={styles.empty}>No previous chats yet.</p>}
+              {recentSessions.map((session) => (
+                <button
+                  key={session.id}
+                  className={`${styles.row} ${currentSessionId === session.id ? styles.rowActive : ''}`}
+                  title={session.title}
+                  onClick={() => {
+                    selectSession(session.id)
+                    onTabChange('chat')
+                  }}
+                >
+                  <span className={styles.rowTitle}>{session.title}</span>
+                  <span className={styles.rowMeta}>{session.messages.length} msgs</span>
                 </button>
               ))}
             </div>
@@ -110,13 +133,42 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
           <div className={styles.list}>
             {tasks.length === 0 && <p className={styles.empty}>No tasks yet.</p>}
             {tasks.map((task) => (
-              <div key={task.task_id} className={styles.itemRow}>
+              <button
+                key={task.task_id}
+                className={`${styles.itemRow} ${selectedTaskId === task.task_id ? styles.rowActive : ''}`}
+                onClick={() => setSelectedTaskId(task.task_id)}
+                title={task.description}
+              >
                 <span className={styles.rowTitle}>{task.description}</span>
                 <span className={`badge ${task.status === 'completed' ? 'badge-ok' : task.status === 'failed' ? 'badge-error' : 'badge-warn'}`}>
                   {task.status}
                 </span>
-              </div>
+              </button>
             ))}
+            {selectedTask && (
+              <div className={styles.detailCard}>
+                <p className={styles.detailTitle}>Task Detail</p>
+                <p className={styles.detailLine}><span>ID</span><span className="font-mono">{selectedTask.task_id}</span></p>
+                <p className={styles.detailLine}><span>Status</span><span>{selectedTask.status}</span></p>
+                {selectedTask.error && <p className={`${styles.detailText} text-error`}>{selectedTask.error}</p>}
+                {typeof selectedTask.output?.response === 'string' && selectedTask.output.response.length > 0 && (
+                  <p className={styles.detailText}>{selectedTask.output.response}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'files' && (
+          <div className={styles.list}>
+            <p className={styles.hint}>Workspace tree</p>
+            {!treeData || treeData.length === 0 ? <p className={styles.empty}>No files available.</p> : (
+              <div className={styles.tree}>
+                {treeData.map((node) => (
+                  <TreeNode key={node.path} node={node} expandedPaths={expandedPaths} onToggle={togglePath} />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -134,7 +186,7 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
           </div>
         )}
 
-        {(activeTab === 'files' || activeTab === 'scheduler' || activeTab === 'tools' || activeTab === 'memory' || activeTab === 'logs') && (
+        {(activeTab === 'scheduler' || activeTab === 'tools' || activeTab === 'memory' || activeTab === 'logs') && (
           <div className={styles.list}>
             <p className={styles.hint}>Context panel for {activeTab}.</p>
             <p className={styles.empty}>Select {activeTab} to keep this side panel visible while you continue chatting in the center.</p>
@@ -157,6 +209,42 @@ export function LeftPane({ activeTab, onTabChange }: LeftPaneProps) {
           <Settings size={16} />
         </button>
       </div>
+    </div>
+  )
+}
+
+function TreeNode({
+  node,
+  expandedPaths,
+  onToggle,
+  depth = 0,
+}: {
+  node: WorkspaceTreeNode
+  expandedPaths: Record<string, boolean>
+  onToggle: (path: string) => void
+  depth?: number
+}) {
+  const isOpen = expandedPaths[node.path] ?? depth < 1
+
+  if (!node.is_dir) {
+    return (
+      <div className={styles.treeRow} style={{ paddingLeft: `${depth * 14 + 6}px` }} title={node.path}>
+        <FileText size={13} className={styles.treeIcon} />
+        <span className={styles.treeLabel}>{node.name}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <button className={styles.treeRowButton} style={{ paddingLeft: `${depth * 14 + 6}px` }} onClick={() => onToggle(node.path)} title={node.path}>
+        {isOpen ? <ChevronDown size={13} className={styles.treeIcon} /> : <ChevronRight size={13} className={styles.treeIcon} />}
+        <Folder size={13} className={styles.treeIcon} />
+        <span className={styles.treeLabel}>{node.name}</span>
+      </button>
+      {isOpen && node.children?.map((child) => (
+        <TreeNode key={child.path} node={child} expandedPaths={expandedPaths} onToggle={onToggle} depth={depth + 1} />
+      ))}
     </div>
   )
 }

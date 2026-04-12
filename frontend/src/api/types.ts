@@ -156,3 +156,14 @@ export interface TaskSummary {
   success?: boolean | null
   error?: string | null
 }
+
+export interface TaskDetail extends TaskSummary {
+  output: Record<string, unknown>
+}
+
+export interface WorkspaceTreeNode {
+  name: string
+  path: string
+  is_dir: boolean
+  children?: WorkspaceTreeNode[]
+}

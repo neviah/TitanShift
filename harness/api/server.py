@@ -94,6 +94,7 @@ from harness.api.schemas import (
     UiMarketOverviewResponse,
     TaskDetail,
     TaskSummary,
+    WorkspaceTreeNode,
     ToolSummary,
 )
 from harness.scheduler.module import ScheduledJob
@@ -1356,6 +1357,33 @@ def create_app(workspace_root: Path) -> FastAPI:
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskDetail(**task)
+
+    def _build_workspace_tree(root: Path, current: Path, max_depth: int = 3) -> list[WorkspaceTreeNode]:
+        if max_depth < 0:
+            return []
+
+        ignored = {'.git', '.venv', 'node_modules', '__pycache__', '.pytest_cache', 'dist', 'build'}
+        nodes: list[WorkspaceTreeNode] = []
+        for child in sorted(current.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+            if child.name in ignored:
+                continue
+            rel_path = str(child.relative_to(root)).replace('\\', '/')
+            if child.is_dir():
+                nodes.append(
+                    WorkspaceTreeNode(
+                        name=child.name,
+                        path=rel_path,
+                        is_dir=True,
+                        children=_build_workspace_tree(root, child, max_depth=max_depth - 1),
+                    )
+                )
+            else:
+                nodes.append(WorkspaceTreeNode(name=child.name, path=rel_path, is_dir=False))
+        return nodes
+
+    @app.get("/workspace/tree", response_model=list[WorkspaceTreeNode], dependencies=[Depends(require_read_api_key)])
+    async def workspace_tree() -> list[WorkspaceTreeNode]:
+        return _build_workspace_tree(workspace_root, workspace_root, max_depth=4)
 
     @app.get("/logs", response_model=LogQueryResponse, dependencies=[Depends(require_read_api_key)])
     async def get_logs(

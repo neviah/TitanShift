@@ -6,6 +6,8 @@ import type {
   ChatRequest,
   ChatResponse,
   TaskSummary,
+  TaskDetail,
+  WorkspaceTreeNode,
 } from './types'
 
 const API_BASE = '/api'
@@ -89,4 +91,12 @@ export function sendChat(requestBody: ChatRequest): Promise<ChatResponse> {
 
 export function fetchTasks(): Promise<TaskSummary[]> {
   return request('/tasks')
+}
+
+export function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
+  return request(`/tasks/${taskId}`)
+}
+
+export function fetchWorkspaceTree(): Promise<WorkspaceTreeNode[]> {
+  return request('/workspace/tree')
 }
