@@ -105,11 +105,20 @@ export interface MemoryEntry {
   updated_at: string
 }
 
-// ---- Health ----
+// ---- Health / Status ----
+
+export interface HealthRecord {
+  name: string
+  status: string
+  updated_at: string
+  details: Record<string, unknown>
+}
 
 export interface HealthResponse {
-  status: 'ok' | 'degraded' | 'error'
-  version: string
-  uptime_seconds: number
-  components: Record<string, { status: string; detail?: string }>
+  ok: boolean
+  subagents_enabled: boolean
+  graph_backend: string
+  semantic_backend: string
+  default_model_backend: string
+  health: HealthRecord[]
 }

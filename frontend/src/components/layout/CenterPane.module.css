@@ -5,16 +5,3 @@
   background: var(--bg-surface);
   overflow: hidden;
 }
-
-.settings {
-  height: 100%;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-.overviews {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  max-width: 900px;
-}

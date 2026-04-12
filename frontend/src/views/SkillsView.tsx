@@ -41,7 +41,7 @@ export function SkillsView() {
 
       {data && (
         <ul className={styles.list}>
-          {data.items.map((skill) => (
+          {data.map((skill) => (
             <li key={skill.id} className={styles.item}>
               <div className={styles.itemLeft}>
                 <div className={styles.skillHeader}>
@@ -81,7 +81,7 @@ export function SkillsView() {
               </div>
             </li>
           ))}
-          {data.items.length === 0 && (
+          {data.length === 0 && (
             <p className={styles.hint}>No skills in market. Sync a remote source first.</p>
           )}
         </ul>

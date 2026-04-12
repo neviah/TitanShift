@@ -29,15 +29,28 @@ export function fetchMarketOverview(): Promise<UiMarketOverviewResponse> {
   return request('/ui/market/overview')
 }
 
-// ---- Health ----
+// ---- Health / Status ----
 
-export function fetchHealth(): Promise<HealthResponse> {
-  return request('/health')
+export function fetchStatus(): Promise<HealthResponse> {
+  return request('/status')
+}
+
+// ---- Config ----
+
+export function fetchConfig(): Promise<Record<string, unknown>> {
+  return request('/config')
+}
+
+export function updateConfig(key: string, value: unknown): Promise<unknown> {
+  return request('/config', {
+    method: 'POST',
+    body: JSON.stringify({ key, value }),
+  })
 }
 
 // ---- Market ----
 
-export function fetchMarketList(): Promise<{ items: SkillMarketItem[] }> {
+export function fetchMarketList(): Promise<SkillMarketItem[]> {
   return request('/skills/market')
 }
 
