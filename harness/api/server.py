@@ -1688,8 +1688,10 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def get_config() -> dict:
         return {
             "model.default_backend": runtime.config.get("model.default_backend"),
+            "model.allow_cloud_adapters": runtime.config.get("model.allow_cloud_adapters"),
             "model.lmstudio.base_url": runtime.config.get("model.lmstudio.base_url"),
             "model.lmstudio.model": runtime.config.get("model.lmstudio.model"),
+            "model.lmstudio.timeout_s": runtime.config.get("model.lmstudio.timeout_s"),
             "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
             "scheduler.heartbeat_timeout_s": runtime.config.get("scheduler.heartbeat_timeout_s"),
             "state_machine.default_budget.max_steps": runtime.config.get("state_machine.default_budget.max_steps"),

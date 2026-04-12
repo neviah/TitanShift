@@ -8,18 +8,17 @@ import { IngestionOverview } from './dashboard/IngestionOverview'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const BACKENDS = [
-  { value: 'local_stub',  label: 'Local Stub (no model)',  group: 'Local' },
-  { value: 'lmstudio',    label: 'LM Studio',              group: 'Local' },
-  { value: 'ollama',      label: 'Ollama',                 group: 'Local' },
-  { value: 'anthropic',   label: 'Anthropic (Claude)',     group: 'Cloud' },
-  { value: 'openai',      label: 'OpenAI (GPT)',           group: 'Cloud' },
-  { value: 'openrouter',  label: 'OpenRouter',             group: 'Cloud' },
+  { value: 'local_stub',        label: 'Local Stub (no model)',      group: 'Local' },
+  { value: 'lmstudio',          label: 'LM Studio',                   group: 'Local' },
+  { value: 'openai_compatible', label: 'OpenAI Compatible (scaffold)', group: 'Cloud' },
 ]
 
 interface ConfigState {
   'model.default_backend': string
+  'model.allow_cloud_adapters'?: boolean
   'model.lmstudio.base_url'?: string
   'model.lmstudio.model'?: string
+  'model.lmstudio.timeout_s'?: number
   'orchestrator.enable_subagents': boolean
   'tools.allow_network': boolean
   'tools.deny_all_by_default': boolean
@@ -126,25 +125,47 @@ export function SettingsView() {
               </select>
             </Field>
 
-            <Field label="LM Studio base URL">
-              <input
-                type="text"
-                className={styles.textInput}
-                value={String(config['model.lmstudio.base_url'] ?? 'http://127.0.0.1:1234/v1')}
-                onChange={(e) => patchLocal('model.lmstudio.base_url', e.target.value)}
-                placeholder="http://127.0.0.1:1234/v1"
+            <Field label="Allow cloud adapters">
+              <Toggle
+                checked={Boolean(config['model.allow_cloud_adapters'])}
+                onChange={(v) => patchLocal('model.allow_cloud_adapters', v)}
               />
             </Field>
 
-            <Field label="LM Studio model id">
-              <input
-                type="text"
-                className={styles.textInput}
-                value={String(config['model.lmstudio.model'] ?? '')}
-                onChange={(e) => patchLocal('model.lmstudio.model', e.target.value)}
-                placeholder="google/gemma-3-4b"
-              />
-            </Field>
+            {String(config['model.default_backend'] ?? '') === 'lmstudio' && (
+              <>
+                <Field label="LM Studio base URL">
+                  <input
+                    type="text"
+                    className={styles.textInput}
+                    value={String(config['model.lmstudio.base_url'] ?? 'http://127.0.0.1:1234/v1')}
+                    onChange={(e) => patchLocal('model.lmstudio.base_url', e.target.value)}
+                    placeholder="http://127.0.0.1:1234/v1"
+                  />
+                </Field>
+
+                <Field label="LM Studio model id">
+                  <input
+                    type="text"
+                    className={styles.textInput}
+                    value={String(config['model.lmstudio.model'] ?? '')}
+                    onChange={(e) => patchLocal('model.lmstudio.model', e.target.value)}
+                    placeholder="google/gemma-3-4b"
+                  />
+                </Field>
+
+                <Field label="LM Studio timeout (seconds)">
+                  <input
+                    type="number"
+                    className={styles.numInput}
+                    min={1}
+                    max={300}
+                    value={Number(config['model.lmstudio.timeout_s'] ?? 45)}
+                    onChange={(e) => patchLocal('model.lmstudio.timeout_s', Number(e.target.value))}
+                  />
+                </Field>
+              </>
+            )}
 
             <ProviderHint backend={String(config['model.default_backend'] ?? '')} />
           </Section>
@@ -248,10 +269,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 function ProviderHint({ backend }: { backend: string }) {
   const hints: Record<string, string> = {
     lmstudio:   'Connects to LM Studio at http://127.0.0.1:1234/v1 — start LM Studio and load a model first.',
-    ollama:     'Connects to Ollama at http://127.0.0.1:11434 — run `ollama serve` and pull a model first.',
-    anthropic:  'Requires ANTHROPIC_API_KEY environment variable.',
-    openai:     'Requires OPENAI_API_KEY environment variable.',
-    openrouter: 'Requires OPENROUTER_API_KEY environment variable.',
+    openai_compatible: 'Scaffold-only backend in this build. Keep this on local_stub or lmstudio for real responses.',
     local_stub: 'Stub backend — returns canned responses. Good for testing the UI without a real model.',
   }
   const hint = hints[backend]
