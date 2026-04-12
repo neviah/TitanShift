@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchConfig, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
+import { StatusIndicator } from '../components/StatusIndicator'
 import styles from './ChatView.module.css'
 
 export function ChatView() {
@@ -153,6 +154,7 @@ export function ChatView() {
             ))}
           </div>
         )}
+        {sending && <StatusIndicator isActive />}
         {promoteMsg && <p className={`${styles.error} text-info`}>{promoteMsg}</p>}
         {error && <p className={`${styles.error} text-error`}>{error}</p>}
       </div>
