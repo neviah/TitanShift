@@ -3,6 +3,8 @@ import type {
   UiMarketOverviewResponse,
   HealthResponse,
   SkillMarketItem,
+  ChatRequest,
+  ChatResponse,
 } from './types'
 
 const API_BASE = '/api'
@@ -72,5 +74,14 @@ export function syncRemoteMarket(source: string): Promise<unknown> {
   return request('/skills/market/remote/sync', {
     method: 'POST',
     body: JSON.stringify({ source, force: true }),
+  })
+}
+
+// ---- Chat ----
+
+export function sendChat(requestBody: ChatRequest): Promise<ChatResponse> {
+  return request('/chat', {
+    method: 'POST',
+    body: JSON.stringify(requestBody),
   })
 }

@@ -40,9 +40,10 @@ export function HealthTab() {
         <section>
           <h3 className={styles.heading}>Components</h3>
           {data.health.map((rec) => {
+            const status = rec.status.toLowerCase()
             const cls =
-              rec.status === 'ok' ? 'badge-ok'
-              : rec.status === 'degraded' ? 'badge-warn'
+              status === 'ok' || status === 'healthy' || status === 'up' ? 'badge-ok'
+              : status === 'degraded' || status === 'warning' || status === 'warn' ? 'badge-warn'
               : 'badge-error'
             return (
               <div key={rec.name} className={styles.component}>

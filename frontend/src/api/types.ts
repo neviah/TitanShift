@@ -122,3 +122,24 @@ export interface HealthResponse {
   default_model_backend: string
   health: HealthRecord[]
 }
+
+// ---- Chat ----
+
+export interface ChatRequest {
+  prompt: string
+  model_backend?: string
+  budget?: {
+    max_steps?: number
+    max_tokens?: number
+    max_duration_ms?: number
+  }
+}
+
+export interface ChatResponse {
+  success: boolean
+  response: string
+  model: string
+  mode: string
+  error: string | null
+  estimated_total_tokens: number | null
+}
