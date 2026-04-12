@@ -23,7 +23,11 @@ import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
 import { fetchLogs, fetchMarketList, fetchMemorySummary, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
+import { useWorkspace } from '../../contexts/WorkspaceContext'
 import type { TaskDetail, WorkspaceTreeNode } from '../../api/types'
+
+const ACTIVE_SKILLS_KEY = 'titanshift-active-skills-by-workspace-v1'
+const ACTIVE_TOOLS_KEY = 'titanshift-active-tools-by-workspace-v1'
 
 const TABS: { id: NavTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'chat',      label: 'Chat',      Icon: MessageSquare },
@@ -44,6 +48,7 @@ interface LeftPaneProps {
 }
 
 export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath }: LeftPaneProps) {
+  const { currentWorkspaceId, currentWorkspaceName } = useWorkspace()
   const { data: taskData } = usePolling(fetchTasks, { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: treeData } = usePolling(fetchWorkspaceTree, { interval: 30000 })
@@ -54,6 +59,20 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
+  const [activeSkillsByWorkspace, setActiveSkillsByWorkspace] = useState<Record<string, Record<string, boolean>>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(ACTIVE_SKILLS_KEY) ?? '{}') as Record<string, Record<string, boolean>>
+    } catch {
+      return {}
+    }
+  })
+  const [activeToolsByWorkspace, setActiveToolsByWorkspace] = useState<Record<string, Record<string, boolean>>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(ACTIVE_TOOLS_KEY) ?? '{}') as Record<string, Record<string, boolean>>
+    } catch {
+      return {}
+    }
+  })
 
   const tasks = (taskData ?? []).slice().reverse().slice(0, 12)
   const installedSkills = (skillsData ?? []).filter((s) => s.installed).slice(0, 12)
@@ -65,6 +84,16 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     () => sessions.filter((s) => s.archived).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
     [sessions],
   )
+  const activeSkills = activeSkillsByWorkspace[currentWorkspaceId] ?? {}
+  const activeTools = activeToolsByWorkspace[currentWorkspaceId] ?? {}
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_SKILLS_KEY, JSON.stringify(activeSkillsByWorkspace))
+  }, [activeSkillsByWorkspace])
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_TOOLS_KEY, JSON.stringify(activeToolsByWorkspace))
+  }, [activeToolsByWorkspace])
 
   useEffect(() => {
     if (!selectedTaskId && tasks.length > 0) {
@@ -104,6 +133,26 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     if (typeof next === 'string') {
       renameSession(id, next)
     }
+  }
+
+  function toggleSkillActive(skillId: string) {
+    setActiveSkillsByWorkspace((prev) => ({
+      ...prev,
+      [currentWorkspaceId]: {
+        ...(prev[currentWorkspaceId] ?? {}),
+        [skillId]: !(prev[currentWorkspaceId]?.[skillId] ?? false),
+      },
+    }))
+  }
+
+  function toggleToolActive(toolName: string) {
+    setActiveToolsByWorkspace((prev) => ({
+      ...prev,
+      [currentWorkspaceId]: {
+        ...(prev[currentWorkspaceId] ?? {}),
+        [toolName]: !(prev[currentWorkspaceId]?.[toolName] ?? false),
+      },
+    }))
   }
 
   return (
@@ -185,6 +234,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
         {activeTab === 'tasks' && (
           <div className={styles.list}>
+            <p className={styles.hint}>Global tasks (not workspace scoped)</p>
             {tasks.length === 0 && <p className={styles.empty}>No tasks yet.</p>}
             {tasks.map((task) => (
               <button
@@ -229,12 +279,14 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
         {activeTab === 'skills' && (
           <div className={styles.list}>
             <p className={styles.hint}>Installed skills</p>
+            <p className={styles.hint}>Active in workspace: {currentWorkspaceName}</p>
             {installedSkills.length === 0 && <p className={styles.empty}>No installed skills yet.</p>}
             {installedSkills.map((skill) => (
-              <div key={skill.id} className={styles.itemRow}>
+              <button key={skill.id} className={styles.itemRow} onClick={() => toggleSkillActive(skill.id)} title={`Toggle active for ${currentWorkspaceName}`}>
                 <span className={styles.rowTitle}>{skill.name}</span>
                 <span className="badge badge-ok">installed</span>
-              </div>
+                <span className={`badge ${activeSkills[skill.id] ? 'badge-ok' : 'badge-dim'}`}>{activeSkills[skill.id] ? 'active' : 'inactive'}</span>
+              </button>
             ))}
             <p className={styles.hint}>Marketplace is shown in the center pane.</p>
           </div>
@@ -243,11 +295,13 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
         {activeTab === 'tools' && (
           <div className={styles.list}>
             <p className={styles.hint}>Available tools</p>
+            <p className={styles.hint}>Active in workspace: {currentWorkspaceName}</p>
             {(toolsData ?? []).slice(0, 14).map((tool) => (
-              <div key={tool.name} className={styles.itemRow}>
+              <button key={tool.name} className={styles.itemRow} onClick={() => toggleToolActive(tool.name)} title={`Toggle active for ${currentWorkspaceName}`}>
                 <span className={styles.rowTitle}>{tool.name}</span>
                 <span className={`badge ${tool.allowed_by_policy ? 'badge-ok' : 'badge-error'}`}>{tool.allowed_by_policy ? 'allowed' : 'blocked'}</span>
-              </div>
+                <span className={`badge ${activeTools[tool.name] ? 'badge-ok' : 'badge-dim'}`}>{activeTools[tool.name] ? 'active' : 'inactive'}</span>
+              </button>
             ))}
           </div>
         )}

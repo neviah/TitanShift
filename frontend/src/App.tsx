@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ChatSessionsProvider } from './contexts/ChatSessionsContext'
+import { WorkspaceProvider } from './contexts/WorkspaceContext'
 import { TriPane } from './components/layout/TriPane'
 import { LeftPane } from './components/layout/LeftPane'
 import { CenterPane } from './components/layout/CenterPane'
@@ -62,9 +63,11 @@ function Shell() {
 function App() {
   return (
     <ThemeProvider>
-      <ChatSessionsProvider>
-        <Shell />
-      </ChatSessionsProvider>
+      <WorkspaceProvider>
+        <ChatSessionsProvider>
+          <Shell />
+        </ChatSessionsProvider>
+      </WorkspaceProvider>
     </ThemeProvider>
   )
 }

@@ -47,6 +47,44 @@
   gap: 5px;
 }
 
+.workspacePicker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspaceSelect {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  padding: 2px 6px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  outline: none;
+  min-width: 110px;
+}
+
+.workspaceSelect:focus {
+  border-color: var(--accent-primary);
+}
+
+.workspaceAddBtn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.workspaceAddBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
 .modelStatus {
   display: flex;
   align-items: center;
