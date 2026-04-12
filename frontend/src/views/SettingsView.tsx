@@ -18,6 +18,8 @@ const BACKENDS = [
 
 interface ConfigState {
   'model.default_backend': string
+  'model.lmstudio.base_url'?: string
+  'model.lmstudio.model'?: string
   'orchestrator.enable_subagents': boolean
   'tools.allow_network': boolean
   'tools.deny_all_by_default': boolean
@@ -123,6 +125,27 @@ export function SettingsView() {
                 ))}
               </select>
             </Field>
+
+            <Field label="LM Studio base URL">
+              <input
+                type="text"
+                className={styles.textInput}
+                value={String(config['model.lmstudio.base_url'] ?? 'http://127.0.0.1:1234/v1')}
+                onChange={(e) => patchLocal('model.lmstudio.base_url', e.target.value)}
+                placeholder="http://127.0.0.1:1234/v1"
+              />
+            </Field>
+
+            <Field label="LM Studio model id">
+              <input
+                type="text"
+                className={styles.textInput}
+                value={String(config['model.lmstudio.model'] ?? '')}
+                onChange={(e) => patchLocal('model.lmstudio.model', e.target.value)}
+                placeholder="google/gemma-3-4b"
+              />
+            </Field>
+
             <ProviderHint backend={String(config['model.default_backend'] ?? '')} />
           </Section>
 

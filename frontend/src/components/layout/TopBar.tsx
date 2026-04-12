@@ -1,5 +1,7 @@
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Palette } from 'lucide-react'
 import { useTheme, type Theme } from '../../contexts/ThemeContext'
+import { usePolling } from '../../hooks/usePolling'
+import { fetchStatus } from '../../api/client'
 import styles from './TopBar.module.css'
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -18,6 +20,13 @@ interface TopBarProps {
 
 export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRight }: TopBarProps) {
   const { theme, setTheme } = useTheme()
+  const { data, error } = usePolling(fetchStatus, { interval: 8000 })
+
+  const backend = data?.default_model_backend ?? 'unknown'
+  const checking = !data && !error
+  const connected = checking ? false : (data?.model_connected ?? (backend === 'local_stub'))
+  const statusLabel = checking ? 'checking' : (connected ? 'connected' : 'disconnected')
+  const statusClass = checking ? 'badge-dim' : (connected ? 'badge-ok' : 'badge-error')
 
   return (
     <div className={styles.root}>
@@ -29,6 +38,12 @@ export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRi
       </div>
 
       <div className={styles.right}>
+        <div className={styles.modelStatus} title={error ?? data?.model_connection_reason ?? 'Model connection status'}>
+          <span className={styles.modelLabel}>Model</span>
+          <span className={`badge ${statusClass}`}>{statusLabel}</span>
+          <span className={`${styles.modelBackend} font-mono`}>{backend}</span>
+        </div>
+
         <div className={styles.themePicker}>
           <Palette size={14} className={styles.paletteIcon} />
           <select

@@ -47,6 +47,26 @@
   gap: 5px;
 }
 
+.modelStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.modelLabel {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.modelBackend {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 .paletteIcon {
   color: var(--text-muted);
 }

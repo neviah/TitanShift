@@ -120,6 +120,8 @@ export interface HealthResponse {
   graph_backend: string
   semantic_backend: string
   default_model_backend: string
+  model_connected?: boolean
+  model_connection_reason?: string
   health: HealthRecord[]
 }
 

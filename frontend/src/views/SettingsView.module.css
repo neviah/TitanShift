@@ -161,6 +161,22 @@
   border-color: var(--accent-primary);
 }
 
+.textInput {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  padding: 4px 8px;
+  min-width: 280px;
+  outline: none;
+}
+
+.textInput:focus {
+  border-color: var(--accent-primary);
+}
+
 /* Toggle */
 .toggle {
   width: 36px;

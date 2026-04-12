@@ -1273,14 +1273,53 @@ def create_app(workspace_root: Path) -> FastAPI:
     if bool(runtime.config.get("scheduler.enable_maintenance_jobs", False)):
         _register_maintenance_jobs()
 
+    async def _resolve_model_connection() -> tuple[bool, str]:
+        backend = str(runtime.config.get("model.default_backend", "local_stub"))
+
+        if backend == "local_stub":
+            return True, "local stub backend"
+
+        if backend == "lmstudio":
+            base_url = str(runtime.config.get("model.lmstudio.base_url", "http://127.0.0.1:1234/v1")).rstrip("/")
+            models_url = f"{base_url}/models"
+            configured_model = str(runtime.config.get("model.lmstudio.model", "")).strip()
+            try:
+                async with httpx.AsyncClient(timeout=2.5) as client:
+                    response = await client.get(models_url)
+                    response.raise_for_status()
+                    body = response.json()
+                listed = [str(m.get("id", "")) for m in body.get("data", []) if isinstance(m, dict)]
+                if configured_model and configured_model not in listed:
+                    return False, f"configured model not loaded: {configured_model}"
+                return True, "LM Studio reachable"
+            except Exception as exc:
+                return False, f"LM Studio unreachable: {exc}"
+
+        if backend == "openai_compatible":
+            return False, "openai_compatible is scaffold-only in this build"
+
+        return False, f"unsupported backend: {backend}"
+
     @app.get("/status", dependencies=[Depends(require_read_api_key)])
     async def status() -> dict:
+        model_connected, model_reason = await _resolve_model_connection()
+        runtime.health.set(
+            "models",
+            "healthy" if model_connected else "unhealthy",
+            {
+                "default": runtime.config.get("model.default_backend"),
+                "connected": model_connected,
+                "reason": model_reason,
+            },
+        )
         return {
             "ok": True,
             "subagents_enabled": runtime.config.get("orchestrator.enable_subagents"),
             "graph_backend": runtime.config.get("memory.graph_backend"),
             "semantic_backend": runtime.config.get("memory.semantic_backend"),
             "default_model_backend": runtime.config.get("model.default_backend"),
+            "model_connected": model_connected,
+            "model_connection_reason": model_reason,
             "health": runtime.health.as_list(),
         }
 
@@ -1607,6 +1646,8 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def get_config() -> dict:
         return {
             "model.default_backend": runtime.config.get("model.default_backend"),
+            "model.lmstudio.base_url": runtime.config.get("model.lmstudio.base_url"),
+            "model.lmstudio.model": runtime.config.get("model.lmstudio.model"),
             "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
             "scheduler.heartbeat_timeout_s": runtime.config.get("scheduler.heartbeat_timeout_s"),
             "state_machine.default_budget.max_steps": runtime.config.get("state_machine.default_budget.max_steps"),
