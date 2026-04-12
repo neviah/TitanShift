@@ -14,7 +14,7 @@ export interface TaskDraft {
     finishedAt?: string
     steps: Array<{
       instruction: string
-      status: 'pending' | 'running' | 'done' | 'error'
+      status: 'pending' | 'running' | 'done' | 'error' | 'skipped'
       output?: string
     }>
   }
@@ -31,7 +31,8 @@ interface TaskDraftsContextValue {
   removeDraftStep: (id: string, index: number) => void
   moveDraftStep: (id: string, index: number, direction: -1 | 1) => void
   startExecution: (id: string, steps: string[]) => void
-  updateExecutionStep: (id: string, index: number, status: 'pending' | 'running' | 'done' | 'error', output?: string) => void
+  resetExecutionFromStep: (id: string, index: number) => void
+  updateExecutionStep: (id: string, index: number, status: 'pending' | 'running' | 'done' | 'error' | 'skipped', output?: string) => void
   finishExecution: (id: string) => void
 }
 
@@ -59,6 +60,7 @@ const TaskDraftsContext = createContext<TaskDraftsContextValue>({
   removeDraftStep: () => {},
   moveDraftStep: () => {},
   startExecution: () => {},
+  resetExecutionFromStep: () => {},
   updateExecutionStep: () => {},
   finishExecution: () => {},
 })
@@ -172,7 +174,30 @@ export function TaskDraftsProvider({ children }: { children: ReactNode }) {
     }))
   }
 
-  function updateExecutionStep(id: string, index: number, status: 'pending' | 'running' | 'done' | 'error', output?: string) {
+  function resetExecutionFromStep(id: string, index: number) {
+    setDrafts((prev) => prev.map((d) => {
+      if (d.id !== id || !d.execution) return d
+      const steps = d.execution.steps.slice().map((step, i) => {
+        if (i < index) return step
+        return {
+          ...step,
+          status: 'pending' as const,
+          output: undefined,
+        }
+      })
+      return {
+        ...d,
+        execution: {
+          ...d.execution,
+          startedAt: new Date().toISOString(),
+          finishedAt: undefined,
+          steps,
+        },
+      }
+    }))
+  }
+
+  function updateExecutionStep(id: string, index: number, status: 'pending' | 'running' | 'done' | 'error' | 'skipped', output?: string) {
     setDrafts((prev) => prev.map((d) => {
       if (d.id !== id || !d.execution) return d
       const steps = d.execution.steps.slice()
@@ -218,6 +243,7 @@ export function TaskDraftsProvider({ children }: { children: ReactNode }) {
       removeDraftStep,
       moveDraftStep,
       startExecution,
+      resetExecutionFromStep,
       updateExecutionStep,
       finishExecution,
     }),

@@ -28,7 +28,7 @@ import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
 import { fetchConfig, fetchLogs, fetchMarketList, fetchMemorySummary, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree, sendChat } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
-import { useTaskDrafts } from '../../contexts/TaskDraftsContext'
+import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import type { TaskDetail, WorkspaceTreeNode } from '../../api/types'
 
@@ -73,6 +73,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     removeDraftStep,
     moveDraftStep,
     startExecution,
+    resetExecutionFromStep,
     updateExecutionStep,
     finishExecution,
   } = useTaskDrafts()
@@ -176,7 +177,8 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }))
   }
 
-  async function executeDraft(draftId: string, steps: string[]) {
+  async function executeDraft(draft: TaskDraft, startAt = 0) {
+    const { id: draftId, steps } = draft
     const filteredSteps = steps.map((s) => s.trim()).filter(Boolean)
     if (filteredSteps.length === 0) {
       setExecutionResult(draftId, 'Cannot run draft: no non-empty steps.')
@@ -184,14 +186,23 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }
 
     setExecutingDraftId(draftId)
-    startExecution(draftId, filteredSteps)
+    if (!draft.execution || draft.execution.steps.length !== filteredSteps.length || startAt <= 0) {
+      startExecution(draftId, filteredSteps)
+    } else {
+      resetExecutionFromStep(draftId, startAt)
+    }
 
-    const outputs: string[] = []
+    const outputs: string[] = (draft.execution?.steps ?? [])
+      .slice(0, startAt)
+      .filter((s) => s.status === 'done' || s.status === 'skipped')
+      .map((s) => s.output ?? '')
+      .filter(Boolean)
+
     try {
       const cfg = await fetchConfig()
       const backend = typeof cfg['model.default_backend'] === 'string' ? String(cfg['model.default_backend']) : undefined
 
-      for (let i = 0; i < filteredSteps.length; i += 1) {
+      for (let i = startAt; i < filteredSteps.length; i += 1) {
         const step = filteredSteps[i]
         updateExecutionStep(draftId, i, 'running')
         const contextBlock = outputs.length > 0
@@ -217,6 +228,15 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       finishExecution(draftId)
       setExecutingDraftId(null)
     }
+  }
+
+  async function retryExecutionStep(draft: TaskDraft, index: number) {
+    if (executingDraftId) return
+    await executeDraft(draft, index)
+  }
+
+  function skipExecutionStep(draftId: string, index: number, instruction: string) {
+    updateExecutionStep(draftId, index, 'skipped', `Skipped: ${instruction}`)
   }
 
   return (
@@ -352,7 +372,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                       <button className={styles.actionBtn} onClick={() => addDraftStep(draft.id)} data-tooltip="Add step" aria-label="Add step">
                         <Plus size={12} />
                       </button>
-                      <button className={styles.actionBtn} onClick={() => void executeDraft(draft.id, draft.steps)} data-tooltip="Run draft" aria-label="Run draft" disabled={executingDraftId === draft.id}>
+                      <button className={styles.actionBtn} onClick={() => void executeDraft(draft)} data-tooltip="Run draft" aria-label="Run draft" disabled={executingDraftId === draft.id}>
                         <Play size={12} />
                       </button>
                       <button className={styles.actionBtn} onClick={() => deleteDraft(draft.id)} data-tooltip="Delete draft" aria-label="Delete draft">
@@ -363,10 +383,30 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                       <div className={styles.executionLog}>
                         {draft.execution.steps.map((stepLog, i) => (
                           <div key={`${draft.id}-log-${i}`} className={styles.executionItem}>
-                            <span className={`badge ${stepLog.status === 'done' ? 'badge-ok' : stepLog.status === 'error' ? 'badge-error' : stepLog.status === 'running' ? 'badge-warn' : 'badge-dim'}`}>
+                            <span className={`badge ${stepLog.status === 'done' ? 'badge-ok' : stepLog.status === 'error' ? 'badge-error' : stepLog.status === 'running' ? 'badge-warn' : stepLog.status === 'skipped' ? 'badge-dim' : 'badge-dim'}`}>
                               {stepLog.status}
                             </span>
                             <span className={styles.executionText}>{stepLog.instruction}</span>
+                            <div className={styles.executionActions}>
+                              <button
+                                className={styles.actionBtn}
+                                onClick={() => void retryExecutionStep(draft, i)}
+                                data-tooltip="Retry from this step"
+                                aria-label="Retry from this step"
+                                disabled={executingDraftId !== null}
+                              >
+                                <RotateCcw size={12} />
+                              </button>
+                              <button
+                                className={styles.actionBtn}
+                                onClick={() => skipExecutionStep(draft.id, i, stepLog.instruction)}
+                                data-tooltip="Skip this step"
+                                aria-label="Skip this step"
+                                disabled={executingDraftId !== null || stepLog.status === 'done' || stepLog.status === 'skipped'}
+                              >
+                                <ChevronRight size={12} />
+                              </button>
+                            </div>
                             {stepLog.output && <p className={styles.detailText}>{stepLog.output}</p>}
                           </div>
                         ))}

@@ -305,6 +305,12 @@
   color: var(--text-secondary);
 }
 
+.executionActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .tree {
   display: flex;
   flex-direction: column;
