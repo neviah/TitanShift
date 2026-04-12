@@ -17,7 +17,10 @@ export function CenterPane({ activeTab, selectedFilePath }: CenterPaneProps) {
     <div className={styles.root}>
       <ModuleBackdrop />
       <div className={styles.content}>
-        {activeTab === 'chat' && <ChatView />}
+        {/* ChatView stays always mounted so sending state survives tab switches */}
+        <div className={activeTab === 'chat' ? styles.viewWrapper : styles.viewHidden}>
+          <ChatView />
+        </div>
         {activeTab === 'skills' && <SkillsView />}
         {activeTab === 'settings' && <SettingsView />}
         {activeTab === 'tasks' && <PlaceholderView label="Tasks" />}

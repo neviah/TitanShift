@@ -1,8 +1,9 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 interface Workspace {
   id: string
   name: string
+  path?: string
   source: 'manual' | 'folder'
 }
 
@@ -10,6 +11,7 @@ interface WorkspaceContextValue {
   workspaces: Workspace[]
   currentWorkspaceId: string
   currentWorkspaceName: string
+  currentWorkspacePath: string | null
   selectWorkspace: (id: string) => void
   createWorkspace: (name: string) => void
   openWorkspaceFolder: () => Promise<void>
@@ -26,6 +28,7 @@ function loadInitial() {
         ? parsed.workspaces.map((w) => ({
             id: String(w.id),
             name: String(w.name),
+            path: typeof w.path === 'string' ? w.path : undefined,
             source: (w.source === 'folder' ? 'folder' : 'manual') as 'folder' | 'manual',
           }))
         : [{ id: 'default', name: 'Default', source: 'manual' }]
@@ -49,6 +52,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   workspaces: initial.workspaces,
   currentWorkspaceId: initial.currentWorkspaceId,
   currentWorkspaceName: 'Default',
+  currentWorkspacePath: null,
   selectWorkspace: () => {},
   createWorkspace: () => {},
   openWorkspaceFolder: async () => {},
@@ -70,10 +74,31 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ workspaces, currentWorkspaceId }))
   }, [workspaces, currentWorkspaceId])
 
-  const currentWorkspaceName = useMemo(
-    () => workspaces.find((w) => w.id === currentWorkspaceId)?.name ?? 'Default',
+  const currentWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === currentWorkspaceId),
     [workspaces, currentWorkspaceId],
   )
+  const currentWorkspaceName = currentWorkspace?.name ?? 'Default'
+  const currentWorkspacePath = currentWorkspace?.path ?? null
+
+  // Sync workspace root with backend whenever active workspace path changes
+  const syncBackendRoot = useCallback(async (path: string) => {
+    try {
+      await fetch('/api/workspace/set-root', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      })
+    } catch {
+      // best-effort; backend may not be running yet
+    }
+  }, [])
+
+  useEffect(() => {
+    if (currentWorkspacePath) {
+      void syncBackendRoot(currentWorkspacePath)
+    }
+  }, [currentWorkspacePath, syncBackendRoot])
 
   function selectWorkspace(id: string) {
     setState((prev) => ({
@@ -96,34 +121,31 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }
 
   async function openWorkspaceFolder() {
-    const picker = (window as { showDirectoryPicker?: () => Promise<{ name?: string }> }).showDirectoryPicker
-    if (!picker) {
-      const fallback = window.prompt('Folder picker is unavailable. Enter workspace name')
-      if (typeof fallback === 'string') createWorkspace(fallback)
-      return
-    }
+    const folderPath = window.prompt(
+      'Enter the full path to the workspace folder (e.g. D:\\Projects\\MyProject):',
+    )
+    if (!folderPath || !folderPath.trim()) return
 
-    try {
-      const handle = await picker()
-      const folderName = String(handle?.name ?? '').trim() || `workspace-${Date.now()}`
-      const id = folderName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `workspace-${Date.now()}`
-      setState((prev) => {
-        const existing = prev.workspaces.find((w) => w.id === id)
-        if (existing) {
-          return { workspaces: moveWorkspaceToFront(prev.workspaces, existing.id), currentWorkspaceId: existing.id }
-        }
-        return {
-          workspaces: [{ id, name: folderName, source: 'folder' }, ...prev.workspaces],
-          currentWorkspaceId: id,
-        }
-      })
-    } catch {
-      // user canceled picker
-    }
+    const trimmed = folderPath.trim()
+    const folderName = trimmed.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? trimmed
+    const id = folderName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `workspace-${Date.now()}`
+
+    setState((prev) => {
+      const existing = prev.workspaces.find((w) => w.id === id)
+      if (existing) {
+        // Update path if it changed
+        const updated = prev.workspaces.map((w) => w.id === id ? { ...w, path: trimmed } : w)
+        return { workspaces: moveWorkspaceToFront(updated, id), currentWorkspaceId: id }
+      }
+      return {
+        workspaces: [{ id, name: folderName, path: trimmed, source: 'folder' }, ...prev.workspaces],
+        currentWorkspaceId: id,
+      }
+    })
   }
 
   return (
-    <WorkspaceContext.Provider value={{ workspaces, currentWorkspaceId, currentWorkspaceName, selectWorkspace, createWorkspace, openWorkspaceFolder }}>
+    <WorkspaceContext.Provider value={{ workspaces, currentWorkspaceId, currentWorkspaceName, currentWorkspacePath, selectWorkspace, createWorkspace, openWorkspaceFolder }}>
       {children}
     </WorkspaceContext.Provider>
   )

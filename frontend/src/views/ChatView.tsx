@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchConfig, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
@@ -15,6 +15,7 @@ export function ChatView() {
   const [selectedMessageIndexes, setSelectedMessageIndexes] = useState<number[]>([])
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const messages = currentSession.messages
 
@@ -48,6 +49,10 @@ export function ChatView() {
     setSelectionMode(false)
     setSelectedMessageIndexes([])
   }, [currentSession.id])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, sending])
 
   async function send() {
     const text = input.trim()
@@ -157,6 +162,7 @@ export function ChatView() {
         {sending && <StatusIndicator isActive />}
         {promoteMsg && <p className={`${styles.error} text-info`}>{promoteMsg}</p>}
         {error && <p className={`${styles.error} text-error`}>{error}</p>}
+        <div ref={messagesEndRef} />
       </div>
 
       <div className={styles.inputRow}>

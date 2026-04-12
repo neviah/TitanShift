@@ -21,7 +21,21 @@ class ReactiveStateMachine:
 
         preferred_backend = task.input.get("model_backend") if task.input else None
         available_tools = task.input.get("available_tools", []) if task.input else []
+        workspace_root = task.input.get("workspace_root") if task.input else None
         model = self.models.select_model(preferred_backend)
+
+        # Build system prompt with workspace context
+        system_parts = ["You are a helpful AI assistant integrated into the TitanShift agent harness."]
+        if workspace_root:
+            system_parts.append(
+                f"The active workspace folder is: {workspace_root}. "
+                "When creating or modifying files, always use paths relative to or within this workspace folder. "
+                "Do not create or modify files outside this workspace."
+            )
+        if available_tools:
+            tool_names = ", ".join(t.get("name", "") for t in available_tools)
+            system_parts.append(f"You have access to the following tools: {tool_names}.")
+        system_prompt = " ".join(system_parts)
 
         prompt_tokens = model.estimate_tokens(task.description)
         if prompt_tokens > budget["max_tokens"]:
@@ -36,6 +50,7 @@ class ReactiveStateMachine:
             response = await asyncio.wait_for(
                 model.generate(ModelRequest(
                     prompt=task.description,
+                    system_prompt=system_prompt,
                     available_tools=available_tools or None
                 )),
                 timeout=budget["max_duration_ms"] / 1000.0,

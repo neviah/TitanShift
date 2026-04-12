@@ -55,7 +55,7 @@ interface LeftPaneProps {
 }
 
 export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath }: LeftPaneProps) {
-  const { workspaces, currentWorkspaceId, currentWorkspaceName, selectWorkspace, openWorkspaceFolder } = useWorkspace()
+  const { workspaces, currentWorkspaceId, currentWorkspaceName, currentWorkspacePath, selectWorkspace, openWorkspaceFolder } = useWorkspace()
   const { data: taskData } = usePolling(fetchTasks, { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: treeData } = usePolling(fetchWorkspaceTree, { interval: 30000 })
@@ -268,6 +268,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                 key={workspace.id}
                 className={`${styles.itemRow} ${workspace.id === currentWorkspaceId ? styles.rowActive : ''}`}
                 onClick={() => selectWorkspace(workspace.id)}
+                title={workspace.path ?? workspace.name}
               >
                 <span className={styles.rowTitle}>{workspace.name}</span>
                 <span className="badge badge-dim">{workspace.source}</span>
@@ -448,6 +449,10 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
         {activeTab === 'files' && (
           <div className={styles.list}>
             <p className={styles.hint}>Workspace tree</p>
+            {currentWorkspacePath
+              ? <p className={styles.hint} title={currentWorkspacePath} style={{ fontSize: 10, wordBreak: 'break-all', opacity: 0.7 }}>{currentWorkspacePath}</p>
+              : <p className={styles.hint} style={{ fontSize: 10, opacity: 0.5 }}>No folder selected — showing project root</p>
+            }
             {!treeData || treeData.length === 0 ? <p className={styles.empty}>No files available.</p> : (
               <div className={styles.tree}>
                 {treeData.map((node) => (

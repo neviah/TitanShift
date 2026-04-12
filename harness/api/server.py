@@ -122,6 +122,9 @@ def create_app(workspace_root: Path) -> FastAPI:
     app.state.runtime = runtime
     emergency_fix_history: dict[str, dict[str, Any]] = {}
 
+    # Mutable workspace root — can be changed at runtime via /workspace/set-root
+    _active_workspace: dict[str, Path] = {"root": workspace_root}
+
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
         if not enabled:
             return
@@ -1380,6 +1383,9 @@ def create_app(workspace_root: Path) -> FastAPI:
             if runtime.tools.preview_policy(t)[0]  # Only include tools allowed by policy
         ]
 
+        # Pass active workspace root as context for file operations
+        task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
+
         task = Task(
             id=str(uuid.uuid4()),
             description=body.prompt,
@@ -1431,12 +1437,31 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.get("/workspace/tree", response_model=list[WorkspaceTreeNode], dependencies=[Depends(require_read_api_key)])
     async def workspace_tree() -> list[WorkspaceTreeNode]:
-        return _build_workspace_tree(workspace_root, workspace_root, max_depth=4)
+        root = _active_workspace["root"]
+        return _build_workspace_tree(root, root, max_depth=4)
+
+    @app.get("/workspace/info", dependencies=[Depends(require_read_api_key)])
+    async def workspace_info() -> dict[str, str]:
+        return {"root": str(_active_workspace["root"]).replace("\\", "/")}
+
+    @app.post("/workspace/set-root", dependencies=[Depends(require_read_api_key)])
+    async def workspace_set_root(body: dict[str, str]) -> dict[str, str]:
+        raw = body.get("path", "").strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="path is required")
+        candidate = Path(raw).resolve()
+        if not candidate.exists():
+            raise HTTPException(status_code=400, detail=f"Path does not exist: {candidate}")
+        if not candidate.is_dir():
+            raise HTTPException(status_code=400, detail=f"Path is not a directory: {candidate}")
+        _active_workspace["root"] = candidate
+        return {"root": str(candidate).replace("\\", "/")}
 
     @app.get("/workspace/file", response_model=WorkspaceFileResponse, dependencies=[Depends(require_read_api_key)])
     async def workspace_file(path: str) -> WorkspaceFileResponse:
-        target = (workspace_root / path).resolve()
-        if workspace_root.resolve() not in target.parents and target != workspace_root.resolve():
+        root = _active_workspace["root"]
+        target = (root / path).resolve()
+        if root.resolve() not in target.parents and target != root.resolve():
             raise HTTPException(status_code=400, detail="Path escapes workspace")
         if not target.exists() or not target.is_file():
             raise HTTPException(status_code=404, detail="File not found")
