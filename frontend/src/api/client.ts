@@ -5,6 +5,7 @@ import type {
   SkillMarketItem,
   ChatRequest,
   ChatResponse,
+  TaskSummary,
 } from './types'
 
 const API_BASE = '/api'
@@ -84,4 +85,8 @@ export function sendChat(requestBody: ChatRequest): Promise<ChatResponse> {
     method: 'POST',
     body: JSON.stringify(requestBody),
   })
+}
+
+export function fetchTasks(): Promise<TaskSummary[]> {
+  return request('/tasks')
 }

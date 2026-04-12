@@ -10,8 +10,25 @@ import styles from './App.module.css'
 
 function Shell() {
   const [activeTab, setActiveTab] = useState<NavTab>('chat')
+  const [activeLeftSection, setActiveLeftSection] = useState<NavTab>('chat')
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
+
+  function handleLeftSectionChange(section: NavTab) {
+    setActiveLeftSection(section)
+
+    // Settings always owns the center pane. Skills opens market in center.
+    // Other sections keep center in chat for side-by-side workflows.
+    if (section === 'settings') {
+      setActiveTab('settings')
+      return
+    }
+    if (section === 'skills') {
+      setActiveTab('skills')
+      return
+    }
+    setActiveTab('chat')
+  }
 
   return (
     <div className={styles.root}>
@@ -25,7 +42,7 @@ function Shell() {
         <TriPane
           leftCollapsed={leftCollapsed}
           rightCollapsed={rightCollapsed}
-          left={<LeftPane activeTab={activeTab} onTabChange={setActiveTab} />}
+          left={<LeftPane activeTab={activeLeftSection} onTabChange={handleLeftSectionChange} />}
           center={<CenterPane activeTab={activeTab} />}
           right={<RightPane />}
         />

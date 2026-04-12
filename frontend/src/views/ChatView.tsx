@@ -32,6 +32,7 @@ export function ChatView() {
 
   useEffect(() => {
     localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-100)))
+    window.dispatchEvent(new Event('titanshift:chat-updated'))
   }, [messages])
 
   useEffect(() => {
@@ -47,6 +48,19 @@ export function ChatView() {
       .catch(() => {})
     return () => {
       mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    function handleNewChat() {
+      setMessages([])
+      setError(null)
+      setInput('')
+    }
+
+    window.addEventListener('titanshift:new-chat', handleNewChat)
+    return () => {
+      window.removeEventListener('titanshift:new-chat', handleNewChat)
     }
   }, [])
 

@@ -145,3 +145,14 @@ export interface ChatResponse {
   error: string | null
   estimated_total_tokens: number | null
 }
+
+export interface TaskSummary {
+  task_id: string
+  description: string
+  status: string
+  created_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  success?: boolean | null
+  error?: string | null
+}
