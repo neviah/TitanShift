@@ -69,29 +69,7 @@ class NetworkXGraphBackend(GraphBackend):
     def _persist_to_disk(self) -> None:
         if self._persistence_path is None:
             return
-
-        nodes: list[dict[str, Any]] = []
-        for node_id, attrs in self._graph.nodes(data=True):
-            nodes.append(
-                {
-                    "node_id": str(node_id),
-                    "node_type": str(attrs.get("node_type", "")),
-                    "properties": {k: str(v) for k, v in attrs.items() if k != "node_type"},
-                }
-            )
-
-        edges: list[dict[str, Any]] = []
-        for source, target, attrs in self._graph.edges(data=True):
-            edges.append(
-                {
-                    "source": str(source),
-                    "target": str(target),
-                    "edge_type": str(attrs.get("edge_type", "")),
-                    "properties": {k: str(v) for k, v in attrs.items() if k != "edge_type"},
-                }
-            )
-
-        payload = {"nodes": nodes, "edges": edges}
+        payload = self.export_snapshot()
         self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self._persistence_path.with_suffix(self._persistence_path.suffix + ".tmp")
         tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -139,3 +117,65 @@ class NetworkXGraphBackend(GraphBackend):
             if len(out) >= max(1, limit):
                 break
         return out
+
+    def export_snapshot(self) -> dict[str, Any]:
+        nodes: list[dict[str, Any]] = []
+        for node_id, attrs in self._graph.nodes(data=True):
+            nodes.append(
+                {
+                    "node_id": str(node_id),
+                    "node_type": str(attrs.get("node_type", "")),
+                    "properties": {k: str(v) for k, v in attrs.items() if k != "node_type"},
+                }
+            )
+
+        edges: list[dict[str, Any]] = []
+        for source, target, attrs in self._graph.edges(data=True):
+            edges.append(
+                {
+                    "source": str(source),
+                    "target": str(target),
+                    "edge_type": str(attrs.get("edge_type", "")),
+                    "properties": {k: str(v) for k, v in attrs.items() if k != "edge_type"},
+                }
+            )
+        return {"nodes": nodes, "edges": edges}
+
+    def import_snapshot(self, snapshot: dict[str, Any], *, clear_existing: bool = False) -> dict[str, int]:
+        if clear_existing:
+            self._graph.clear()
+
+        nodes_added = 0
+        edges_added = 0
+
+        for node in list(snapshot.get("nodes", [])):
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("node_id", "")).strip()
+            if not node_id:
+                continue
+            node_type = str(node.get("node_type", "concept"))
+            properties = node.get("properties", {})
+            safe_props = {str(k): str(v) for k, v in dict(properties).items()} if isinstance(properties, dict) else {}
+            existed = self._graph.has_node(node_id)
+            self._graph.add_node(node_id, node_type=node_type, **safe_props)
+            if not existed:
+                nodes_added += 1
+
+        for edge in list(snapshot.get("edges", [])):
+            if not isinstance(edge, dict):
+                continue
+            source = str(edge.get("source", "")).strip()
+            target = str(edge.get("target", "")).strip()
+            if not source or not target:
+                continue
+            edge_type = str(edge.get("edge_type", "related_to"))
+            properties = edge.get("properties", {})
+            safe_props = {str(k): str(v) for k, v in dict(properties).items()} if isinstance(properties, dict) else {}
+            existed = self._graph.has_edge(source, target)
+            self._graph.add_edge(source, target, edge_type=edge_type, **safe_props)
+            if not existed:
+                edges_added += 1
+
+        self._persist_to_disk()
+        return {"nodes_added": nodes_added, "edges_added": edges_added}

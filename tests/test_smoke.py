@@ -1097,6 +1097,42 @@ def test_ingested_graph_data_persists_across_runtime_restart(tmp_path: Path) -> 
     assert any("telemetry" in hit["node_id"] for hit in search.json())
 
 
+def test_memory_graph_migration_export_import_local(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    app.state.runtime.memory.graph_add_node("concept:alpha", "concept", {"text": "alpha"})
+    app.state.runtime.memory.graph_add_node("concept:beta", "concept", {"text": "beta"})
+    app.state.runtime.memory.graph_add_edge("concept:alpha", "concept:beta", "related_to")
+
+    export_response = client.post(
+        "/memory/graph/migration/export",
+        json={"backend": "local", "path": ".harness/graph_migration_snapshot.json"},
+    )
+    assert export_response.status_code == 200
+    export_body = export_response.json()
+    assert export_body["ok"] is True
+    assert export_body["nodes"] >= 2
+    assert export_body["edges"] >= 1
+
+    import_response = client.post(
+        "/memory/graph/migration/import",
+        json={
+            "backend": "local",
+            "path": ".harness/graph_migration_snapshot.json",
+            "clear_existing": True,
+        },
+    )
+    assert import_response.status_code == 200
+    import_body = import_response.json()
+    assert import_body["ok"] is True
+    assert import_body["nodes"] >= 2
+
+    neighbors = client.get("/memory/graph/neighbors?node_id=concept:alpha")
+    assert neighbors.status_code == 200
+    assert "concept:beta" in neighbors.json()["neighbors"]
+
+
 def test_emergency_diagnosis_endpoint() -> None:
     app = create_app(Path(".").resolve())
     runtime = app.state.runtime

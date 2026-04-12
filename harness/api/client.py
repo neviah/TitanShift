@@ -123,3 +123,62 @@ class HarnessApiClient:
         response = self.client.get("/ui/ingestion/overview", headers=self._headers())
         response.raise_for_status()
         return dict(response.json())
+
+    def export_graph_snapshot(
+        self,
+        *,
+        path: str,
+        backend: str = "local",
+        neo4j_uri: str | None = None,
+        neo4j_username: str | None = None,
+        neo4j_password: str | None = None,
+        neo4j_database: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"path": path, "backend": backend}
+        if neo4j_uri is not None:
+            payload["neo4j_uri"] = neo4j_uri
+        if neo4j_username is not None:
+            payload["neo4j_username"] = neo4j_username
+        if neo4j_password is not None:
+            payload["neo4j_password"] = neo4j_password
+        if neo4j_database is not None:
+            payload["neo4j_database"] = neo4j_database
+        response = self.client.post(
+            "/memory/graph/migration/export",
+            json=payload,
+            headers=self._headers(admin=True),
+        )
+        response.raise_for_status()
+        return dict(response.json())
+
+    def import_graph_snapshot(
+        self,
+        *,
+        path: str,
+        backend: str = "local",
+        clear_existing: bool = False,
+        neo4j_uri: str | None = None,
+        neo4j_username: str | None = None,
+        neo4j_password: str | None = None,
+        neo4j_database: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "path": path,
+            "backend": backend,
+            "clear_existing": clear_existing,
+        }
+        if neo4j_uri is not None:
+            payload["neo4j_uri"] = neo4j_uri
+        if neo4j_username is not None:
+            payload["neo4j_username"] = neo4j_username
+        if neo4j_password is not None:
+            payload["neo4j_password"] = neo4j_password
+        if neo4j_database is not None:
+            payload["neo4j_database"] = neo4j_database
+        response = self.client.post(
+            "/memory/graph/migration/import",
+            json=payload,
+            headers=self._headers(admin=True),
+        )
+        response.raise_for_status()
+        return dict(response.json())

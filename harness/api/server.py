@@ -12,6 +12,13 @@ from typing import Any, TypeVar
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 
+from harness.memory.graph.migration import (
+    export_from_neo4j,
+    import_to_neo4j,
+    read_snapshot,
+    write_snapshot,
+)
+
 from harness.api.schemas import (
     EmergencyAnalyzeRequest,
     EmergencyAnalyzeResponse,
@@ -74,6 +81,9 @@ from harness.api.schemas import (
     SchedulerMaintenanceRegisterResponse,
     SchedulerTickResponse,
     MemoryGraphNeighbors,
+    MemoryGraphMigrationExportRequest,
+    MemoryGraphMigrationImportRequest,
+    MemoryGraphMigrationResponse,
     MemoryGraphNodeHit,
     MemorySemanticHit,
     MemorySummary,
@@ -2293,6 +2303,139 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
             for r in rows
         ]
+
+    def _resolve_neo4j_credentials(
+        *,
+        uri: str | None,
+        username: str | None,
+        password: str | None,
+        database: str | None,
+    ) -> tuple[str, str, str, str | None]:
+        resolved_uri = (uri or str(runtime.config.get("memory.neo4j.uri", ""))).strip()
+        resolved_username = (username or str(runtime.config.get("memory.neo4j.username", ""))).strip()
+        resolved_password = (password or str(runtime.config.get("memory.neo4j.password", ""))).strip()
+        resolved_database = (database or str(runtime.config.get("memory.neo4j.database", "")).strip() or None)
+        if not resolved_uri or not resolved_username or not resolved_password:
+            raise HTTPException(
+                status_code=400,
+                detail="Neo4j migration requires uri, username, and password (request body or memory.neo4j.* config)",
+            )
+        return resolved_uri, resolved_username, resolved_password, resolved_database
+
+    @app.post(
+        "/memory/graph/migration/export",
+        response_model=MemoryGraphMigrationResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def memory_graph_migration_export(body: MemoryGraphMigrationExportRequest) -> MemoryGraphMigrationResponse:
+        target = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(target.parent):
+            raise HTTPException(status_code=403, detail="Export path blocked by execution policy")
+
+        backend = body.backend.strip().lower()
+        if backend not in {"local", "neo4j"}:
+            raise HTTPException(status_code=400, detail="Invalid backend: expected local or neo4j")
+
+        if backend == "local":
+            snapshot = runtime.memory.graph_export_snapshot()
+        else:
+            uri, username, password, database = _resolve_neo4j_credentials(
+                uri=body.neo4j_uri,
+                username=body.neo4j_username,
+                password=body.neo4j_password,
+                database=body.neo4j_database,
+            )
+            try:
+                snapshot = export_from_neo4j(
+                    uri=uri,
+                    username=username,
+                    password=password,
+                    database=database,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Neo4j export failed: {exc}") from exc
+
+        write_snapshot(target, snapshot)
+
+        nodes = len(list(snapshot.get("nodes", [])))
+        edges = len(list(snapshot.get("edges", [])))
+        runtime.logger.log(
+            "GRAPH_MIGRATION_EXPORT",
+            {"backend": backend, "path": str(target), "nodes": nodes, "edges": edges, "source": "api"},
+        )
+        return MemoryGraphMigrationResponse(
+            ok=True,
+            backend=backend,
+            path=str(target),
+            nodes=nodes,
+            edges=edges,
+            details={"snapshot_format": "nodes_edges_v1"},
+        )
+
+    @app.post(
+        "/memory/graph/migration/import",
+        response_model=MemoryGraphMigrationResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def memory_graph_migration_import(body: MemoryGraphMigrationImportRequest) -> MemoryGraphMigrationResponse:
+        source_path = (workspace_root / body.path).resolve()
+        if not runtime.execution.policy.is_cwd_allowed(source_path.parent):
+            raise HTTPException(status_code=403, detail="Import path blocked by execution policy")
+        if not source_path.exists() or not source_path.is_file():
+            raise HTTPException(status_code=404, detail="Snapshot file not found")
+
+        snapshot = read_snapshot(source_path)
+        backend = body.backend.strip().lower()
+        if backend not in {"local", "neo4j"}:
+            raise HTTPException(status_code=400, detail="Invalid backend: expected local or neo4j")
+
+        if backend == "local":
+            counts = runtime.memory.graph_import_snapshot(snapshot, clear_existing=body.clear_existing)
+        else:
+            uri, username, password, database = _resolve_neo4j_credentials(
+                uri=body.neo4j_uri,
+                username=body.neo4j_username,
+                password=body.neo4j_password,
+                database=body.neo4j_database,
+            )
+            try:
+                counts = import_to_neo4j(
+                    snapshot=snapshot,
+                    uri=uri,
+                    username=username,
+                    password=password,
+                    database=database,
+                    clear_existing=body.clear_existing,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=501, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Neo4j import failed: {exc}") from exc
+
+        nodes = int(counts.get("nodes_added", 0))
+        edges = int(counts.get("edges_added", 0))
+        runtime.logger.log(
+            "GRAPH_MIGRATION_IMPORT",
+            {
+                "backend": backend,
+                "path": str(source_path),
+                "clear_existing": body.clear_existing,
+                "nodes_added": nodes,
+                "edges_added": edges,
+                "source": "api",
+            },
+        )
+
+        return MemoryGraphMigrationResponse(
+            ok=True,
+            backend=backend,
+            path=str(source_path),
+            nodes=nodes,
+            edges=edges,
+            details={"clear_existing": body.clear_existing},
+        )
 
     @app.get("/reports/run-history", response_model=RunHistoryReport, dependencies=[Depends(require_read_api_key)])
     async def run_history_report(task_limit: int = 10, log_limit: int = 50, redact: bool | None = None) -> RunHistoryReport:

@@ -170,7 +170,12 @@ curl http://127.0.0.1:8000/memory/summary
 curl "http://127.0.0.1:8000/memory/semantic-search?query=alpha&limit=5"
 curl "http://127.0.0.1:8000/memory/graph/neighbors?node_id=n1"
 curl "http://127.0.0.1:8000/memory/graph/search?query=shell&node_type=skill&limit=10"
+curl -X POST http://127.0.0.1:8000/memory/graph/migration/export -H "Content-Type: application/json" -d "{\"backend\":\"local\",\"path\":\".harness/graph_snapshot.json\"}"
+curl -X POST http://127.0.0.1:8000/memory/graph/migration/import -H "Content-Type: application/json" -d "{\"backend\":\"local\",\"path\":\".harness/graph_snapshot.json\",\"clear_existing\":true}"
 ```
+
+Graph migration endpoints support `backend=local` and `backend=neo4j`.
+For Neo4j migration, provide `neo4j_uri`, `neo4j_username`, `neo4j_password` (and optional `neo4j_database`) in the request body, or set `memory.neo4j.*` config keys.
 
 Emergency diagnostics API:
 

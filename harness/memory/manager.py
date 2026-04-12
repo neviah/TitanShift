@@ -80,6 +80,12 @@ class MemoryManager:
     def graph_search_nodes(self, query: str, node_type: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         return self.graph.search_nodes(query=query, node_type=node_type, limit=limit)
 
+    def graph_export_snapshot(self) -> dict[str, Any]:
+        return self.graph.export_snapshot()
+
+    def graph_import_snapshot(self, snapshot: dict[str, Any], *, clear_existing: bool = False) -> dict[str, int]:
+        return self.graph.import_snapshot(snapshot, clear_existing=clear_existing)
+
     def summary(self) -> dict[str, int]:
         working_agents = len(self.working_memory)
         working_entries = sum(len(v) for v in self.working_memory.values())

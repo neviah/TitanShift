@@ -343,6 +343,34 @@ class MemoryGraphNodeHit(BaseModel):
     properties: dict[str, str]
 
 
+class MemoryGraphMigrationExportRequest(BaseModel):
+    path: str = Field(min_length=1)
+    backend: str = Field(default="local")
+    neo4j_uri: str | None = None
+    neo4j_username: str | None = None
+    neo4j_password: str | None = None
+    neo4j_database: str | None = None
+
+
+class MemoryGraphMigrationImportRequest(BaseModel):
+    path: str = Field(min_length=1)
+    backend: str = Field(default="local")
+    clear_existing: bool = False
+    neo4j_uri: str | None = None
+    neo4j_username: str | None = None
+    neo4j_password: str | None = None
+    neo4j_database: str | None = None
+
+
+class MemoryGraphMigrationResponse(BaseModel):
+    ok: bool
+    backend: str
+    path: str
+    nodes: int
+    edges: int
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class EmergencyDiagnosis(BaseModel):
     hypothesis: str
     confidence: float
