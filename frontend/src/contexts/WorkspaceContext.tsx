@@ -57,6 +57,15 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [{ workspaces, currentWorkspaceId }, setState] = useState(loadInitial)
 
+  function moveWorkspaceToFront(items: Workspace[], id: string): Workspace[] {
+    const index = items.findIndex((w) => w.id === id)
+    if (index <= 0) return items
+    const next = items.slice()
+    const [selected] = next.splice(index, 1)
+    next.unshift(selected)
+    return next
+  }
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ workspaces, currentWorkspaceId }))
   }, [workspaces, currentWorkspaceId])
@@ -68,7 +77,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   function selectWorkspace(id: string) {
     setState((prev) => ({
-      workspaces: prev.workspaces,
+      workspaces: prev.workspaces.some((w) => w.id === id) ? moveWorkspaceToFront(prev.workspaces, id) : prev.workspaces,
       currentWorkspaceId: prev.workspaces.some((w) => w.id === id) ? id : prev.currentWorkspaceId,
     }))
   }
@@ -79,9 +88,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const id = nextName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `workspace-${Date.now()}`
     setState((prev) => {
       if (prev.workspaces.some((w) => w.id === id)) {
-        return { workspaces: prev.workspaces, currentWorkspaceId: id }
+        return { workspaces: moveWorkspaceToFront(prev.workspaces, id), currentWorkspaceId: id }
       }
-      const next = [...prev.workspaces, { id, name: nextName, source: 'manual' as const }]
+      const next = [{ id, name: nextName, source: 'manual' as const }, ...prev.workspaces]
       return { workspaces: next, currentWorkspaceId: id }
     })
   }
@@ -101,10 +110,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setState((prev) => {
         const existing = prev.workspaces.find((w) => w.id === id)
         if (existing) {
-          return { workspaces: prev.workspaces, currentWorkspaceId: existing.id }
+          return { workspaces: moveWorkspaceToFront(prev.workspaces, existing.id), currentWorkspaceId: existing.id }
         }
         return {
-          workspaces: [...prev.workspaces, { id, name: folderName, source: 'folder' }],
+          workspaces: [{ id, name: folderName, source: 'folder' }, ...prev.workspaces],
           currentWorkspaceId: id,
         }
       })

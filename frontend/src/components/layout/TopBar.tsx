@@ -2,7 +2,6 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Palette
 import { useTheme, type Theme } from '../../contexts/ThemeContext'
 import { usePolling } from '../../hooks/usePolling'
 import { fetchStatus } from '../../api/client'
-import { useWorkspace } from '../../contexts/WorkspaceContext'
 import styles from './TopBar.module.css'
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -21,7 +20,6 @@ interface TopBarProps {
 
 export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRight }: TopBarProps) {
   const { theme, setTheme } = useTheme()
-  const { workspaces, currentWorkspaceId, selectWorkspace, createWorkspace } = useWorkspace()
   const { data, error } = usePolling(fetchStatus, { interval: 8000 })
 
   const backend = data?.default_model_backend ?? 'unknown'
@@ -29,13 +27,6 @@ export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRi
   const connected = checking ? false : (data?.model_connected ?? (backend === 'local_stub'))
   const statusLabel = checking ? 'checking' : (connected ? 'connected' : 'disconnected')
   const statusClass = checking ? 'badge-dim' : (connected ? 'badge-ok' : 'badge-error')
-
-  function handleCreateWorkspace() {
-    const name = window.prompt('New workspace name')
-    if (typeof name === 'string') {
-      createWorkspace(name)
-    }
-  }
 
   return (
     <div className={styles.root}>
@@ -47,20 +38,6 @@ export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRi
       </div>
 
       <div className={styles.right}>
-        <div className={styles.workspacePicker}>
-          <select
-            className={styles.workspaceSelect}
-            value={currentWorkspaceId}
-            onChange={(e) => selectWorkspace(e.target.value)}
-            title="Workspace"
-          >
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
-          </select>
-          <button className={styles.workspaceAddBtn} onClick={handleCreateWorkspace} title="New workspace">+</button>
-        </div>
-
         <div className={styles.modelStatus} title={error ?? data?.model_connection_reason ?? 'Model connection status'}>
           <span className={styles.modelLabel}>Model</span>
           <span className={`badge ${statusClass}`}>{statusLabel}</span>

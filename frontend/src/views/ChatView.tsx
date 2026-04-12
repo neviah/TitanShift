@@ -10,8 +10,10 @@ export function ChatView() {
   const [error, setError] = useState<string | null>(null)
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
   const [preferredBackend, setPreferredBackend] = useState<string | null>(null)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedMessageIndexes, setSelectedMessageIndexes] = useState<number[]>([])
   const { currentSession, appendMessage } = useChatSessions()
-  const { promoteSessionToDraft } = useTaskDrafts()
+  const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
 
   const messages = currentSession.messages
 
@@ -42,6 +44,8 @@ export function ChatView() {
   useEffect(() => {
     setError(null)
     setInput('')
+    setSelectionMode(false)
+    setSelectedMessageIndexes([])
   }, [currentSession.id])
 
   async function send() {
@@ -77,10 +81,47 @@ export function ChatView() {
     }
   }
 
+  function toggleSelectedMessage(index: number) {
+    setSelectedMessageIndexes((prev) => (
+      prev.includes(index) ? prev.filter((value) => value !== index) : [...prev, index]
+    ))
+  }
+
+  function promoteSelectedMessages() {
+    const draft = promoteSelectionToDraft(currentSession, selectedMessageIndexes)
+    if (draft) {
+      setPromoteMsg(`Draft created from selection: ${draft.title}`)
+      setSelectionMode(false)
+      setSelectedMessageIndexes([])
+    } else {
+      setPromoteMsg('Select one or more user messages with instruction-like content first.')
+    }
+  }
+
   return (
     <div className={styles.root}>
       <div className={styles.topBar}>
-        <button className={styles.promoteBtn} onClick={promoteCurrentSession}>Promote To Task</button>
+        <div className={styles.topActions}>
+          <button className={styles.promoteBtn} onClick={promoteCurrentSession}>Promote To Task</button>
+          <button
+            className={`${styles.promoteBtn} ${selectionMode ? styles.promoteBtnActive : ''}`}
+            onClick={() => {
+              setSelectionMode((prev) => !prev)
+              setSelectedMessageIndexes([])
+            }}
+          >
+            {selectionMode ? 'Cancel Selection' : 'Select Messages'}
+          </button>
+          {selectionMode && (
+            <button
+              className={styles.promoteBtn}
+              onClick={promoteSelectedMessages}
+              disabled={selectedMessageIndexes.length === 0}
+            >
+              Promote Selected ({selectedMessageIndexes.length})
+            </button>
+          )}
+        </div>
         {taskCandidate && <span className={styles.candidateHint}>Complex thread detected: good task candidate</span>}
       </div>
 
@@ -94,7 +135,19 @@ export function ChatView() {
           <div className={styles.thread}>
             {messages.map((m, i) => (
               <div key={`${m.role}-${i}`} className={`${styles.msg} ${m.role === 'user' ? styles.user : styles.assistant}`}>
-                <p className={styles.msgRole}>{m.role === 'user' ? 'You' : 'TitanShift'}</p>
+                <div className={styles.msgHead}>
+                  <p className={styles.msgRole}>{m.role === 'user' ? 'You' : 'TitanShift'}</p>
+                  {selectionMode && m.role === 'user' && (
+                    <label className={styles.selectLabel}>
+                      <input
+                        type="checkbox"
+                        checked={selectedMessageIndexes.includes(i)}
+                        onChange={() => toggleSelectedMessage(i)}
+                      />
+                      Select
+                    </label>
+                  )}
+                </div>
                 <p className={styles.msgText}>{m.text}</p>
               </div>
             ))}

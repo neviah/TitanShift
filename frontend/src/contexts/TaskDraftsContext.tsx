@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { ChatSession } from './ChatSessionsContext'
+import type { ChatMessage, ChatSession } from './ChatSessionsContext'
 
 export interface TaskDraft {
   id: string
@@ -23,6 +23,7 @@ export interface TaskDraft {
 interface TaskDraftsContextValue {
   drafts: TaskDraft[]
   promoteSessionToDraft: (session: ChatSession) => TaskDraft | null
+  promoteSelectionToDraft: (session: ChatSession, selectedMessageIndexes: number[]) => TaskDraft | null
   deleteDraft: (id: string) => void
   setExecutionResult: (id: string, result: string) => void
   setDraftTitle: (id: string, title: string) => void
@@ -52,6 +53,7 @@ function loadInitial(): TaskDraft[] {
 const TaskDraftsContext = createContext<TaskDraftsContextValue>({
   drafts: [],
   promoteSessionToDraft: () => null,
+  promoteSelectionToDraft: () => null,
   deleteDraft: () => {},
   setExecutionResult: () => {},
   setDraftTitle: () => {},
@@ -65,13 +67,8 @@ const TaskDraftsContext = createContext<TaskDraftsContextValue>({
   finishExecution: () => {},
 })
 
-function extractStepsFromSession(session: ChatSession): string[] {
-  const userText = session.messages
-    .filter((m) => m.role === 'user')
-    .map((m) => m.text)
-    .join('\n')
-    .trim()
-
+function extractStepsFromTexts(texts: string[]): string[] {
+  const userText = texts.join('\n').trim()
   if (!userText) return []
 
   const lines = userText
@@ -87,6 +84,26 @@ function extractStepsFromSession(session: ChatSession): string[] {
   return deduped.slice(0, 20)
 }
 
+function extractStepsFromSession(session: ChatSession): string[] {
+  return extractStepsFromTexts(
+    session.messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.text),
+  )
+}
+
+function extractStepsFromSelection(session: ChatSession, selectedMessageIndexes: number[]): string[] {
+  if (selectedMessageIndexes.length === 0) return []
+
+  const selectedIndexSet = new Set(selectedMessageIndexes)
+  const selectedUserTexts = session.messages
+    .map((m, index) => ({ m, index }))
+    .filter((item): item is { m: ChatMessage; index: number } => item.m.role === 'user' && selectedIndexSet.has(item.index))
+    .map((item) => item.m.text)
+
+  return extractStepsFromTexts(selectedUserTexts)
+}
+
 export function TaskDraftsProvider({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<TaskDraft[]>(loadInitial)
 
@@ -94,18 +111,31 @@ export function TaskDraftsProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts))
   }, [drafts])
 
-  function promoteSessionToDraft(session: ChatSession): TaskDraft | null {
-    const steps = extractStepsFromSession(session)
-    if (steps.length === 0) return null
-
-    const draft: TaskDraft = {
+  function createDraft(session: ChatSession, steps: string[], title: string): TaskDraft {
+    return {
       id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title: session.title || 'Promoted Task Draft',
+      title,
       sourceSessionId: session.id,
       steps,
       createdAt: new Date().toISOString(),
     }
+  }
 
+  function promoteSessionToDraft(session: ChatSession): TaskDraft | null {
+    const steps = extractStepsFromSession(session)
+    if (steps.length === 0) return null
+
+    const draft = createDraft(session, steps, session.title || 'Promoted Task Draft')
+    setDrafts((prev) => [draft, ...prev])
+    return draft
+  }
+
+  function promoteSelectionToDraft(session: ChatSession, selectedMessageIndexes: number[]): TaskDraft | null {
+    const steps = extractStepsFromSelection(session, selectedMessageIndexes)
+    if (steps.length === 0) return null
+
+    const baseTitle = session.title || 'Promoted Task Draft'
+    const draft = createDraft(session, steps, `${baseTitle} (selection)`)
     setDrafts((prev) => [draft, ...prev])
     return draft
   }
@@ -235,6 +265,7 @@ export function TaskDraftsProvider({ children }: { children: ReactNode }) {
     () => ({
       drafts,
       promoteSessionToDraft,
+      promoteSelectionToDraft,
       deleteDraft,
       setExecutionResult,
       setDraftTitle,
