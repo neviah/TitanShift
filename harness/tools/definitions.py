@@ -14,3 +14,4 @@ class ToolDefinition:
     required_commands: list[str] = field(default_factory=list)
     needs_network: bool = False
     handler: ToolHandler | None = None
+    parameters: dict | None = None  # JSON Schema for tool arguments

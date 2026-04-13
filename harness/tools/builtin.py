@@ -36,8 +36,16 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
     tools.register_tool(
         ToolDefinition(
             name="shell_command",
-            description="Run shell commands through policy-constrained execution module",
+            description="Run a shell command through the policy-constrained execution module.",
             handler=shell_command_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The shell command to run"},
+                    "cwd": {"type": "string", "description": "Optional working directory"},
+                },
+                "required": ["command"],
+            },
         )
     )
 
@@ -82,8 +90,16 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
     tools.register_tool(
         ToolDefinition(
             name="web_fetch",
-            description="Fetch webpage text content over HTTP for summarization/research",
+            description="Fetch the plain-text content of a URL for summarisation or research. Use this whenever the user asks about live data, current events, websites, news, prices, or anything requiring information from the web.",
             needs_network=True,
             handler=web_fetch_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The full URL to fetch (must start with http:// or https://)"},
+                    "max_chars": {"type": "integer", "description": "Maximum characters to return (default 8000)"},
+                },
+                "required": ["url"],
+            },
         )
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json as _json
+from dataclasses import dataclass, field
 from typing import Any
 from typing import Protocol
 
@@ -10,16 +11,26 @@ from harness.runtime.config import ConfigManager
 
 
 @dataclass(slots=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(slots=True)
 class ModelRequest:
     prompt: str
     system_prompt: str | None = None
-    available_tools: list[dict[str, str]] | None = None
+    available_tools: list[dict[str, str]] | None = None  # legacy compat
+    messages: list[dict[str, Any]] | None = None          # multi-turn; overrides prompt when set
+    tool_definitions: list[dict[str, Any]] | None = None  # full OpenAI-format tool schemas
 
 
 @dataclass(slots=True)
 class ModelResponse:
     text: str
     model_id: str
+    tool_calls: list[ToolCall] | None = None
 
 
 class ModelAdapter(Protocol):
@@ -66,32 +77,40 @@ class LMStudioAdapter:
         self.timeout_s = timeout_s
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
-        messages = [
-            {"role": "system", "content": request.system_prompt or "You are a helpful assistant."},
-            {"role": "user", "content": request.prompt},
-        ]
-        
-        payload = {
+        # Build message list — prefer multi-turn messages if provided
+        if request.messages is not None:
+            messages = request.messages
+        else:
+            messages = [
+                {"role": "system", "content": request.system_prompt or "You are a helpful assistant."},
+                {"role": "user", "content": request.prompt},
+            ]
+
+        payload: dict[str, Any] = {
             "model": self.default_model,
             "messages": messages,
             "temperature": 0.2,
-            "max_tokens": 256,
-            "reasoning": "off",
+            "max_tokens": 1024,
         }
-        
-        # Add tools if available
-        if request.available_tools:
+
+        # Full tool schemas take priority; fall back to legacy available_tools stub
+        if request.tool_definitions:
+            payload["tools"] = request.tool_definitions
+            payload["tool_choice"] = "auto"
+        elif request.available_tools:
             payload["tools"] = [
                 {
                     "type": "function",
                     "function": {
-                        "name": tool.get("name", "unknown"),
-                        "description": tool.get("description", ""),
-                    }
+                        "name": t.get("name", "unknown"),
+                        "description": t.get("description", ""),
+                        "parameters": {"type": "object", "properties": {}, "required": []},
+                    },
                 }
-                for tool in request.available_tools
+                for t in request.available_tools
             ]
-        
+            payload["tool_choice"] = "auto"
+
         endpoint = f"{self.base_url}/chat/completions"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_s) as client:
@@ -102,9 +121,28 @@ class LMStudioAdapter:
                 "LM Studio request failed. Ensure LM Studio server is running and the OpenAI-compatible "
                 f"endpoint is reachable at {endpoint}"
             ) from exc
+
         body = response.json()
         choice0 = body.get("choices", [{}])[0]
         message0 = choice0.get("message", {})
+
+        # Check for tool calls first
+        raw_tool_calls = message0.get("tool_calls") or []
+        if raw_tool_calls:
+            tool_calls: list[ToolCall] = []
+            for i, tc in enumerate(raw_tool_calls):
+                fn = tc.get("function", {})
+                try:
+                    args = _json.loads(fn.get("arguments", "{}") or "{}")
+                except Exception:
+                    args = {}
+                tool_calls.append(ToolCall(
+                    id=tc.get("id", f"call_{i}"),
+                    name=fn.get("name", ""),
+                    arguments=args,
+                ))
+            return ModelResponse(text="", model_id=self.model_id, tool_calls=tool_calls)
+
         content = str(message0.get("content", "")).strip() or str(message0.get("reasoning_content", "")).strip()
         if not content:
             content = "[lmstudio] empty response"

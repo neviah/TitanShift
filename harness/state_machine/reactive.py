@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import re
-from urllib.parse import quote_plus
+import json
+from typing import Any
 
-from harness.model.adapter import ModelRegistry, ModelRequest
+from harness.model.adapter import ModelRegistry, ModelRequest, ToolCall
 from harness.runtime.config import ConfigManager
 from harness.runtime.types import Task, TaskResult
 from harness.tools.registry import ToolRegistry
 
 
 class ReactiveStateMachine:
-    """Phase 1 reactive loop: single pass plan-act-reflect shape."""
+    """Agentic tool-calling loop: LLM decides which tools to use, the loop executes them
+    and feeds results back until the model returns a final text response."""
 
     def __init__(self, models: ModelRegistry, config: ConfigManager, tools: ToolRegistry) -> None:
         self.models = models
@@ -24,129 +25,141 @@ class ReactiveStateMachine:
             return TaskResult(task_id=task.id, output={}, success=False, error="Budget exceeded: max_steps < 1")
 
         preferred_backend = task.input.get("model_backend") if task.input else None
-        available_tools = task.input.get("available_tools", []) if task.input else []
         workspace_root = task.input.get("workspace_root") if task.input else None
         model = self.models.select_model(preferred_backend)
 
-        # Build system prompt with workspace context
-        system_parts = ["You are a helpful AI assistant integrated into the TitanShift agent harness."]
+        # System prompt
+        system_parts = [
+            "You are a helpful AI assistant integrated into the TitanShift agent harness.",
+            "When you need to look up live information, fetch web pages, check news, prices, search results, "
+            "or any real-time data — always use the web_fetch tool. Do not explain that you cannot browse; "
+            "just call the tool with the appropriate URL.",
+        ]
         if workspace_root:
             system_parts.append(
                 f"The active workspace folder is: {workspace_root}. "
-                "When creating or modifying files, always use paths relative to or within this workspace folder. "
-                "Do not create or modify files outside this workspace."
-            )
-        if available_tools:
-            tool_names = ", ".join(t.get("name", "") for t in available_tools)
-            system_parts.append(f"You have access to the following tools: {tool_names}.")
-            system_parts.append(
-                "For requests requiring live web data (news, weather, current events, websites), "
-                "use the available web tools and ground your answer in tool output."
+                "When creating or modifying files, use paths relative to this workspace."
             )
         system_prompt = " ".join(system_parts)
 
-        tool_context, used_tools = await self._collect_tool_context(task.description, available_tools)
-        model_prompt = task.description
-        if tool_context:
-            model_prompt = (
-                f"{task.description}\n\n"
-                "Tool output (trusted context):\n"
-                f"{tool_context}\n\n"
-                "Use the tool output above as primary evidence. If data is missing, state limitations clearly."
-            )
+        # Build OpenAI-format tool definitions from the registry
+        tool_defs = self._build_tool_definitions()
 
-        prompt_tokens = model.estimate_tokens(task.description)
-        if prompt_tokens > budget["max_tokens"]:
-            return TaskResult(
-                task_id=task.id,
-                output={"prompt_tokens": prompt_tokens},
-                success=False,
-                error="Budget exceeded: prompt token estimate is above max_tokens",
-            )
+        # Multi-turn message history
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": task.description},
+        ]
 
-        try:
-            response = await asyncio.wait_for(
-                model.generate(ModelRequest(
-                    prompt=model_prompt,
-                    system_prompt=system_prompt,
-                    available_tools=available_tools or None
-                )),
-                timeout=budget["max_duration_ms"] / 1000.0,
-            )
-        except TimeoutError:
-            return TaskResult(task_id=task.id, output={}, success=False, error="Budget exceeded: task timeout")
+        used_tools: list[str] = []
+        final_text = ""
+        last_model_id = model.model_id
+        total_tokens = model.estimate_tokens(task.description)
+        response = None
 
-        total_tokens = prompt_tokens + model.estimate_tokens(response.text)
-        if total_tokens > budget["max_tokens"]:
-            return TaskResult(
-                task_id=task.id,
-                output={
-                    "response": response.text,
-                    "model": response.model_id,
-                    "mode": "reactive",
-                    "estimated_total_tokens": total_tokens,
-                    "used_tools": used_tools,
-                },
-                success=False,
-                error="Budget exceeded: estimated total tokens above max_tokens",
-            )
+        for step in range(budget["max_steps"]):
+            if total_tokens > budget["max_tokens"]:
+                return TaskResult(
+                    task_id=task.id,
+                    output={"response": final_text, "mode": "reactive", "used_tools": used_tools},
+                    success=False,
+                    error="Budget exceeded: token limit reached",
+                )
+
+            try:
+                response = await asyncio.wait_for(
+                    model.generate(ModelRequest(
+                        prompt="",
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        tool_definitions=tool_defs or None,
+                    )),
+                    timeout=budget["max_duration_ms"] / 1000.0,
+                )
+            except asyncio.TimeoutError:
+                return TaskResult(task_id=task.id, output={}, success=False, error="Budget exceeded: task timeout")
+
+            last_model_id = response.model_id
+
+            if not response.tool_calls:
+                # LLM produced a final text answer — done
+                final_text = response.text
+                total_tokens += model.estimate_tokens(response.text)
+                break
+
+            # --- Execute tool calls and append results to history ---
+            # Append the assistant message that requested the tools
+            messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    }
+                    for tc in response.tool_calls
+                ],
+            })
+
+            for tc in response.tool_calls:
+                used_tools.append(tc.name)
+                try:
+                    result = await self.tools.execute_tool(tc.name, tc.arguments)
+                    tool_content = json.dumps(result)
+                except Exception as exc:
+                    tool_content = json.dumps({"ok": False, "error": str(exc)})
+
+                total_tokens += model.estimate_tokens(tool_content)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "content": tool_content,
+                })
+        else:
+            # Loop exhausted without a break (no final text produced)
+            if not final_text:
+                final_text = "[Agent reached max steps without producing a final response]"
 
         return TaskResult(
             task_id=task.id,
             output={
-                "response": response.text,
-                "model": response.model_id,
+                "response": final_text,
+                "model": last_model_id,
                 "mode": "reactive",
                 "estimated_total_tokens": total_tokens,
                 "used_tools": used_tools,
             },
-            success=True,
+            success=bool(final_text and not final_text.startswith("[Agent reached")),
         )
 
-    async def _collect_tool_context(
-        self,
-        prompt: str,
-        available_tools: list[dict[str, str]],
-    ) -> tuple[str, list[str]]:
-        allowed = {str(t.get("name", "")).strip() for t in available_tools}
-        if "web_fetch" not in allowed:
-            return "", []
-
-        lower = prompt.lower()
-        looks_web = any(k in lower for k in ["http://", "https://", "www.", "website", "news", "weather", "headline", "story"])
-        if not looks_web:
-            return "", []
-
-        url = self._extract_url(prompt)
-        if not url:
-            weather_match = re.search(r"weather\s+(?:in|for)\s+([a-zA-Z\s,]+)", prompt, flags=re.IGNORECASE)
-            if weather_match:
-                location = weather_match.group(1).strip().strip("?.!")
-                url = f"https://wttr.in/{quote_plus(location)}?format=3"
-            elif "msnbc" in lower:
-                url = "https://www.msnbc.com/"
-
-        if not url:
-            return "", []
-
-        try:
-            result = await self.tools.execute_tool("web_fetch", {"url": url, "timeout_s": 12, "max_chars": 5000})
-        except Exception as exc:
-            return f"web_fetch failed for {url}: {exc}", ["web_fetch"]
-
-        content = str(result.get("content", "")).strip()
-        if not content:
-            return f"web_fetch returned no content for {url}", ["web_fetch"]
-
-        return f"Source URL: {result.get('url', url)}\n{content}", ["web_fetch"]
-
-    @staticmethod
-    def _extract_url(text: str) -> str | None:
-        m = re.search(r"https?://[^\s)\]>\"']+", text)
-        return m.group(0) if m else None
+    def _build_tool_definitions(self) -> list[dict[str, Any]]:
+        """Return OpenAI-format tool schemas for all policy-allowed tools."""
+        result = []
+        for tool in self.tools.list_tools():
+            allowed, _ = self.tools.preview_policy(tool)
+            if not allowed:
+                continue
+            result.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters or {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    },
+                },
+            })
+        return result
 
     def _resolve_budget(self, task: Task) -> dict[str, int]:
-        default_steps = int(self.config.get("state_machine.default_budget.max_steps", 1))
+        default_steps = int(self.config.get("state_machine.default_budget.max_steps", 10))
         default_tokens = int(self.config.get("state_machine.default_budget.max_tokens", 8192))
         default_duration = int(self.config.get("state_machine.default_budget.max_duration_ms", 60000))
 
