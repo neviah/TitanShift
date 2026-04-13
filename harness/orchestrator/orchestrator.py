@@ -82,9 +82,85 @@ class Orchestrator:
         desc_lower = task_description.lower()
         return any(kw in desc_lower for kw in keywords)
 
+    def _resolve_workflow_mode(self, task: Task) -> str:
+        """Resolve workflow mode for a specific task.
+
+        Priority: explicit task input, configured default, then heuristic fallback.
+        """
+        explicit_mode = str(task.input.get("workflow_mode", "")).strip().lower() if task.input else ""
+        if explicit_mode in {"lightning", "superpowered"}:
+            return explicit_mode
+
+        configured = self.get_workflow_mode().strip().lower()
+        if configured in {"lightning", "superpowered"}:
+            return configured
+
+        return "superpowered" if self.should_use_superpowered_mode(task.description) else "lightning"
+
+    def _collect_missing_approvals(self, task: Task, workflow_mode: str) -> list[str]:
+        """Collect missing required approvals for Superpowered mode tasks."""
+        if workflow_mode != "superpowered":
+            return []
+
+        approvals = task.input.get("approvals", {}) if task.input else {}
+        if not isinstance(approvals, dict):
+            approvals = {}
+
+        missing: list[str] = []
+        require_spec = bool(self.config.get("orchestrator.superpowered_mode.require_spec_approval", True))
+        require_plan = bool(self.config.get("orchestrator.superpowered_mode.require_plan_approval", True))
+
+        spec_approved = bool(task.input.get("spec_approved", False)) or bool(approvals.get("spec", False))
+        plan_approved = bool(task.input.get("plan_approved", False)) or bool(approvals.get("plan", False))
+
+        if require_spec and not spec_approved:
+            missing.append("spec")
+        if require_plan and not plan_approved:
+            missing.append("plan")
+
+        return missing
+
     async def run_reactive_task(self, task: Task) -> TaskResult:
         self.task_store.create(task)
         self.task_store.mark_started(task.id)
+
+        workflow_mode = self._resolve_workflow_mode(task)
+        task.input["workflow_mode"] = workflow_mode
+
+        missing_approvals = self._collect_missing_approvals(task, workflow_mode)
+        if missing_approvals:
+            required_chain = self.skills.get_superpowered_initial_chain()
+            gate_message = (
+                "Superpowered mode requires approvals before implementation. "
+                f"Missing approvals: {', '.join(missing_approvals)}."
+            )
+            await self.event_bus.publish(
+                "MODULE_ERROR",
+                {
+                    "source": "orchestrator.approval_gate",
+                    "task_id": task.id,
+                    "workflow_mode": workflow_mode,
+                    "missing_approvals": missing_approvals,
+                    "required_skill_chain": required_chain,
+                    "error": gate_message,
+                },
+            )
+            result = TaskResult(
+                task_id=task.id,
+                output={
+                    "response": gate_message,
+                    "mode": "approval-gate",
+                    "workflow_mode": workflow_mode,
+                    "missing_approvals": missing_approvals,
+                    "required_skill_chain": required_chain,
+                },
+                success=False,
+                error=gate_message,
+            )
+            self.task_store.mark_completed(result)
+            await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
+            return result
+
         await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": False})
         self.memory.append_short_term("main-agent", {"task": task.description})
         try:

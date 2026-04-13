@@ -1371,6 +1371,12 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_input["model_backend"] = body.model_backend
         if body.budget:
             task_input["budget"] = body.budget.model_dump(exclude_none=True)
+        if body.workflow_mode:
+            task_input["workflow_mode"] = body.workflow_mode
+        if body.spec_approved is not None:
+            task_input["spec_approved"] = body.spec_approved
+        if body.plan_approved is not None:
+            task_input["plan_approved"] = body.plan_approved
         
         # Include available tools so the LLM can choose to use them
         available_tools = runtime.tools.list_tools()
@@ -1394,7 +1400,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         result = await runtime.orchestrator.run_reactive_task(task)
         return ChatResponse(
             success=result.success,
-            response=result.output.get("response", ""),
+            response=result.output.get("response", result.error or ""),
             model=result.output.get("model", "unknown"),
             mode=result.output.get("mode", "reactive"),
             error=result.error,

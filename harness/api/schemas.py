@@ -16,6 +16,9 @@ class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
     model_backend: str | None = None
     budget: BudgetOverride | None = None
+    workflow_mode: str | None = None
+    spec_approved: bool | None = None
+    plan_approved: bool | None = None
 
 
 class ChatResponse(BaseModel):
