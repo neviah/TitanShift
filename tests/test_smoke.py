@@ -2704,3 +2704,76 @@ def test_artifacts_cleanup_deletes_old_report_file() -> None:
     assert str(target.resolve()) in body["deleted_paths"]
     assert not target.exists()
 
+
+def test_roles_templates_endpoint_returns_superpowered_roles() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.get("/roles/templates")
+    assert response.status_code == 200
+    body = response.json()
+    role_keys = {row["role_key"] for row in body}
+    assert {"implementer", "spec_reviewer", "code_reviewer", "verifier"}.issubset(role_keys)
+
+
+def test_chat_superpowered_blocks_without_required_approvals() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "prompt": "Build a new workflow module",
+            "model_backend": "local_stub",
+            "workflow_mode": "superpowered",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["mode"] == "approval-gate"
+    assert "Missing approvals" in body["response"]
+
+    tasks = client.get("/tasks")
+    assert tasks.status_code == 200
+    task_id = tasks.json()[0]["task_id"]
+    detail = client.get(f"/tasks/{task_id}")
+    assert detail.status_code == 200
+    output = detail.json()["output"]
+    assert output["workflow_mode"] == "superpowered"
+    assert output["missing_approvals"] == ["spec", "plan"]
+
+
+def test_chat_superpowered_review_loop_attaches_review_result() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "prompt": "Build a new workflow module",
+            "model_backend": "local_stub",
+            "workflow_mode": "superpowered",
+            "spec_approved": True,
+            "plan_approved": True,
+            "plan_tasks": [
+                {"title": "Create API endpoint"},
+                {"title": "Add task panel"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+
+    tasks = client.get("/tasks")
+    assert tasks.status_code == 200
+    task_id = tasks.json()[0]["task_id"]
+    detail = client.get(f"/tasks/{task_id}")
+    assert detail.status_code == 200
+    output = detail.json()["output"]
+    assert output["mode"] == "reactive"
+    assert output["review_result"]["ok"] is True
+    assert len(output["review_result"]["task_results"]) == 2
+

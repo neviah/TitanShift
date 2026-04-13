@@ -270,6 +270,20 @@
   white-space: pre-wrap;
 }
 
+.stackBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.badgeRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .stepsList {
   display: flex;
   flex-direction: column;

@@ -26,11 +26,21 @@ import { useEffect, useMemo, useState } from 'react'
 import styles from './LeftPane.module.css'
 import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
-import { fetchConfig, fetchLogs, fetchMarketList, fetchMemorySummary, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree, sendChat } from '../../api/client'
+import { fetchConfig, fetchLogs, fetchMarketList, fetchMemorySummary, fetchRoleTemplates, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree, sendChat } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
 import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
-import type { TaskDetail, WorkspaceTreeNode } from '../../api/types'
+import type { RoleTemplate, TaskDetail, WorkspaceTreeNode } from '../../api/types'
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : []
+}
+
+function readObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
 
 const ACTIVE_SKILLS_KEY = 'titanshift-active-skills-by-workspace-v1'
 const ACTIVE_TOOLS_KEY = 'titanshift-active-tools-by-workspace-v1'
@@ -62,6 +72,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { data: toolsData } = usePolling(fetchTools, { interval: 30000 })
   const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
   const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
+  const { data: roleTemplatesData } = usePolling(fetchRoleTemplates, { interval: 30000 })
   const { sessions, currentSessionId, createSession, selectSession, renameSession, archiveSession, restoreSession, deleteSession } = useChatSessions()
   const {
     drafts,
@@ -108,6 +119,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   )
   const activeSkills = activeSkillsByWorkspace[currentWorkspaceId] ?? {}
   const activeTools = activeToolsByWorkspace[currentWorkspaceId] ?? {}
+  const roleTemplates: RoleTemplate[] = roleTemplatesData ?? []
 
   useEffect(() => {
     localStorage.setItem(ACTIVE_SKILLS_KEY, JSON.stringify(activeSkillsByWorkspace))
@@ -441,10 +453,75 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                 <p className={styles.detailTitle}>Task Detail</p>
                 <p className={styles.detailLine}><span>ID</span><span className="font-mono">{selectedTask.task_id}</span></p>
                 <p className={styles.detailLine}><span>Status</span><span>{selectedTask.status}</span></p>
+                {typeof selectedTask.output?.workflow_mode === 'string' && (
+                  <p className={styles.detailLine}><span>Workflow</span><span>{selectedTask.output.workflow_mode}</span></p>
+                )}
                 {selectedTask.error && <p className={`${styles.detailText} text-error`}>{selectedTask.error}</p>}
+                {readStringArray(selectedTask.output?.missing_approvals).length > 0 && (
+                  <div className={styles.stackBlock}>
+                    <p className={styles.detailTitle}>Missing Approvals</p>
+                    <div className={styles.badgeRow}>
+                      {readStringArray(selectedTask.output?.missing_approvals).map((item) => (
+                        <span key={item} className="badge badge-error">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {readStringArray(selectedTask.output?.required_skill_chain).length > 0 && (
+                  <div className={styles.stackBlock}>
+                    <p className={styles.detailTitle}>Required Chain</p>
+                    <div className={styles.badgeRow}>
+                      {readStringArray(selectedTask.output?.required_skill_chain).map((item) => (
+                        <span key={item} className="badge badge-dim">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(() => {
+                  const reviewResult = readObject(selectedTask.output?.review_result)
+                  const reviewTasks = Array.isArray(reviewResult.task_results) ? reviewResult.task_results : []
+                  if (reviewTasks.length === 0) return null
+                  return (
+                    <div className={styles.stackBlock}>
+                      <p className={styles.detailTitle}>Review Loop</p>
+                      {reviewTasks.map((entry, index) => {
+                        const row = readObject(entry)
+                        return (
+                          <div key={`${selectedTask.task_id}-review-${index}`} className={styles.executionItem}>
+                            <div className={styles.badgeRow}>
+                              <span className={`badge ${row.ok ? 'badge-ok' : 'badge-warn'}`}>{row.ok ? 'passed' : 'pending'}</span>
+                              <span className="badge badge-dim">{String(row.task ?? `Task ${index + 1}`)}</span>
+                              <span className="badge badge-dim">iterations {String(row.iterations ?? 0)}</span>
+                            </div>
+                            <p className={styles.detailText}>Implementer: {String(row.implementer_agent_id ?? 'n/a')}</p>
+                            {typeof row.spec_reviewer_agent_id === 'string' && <p className={styles.detailText}>Spec reviewer: {row.spec_reviewer_agent_id}</p>}
+                            {typeof row.code_reviewer_agent_id === 'string' && <p className={styles.detailText}>Code reviewer: {row.code_reviewer_agent_id}</p>}
+                            {typeof row.verifier_agent_id === 'string' && <p className={styles.detailText}>Verifier: {row.verifier_agent_id}</p>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
                 {typeof selectedTask.output?.response === 'string' && selectedTask.output.response.length > 0 && (
                   <p className={styles.detailText}>{selectedTask.output.response}</p>
                 )}
+              </div>
+            )}
+            {roleTemplates.length > 0 && (
+              <div className={styles.detailCard}>
+                <p className={styles.detailTitle}>Role Templates</p>
+                {roleTemplates.map((role) => (
+                  <div key={role.role_key} className={styles.executionItem}>
+                    <p className={styles.detailLine}><span>{role.role_name}</span><span className="badge badge-dim">{role.role_key}</span></p>
+                    <p className={styles.detailText}>{role.goal}</p>
+                    <div className={styles.badgeRow}>
+                      {role.required_skills.map((skill) => (
+                        <span key={`${role.role_key}-${skill}`} className="badge badge-ok">{skill}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -15,6 +15,7 @@ import type {
   LogQueryResponse,
   GraphifyRequest,
   GraphifyResponse,
+  RoleTemplate,
 } from './types'
 
 export const API_BASE = '/api'
@@ -140,6 +141,10 @@ export function fetchTasks(): Promise<TaskSummary[]> {
 
 export function fetchAgents(): Promise<AgentSummary[]> {
   return request('/agents')
+}
+
+export function fetchRoleTemplates(): Promise<RoleTemplate[]> {
+  return request('/roles/templates')
 }
 
 export function fetchTaskDetail(taskId: string): Promise<TaskDetail> {

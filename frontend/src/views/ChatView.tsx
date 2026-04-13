@@ -12,6 +12,10 @@ export function ChatView() {
   const [error, setError] = useState<string | null>(null)
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
   const [preferredBackend, setPreferredBackend] = useState<string | null>(null)
+  const [workflowMode, setWorkflowMode] = useState<'lightning' | 'superpowered'>('lightning')
+  const [specApproved, setSpecApproved] = useState(false)
+  const [planApproved, setPlanApproved] = useState(false)
+  const [planTasksText, setPlanTasksText] = useState('')
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedMessageIndexes, setSelectedMessageIndexes] = useState<number[]>([])
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
@@ -37,6 +41,10 @@ export function ChatView() {
         const backend = cfg['model.default_backend']
         if (typeof backend === 'string' && backend.trim().length > 0) {
           setPreferredBackend(backend)
+        }
+        const configuredMode = cfg['orchestrator.workflow_mode']
+        if (configuredMode === 'lightning' || configuredMode === 'superpowered') {
+          setWorkflowMode(configuredMode)
         }
       })
       .catch(() => {})
@@ -66,9 +74,24 @@ export function ChatView() {
     setError(null)
 
     try {
+      const parsedPlanTasks = workflowMode === 'superpowered'
+        ? planTasksText
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((title) => ({ title }))
+        : []
       const result = await sendChat({
         prompt: text,
         ...(preferredBackend ? { model_backend: preferredBackend } : {}),
+        workflow_mode: workflowMode,
+        ...(workflowMode === 'superpowered'
+          ? {
+              spec_approved: specApproved,
+              plan_approved: planApproved,
+              ...(parsedPlanTasks.length > 0 ? { plan_tasks: parsedPlanTasks } : {}),
+            }
+          : {}),
       })
       const reply = (
         (result.response ?? '').trim()
@@ -154,6 +177,52 @@ export function ChatView() {
         </div>
         {taskCandidate && <span className={styles.candidateHint}>Complex thread detected: good task candidate</span>}
       </div>
+
+      <div className={styles.workflowBar}>
+        <div className={styles.workflowGroup}>
+          <span className={styles.workflowLabel}>Workflow</span>
+          <button
+            className={`${styles.modeChip} ${workflowMode === 'lightning' ? styles.modeChipActive : ''}`}
+            onClick={() => setWorkflowMode('lightning')}
+            disabled={sending}
+          >
+            Lightning
+          </button>
+          <button
+            className={`${styles.modeChip} ${workflowMode === 'superpowered' ? styles.modeChipActive : ''}`}
+            onClick={() => setWorkflowMode('superpowered')}
+            disabled={sending}
+          >
+            Superpowered
+          </button>
+        </div>
+        {workflowMode === 'superpowered' && (
+          <div className={styles.workflowMeta}>
+            <label className={styles.toggleLabel}>
+              <input type="checkbox" checked={specApproved} onChange={(e) => setSpecApproved(e.target.checked)} disabled={sending} />
+              Spec approved
+            </label>
+            <label className={styles.toggleLabel}>
+              <input type="checkbox" checked={planApproved} onChange={(e) => setPlanApproved(e.target.checked)} disabled={sending} />
+              Plan approved
+            </label>
+          </div>
+        )}
+      </div>
+
+      {workflowMode === 'superpowered' && (
+        <div className={styles.planComposer}>
+          <p className={styles.planHint}>Optional review-loop tasks, one per line</p>
+          <textarea
+            className={styles.planInput}
+            placeholder={"Create spec artifact\nWrite plan artifact\nImplement endpoint"}
+            rows={3}
+            value={planTasksText}
+            onChange={(e) => setPlanTasksText(e.target.value)}
+            disabled={sending}
+          />
+        </div>
+      )}
 
       <div className={styles.messages}>
         {messages.length === 0 ? (

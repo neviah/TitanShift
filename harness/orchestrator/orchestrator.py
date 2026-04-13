@@ -127,7 +127,9 @@ class Orchestrator:
             },
         )
         agent_id = await self.spawn_subagent(child_task)
-        await self.assign_skills_to_agent(agent_id, template.required_skills)
+        available_skills = [skill_id for skill_id in template.required_skills if self.skills.get_skill(skill_id) is not None]
+        if available_skills:
+            await self.assign_skills_to_agent(agent_id, available_skills)
         return agent_id
 
     async def _run_superpowered_review_loop(

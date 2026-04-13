@@ -160,6 +160,10 @@ export interface AgentSummary {
 export interface ChatRequest {
   prompt: string
   model_backend?: string
+  workflow_mode?: 'lightning' | 'superpowered'
+  spec_approved?: boolean
+  plan_approved?: boolean
+  plan_tasks?: Array<Record<string, unknown>>
   budget?: {
     max_steps?: number
     max_tokens?: number
@@ -174,6 +178,13 @@ export interface ChatResponse {
   mode: string
   error: string | null
   estimated_total_tokens: number | null
+}
+
+export interface RoleTemplate {
+  role_key: string
+  role_name: string
+  goal: string
+  required_skills: string[]
 }
 
 export interface TaskSummary {
