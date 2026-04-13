@@ -42,6 +42,30 @@
   padding: 16px 20px;
 }
 
+.section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sectionHeader {
+  padding: 14px 20px 10px;
+}
+
+.sectionTitle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sectionHint {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
 .list {
   list-style: none;
   overflow-y: auto;
@@ -105,6 +129,13 @@
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .btn {

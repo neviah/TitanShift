@@ -1418,6 +1418,9 @@ def create_app(workspace_root: Path) -> FastAPI:
             response=result.output.get("response", result.error or ""),
             model=result.output.get("model", "unknown"),
             mode=result.output.get("mode", "reactive"),
+            workflow_mode=result.output.get("workflow_mode"),
+            missing_approvals=result.output.get("missing_approvals"),
+            required_skill_chain=result.output.get("required_skill_chain"),
             error=result.error,
             estimated_total_tokens=result.output.get("estimated_total_tokens"),
         )

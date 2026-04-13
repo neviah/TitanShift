@@ -176,8 +176,22 @@ export interface ChatResponse {
   response: string
   model: string
   mode: string
+  workflow_mode?: string | null
+  missing_approvals?: string[] | null
+  required_skill_chain?: string[] | null
   error: string | null
   estimated_total_tokens: number | null
+}
+
+export interface RuntimeSkillSummary {
+  skill_id: string
+  description: string
+  mode: string
+  domain: string
+  version: string
+  tags: string[]
+  required_tools: string[]
+  ranking_score?: number
 }
 
 export interface RoleTemplate {

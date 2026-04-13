@@ -153,12 +153,15 @@ function polarToTiltedCartesian(angleDeg: number, radiusX: number, radiusY: numb
   const tilt = (tiltDeg * Math.PI) / 180
   const x = radiusX * Math.cos(radians)
   const y = radiusY * Math.sin(radians)
+  const normalizedDepth = (Math.cos(radians) + 1) / 2
   return {
     x: x * Math.cos(tilt) - y * Math.sin(tilt),
     y: x * Math.sin(tilt) + y * Math.cos(tilt),
-    scale: Math.cos(radians) > 0 ? 1.06 : 0.9,
+    scale: 0.68 + normalizedDepth * 0.62,
     depth: Math.cos(radians),
     tangent: angleDeg + tiltDeg + 90,
+    opacity: 0.42 + normalizedDepth * 0.58,
+    blur: (1 - normalizedDepth) * 1.6,
   }
 }
 
@@ -250,6 +253,8 @@ export function ModuleBackdrop() {
                   top: `calc(50% + ${point.y}px)`,
                   transform: `translate(-50%, -50%) scale(${point.scale})`,
                   zIndex: point.depth > 0 ? 3 : 1,
+                  opacity: point.opacity,
+                  filter: `blur(${point.blur}px)`,
                 }}
                 title={node.label}
               >

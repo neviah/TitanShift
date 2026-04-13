@@ -38,6 +38,14 @@ interface ChatStoreState {
   byWorkspace: Record<string, WorkspaceChatState>
 }
 
+function normalizeWorkspaceScopeKey(workspaceId: string, workspacePath?: string | null): string {
+  const path = (workspacePath ?? '').trim()
+  if (path) {
+    return `path:${path.replace(/\\/g, '/').toLowerCase()}`
+  }
+  return `id:${workspaceId}`
+}
+
 function makeSession(partial?: Partial<ChatSession>): ChatSession {
   const now = new Date().toISOString()
   return {
@@ -96,10 +104,6 @@ function loadInitialState(): ChatStoreState {
 
 const defaultState = loadInitialState()
 
-function activeWorkspaceState(store: ChatStoreState, workspaceId: string): WorkspaceChatState {
-  return store.byWorkspace[workspaceId] ?? createWorkspaceState()
-}
-
 const ChatSessionsContext = createContext<ChatSessionsContextValue>({
   sessions: defaultState.byWorkspace.default?.sessions ?? [makeSession()],
   currentSessionId: defaultState.byWorkspace.default?.currentSessionId ?? 'default',
@@ -114,12 +118,16 @@ const ChatSessionsContext = createContext<ChatSessionsContextValue>({
 })
 
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
-  const { currentWorkspaceId } = useWorkspace()
+  const { currentWorkspaceId, currentWorkspacePath } = useWorkspace()
   const [store, setStore] = useState(loadInitialState)
+  const workspaceScopeKey = useMemo(
+    () => normalizeWorkspaceScopeKey(currentWorkspaceId, currentWorkspacePath),
+    [currentWorkspaceId, currentWorkspacePath],
+  )
 
   const active = useMemo(
-    () => activeWorkspaceState(store, currentWorkspaceId),
-    [store, currentWorkspaceId],
+    () => store.byWorkspace[workspaceScopeKey] ?? store.byWorkspace[currentWorkspaceId] ?? createWorkspaceState(),
+    [store, workspaceScopeKey, currentWorkspaceId],
   )
   const sessions = active.sessions
   const currentSessionId = active.currentSessionId
@@ -130,15 +138,23 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setStore((prev) => {
-      if (prev.byWorkspace[currentWorkspaceId]) return prev
+      if (prev.byWorkspace[workspaceScopeKey]) return prev
+      if (workspaceScopeKey !== currentWorkspaceId && prev.byWorkspace[currentWorkspaceId]) {
+        return {
+          byWorkspace: {
+            ...prev.byWorkspace,
+            [workspaceScopeKey]: prev.byWorkspace[currentWorkspaceId],
+          },
+        }
+      }
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: createWorkspaceState(),
+          [workspaceScopeKey]: createWorkspaceState(),
         },
       }
     })
-  }, [currentWorkspaceId])
+  }, [workspaceScopeKey, currentWorkspaceId])
 
   const currentSession = useMemo(() => {
     return sessions.find((session) => session.id === currentSessionId) ?? sessions[0]
@@ -147,11 +163,11 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   function createSession() {
     const next = makeSession()
     setStore((prev) => {
-      const state = activeWorkspaceState(prev, currentWorkspaceId)
+      const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: {
+          [workspaceScopeKey]: {
             sessions: [next, ...state.sessions],
             currentSessionId: next.id,
           },
@@ -162,11 +178,11 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
 
   function selectSession(id: string) {
     setStore((prev) => {
-      const state = activeWorkspaceState(prev, currentWorkspaceId)
+      const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: {
+          [workspaceScopeKey]: {
             sessions: state.sessions,
             currentSessionId: state.sessions.some((s) => s.id === id) ? id : state.currentSessionId,
           },
@@ -177,7 +193,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
 
   function appendMessage(message: ChatMessage) {
     setStore((prev) => {
-      const state = activeWorkspaceState(prev, currentWorkspaceId)
+      const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       const updated = state.sessions.map((session) => {
         if (session.id !== state.currentSessionId) return session
         const messages = [...session.messages, message]
@@ -195,7 +211,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: {
+          [workspaceScopeKey]: {
             currentSessionId: state.currentSessionId,
             sessions: updated,
           },
@@ -208,11 +224,11 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     const nextTitle = title.trim()
     if (!nextTitle) return
     setStore((prev) => {
-      const state = activeWorkspaceState(prev, currentWorkspaceId)
+      const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: {
+          [workspaceScopeKey]: {
             currentSessionId: state.currentSessionId,
             sessions: state.sessions.map((session) => (
               session.id === id ? { ...session, title: nextTitle, updatedAt: new Date().toISOString() } : session
@@ -225,7 +241,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
 
   function archiveSession(id: string) {
     setStore((prev) => {
-      const state = activeWorkspaceState(prev, currentWorkspaceId)
+      const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       const sessions = state.sessions.map((session) => (
         session.id === id ? { ...session, archived: true, updatedAt: new Date().toISOString() } : session
       ))
@@ -234,7 +250,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: {
+          [workspaceScopeKey]: {
             currentSessionId: state.currentSessionId === id ? fallback.id : state.currentSessionId,
             sessions: activeSessions.length > 0 ? sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [fallback, ...sessions],
           },
@@ -245,11 +261,11 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
 
   function restoreSession(id: string) {
     setStore((prev) => {
-      const state = activeWorkspaceState(prev, currentWorkspaceId)
+      const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: {
+          [workspaceScopeKey]: {
             currentSessionId: id,
             sessions: state.sessions.map((session) => (
               session.id === id ? { ...session, archived: false, updatedAt: new Date().toISOString() } : session
@@ -262,21 +278,21 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
 
   function deleteSession(id: string) {
     setStore((prev) => {
-      const state = activeWorkspaceState(prev, currentWorkspaceId)
+      const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       const remaining = state.sessions.filter((session) => session.id !== id)
       if (remaining.length === 0) {
         const next = makeSession()
         return {
           byWorkspace: {
             ...prev.byWorkspace,
-            [currentWorkspaceId]: { sessions: [next], currentSessionId: next.id },
+            [workspaceScopeKey]: { sessions: [next], currentSessionId: next.id },
           },
         }
       }
       return {
         byWorkspace: {
           ...prev.byWorkspace,
-          [currentWorkspaceId]: {
+          [workspaceScopeKey]: {
             sessions: remaining,
             currentSessionId: state.currentSessionId === id ? remaining[0].id : state.currentSessionId,
           },

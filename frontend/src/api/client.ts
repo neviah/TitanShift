@@ -19,6 +19,7 @@ import type {
   ArtifactFile,
   ArtifactApproveResponse,
   WorkflowMetrics,
+  RuntimeSkillSummary,
 } from './types'
 
 export const API_BASE = '/api'
@@ -135,6 +136,21 @@ export function fetchMarketList(): Promise<SkillMarketItem[]> {
         tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
       } satisfies SkillMarketItem
     })
+  ))
+}
+
+export function fetchRuntimeSkills(): Promise<RuntimeSkillSummary[]> {
+  return request<Array<Record<string, unknown>>>('/skills').then((rows) => (
+    rows.map((row) => ({
+      skill_id: String(row.skill_id ?? ''),
+      description: String(row.description ?? ''),
+      mode: String(row.mode ?? 'prompt'),
+      domain: String(row.domain ?? 'general'),
+      version: String(row.version ?? '0.1.0'),
+      tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+      required_tools: Array.isArray(row.required_tools) ? row.required_tools.map(String) : [],
+      ranking_score: typeof row.ranking_score === 'number' ? row.ranking_score : undefined,
+    } satisfies RuntimeSkillSummary))
   ))
 }
 

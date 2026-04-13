@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Copy, RotateCcw } from 'lucide-react'
-import { fetchConfig, sendChat } from '../api/client'
+import { approveArtifact, fetchConfig, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
 import { StatusIndicator } from '../components/StatusIndicator'
@@ -22,6 +22,8 @@ export function ChatView() {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedMessageIndexes, setSelectedMessageIndexes] = useState<number[]>([])
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [pendingApprovals, setPendingApprovals] = useState<string[]>([])
+  const [approvalBusy, setApprovalBusy] = useState(false)
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -65,6 +67,7 @@ export function ChatView() {
     setInput('')
     setSelectionMode(false)
     setSelectedMessageIndexes([])
+    setPendingApprovals([])
   }, [currentSession.id])
 
   useEffect(() => {
@@ -124,6 +127,11 @@ export function ChatView() {
         || 'No response returned.'
       )
       appendMessage({ role: 'assistant', text: reply })
+      if (result.mode === 'approval-gate') {
+        setPendingApprovals(Array.isArray(result.missing_approvals) ? result.missing_approvals : [])
+      } else {
+        setPendingApprovals([])
+      }
       if (!result.success && result.error) {
         setError(result.error)
       }
@@ -147,6 +155,34 @@ export function ChatView() {
 
   async function send() {
     await sendPrompt(input)
+  }
+
+  async function approveRequestedApprovals() {
+    const approvals = pendingApprovals.filter((value): value is 'spec' | 'plan' => value === 'spec' || value === 'plan')
+    if (approvals.length === 0 || approvalBusy) return
+    setApprovalBusy(true)
+    try {
+      for (const approval of approvals) {
+        await approveArtifact(approval)
+      }
+      if (approvals.includes('spec')) setSpecApproved(true)
+      if (approvals.includes('plan')) setPlanApproved(true)
+      appendMessage({
+        role: 'assistant',
+        text: `Approval recorded for: ${approvals.join(', ')}. You can resend the request now.`,
+      })
+      setPendingApprovals([])
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setApprovalBusy(false)
+    }
+  }
+
+  function denyRequestedApprovals() {
+    setPendingApprovals([])
+    appendMessage({ role: 'assistant', text: 'Approval request dismissed.' })
   }
 
   function promoteCurrentSession() {
@@ -292,6 +328,22 @@ export function ChatView() {
                 <p className={styles.msgText}>{m.text}</p>
               </div>
             ))}
+          </div>
+        )}
+        {pendingApprovals.length > 0 && (
+          <div className={styles.approvalCard}>
+            <p className={styles.approvalTitle}>Approval Required</p>
+            <p className={styles.approvalText}>
+              Superpowered mode is waiting on: {pendingApprovals.join(', ')}.
+            </p>
+            <div className={styles.approvalActions}>
+              <button className={styles.approvalApproveBtn} onClick={() => void approveRequestedApprovals()} disabled={approvalBusy}>
+                {approvalBusy ? 'Approving…' : 'Approve'}
+              </button>
+              <button className={styles.approvalDenyBtn} onClick={denyRequestedApprovals} disabled={approvalBusy}>
+                Deny
+              </button>
+            </div>
           </div>
         )}
         {sending && <StatusIndicator isActive />}

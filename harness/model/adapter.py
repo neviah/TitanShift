@@ -86,6 +86,62 @@ class LMStudioAdapter:
         self.max_tokens = max(128, int(max_tokens))
         self.temperature = float(temperature)
 
+    @staticmethod
+    def _parse_loose_arguments(raw: str) -> dict[str, Any]:
+        text = raw.strip()
+        if not text:
+            return {}
+        if text.startswith("{"):
+            try:
+                loaded = _json.loads(text)
+                return loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                return {}
+
+        args: dict[str, Any] = {}
+        pattern = re.compile(r'(\w+)\s*:\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^,]+)(?:,|$)')
+        for match in pattern.finditer(text):
+            key = match.group(1)
+            raw_value = match.group(2).strip()
+            if (raw_value.startswith('"') and raw_value.endswith('"')) or (raw_value.startswith("'") and raw_value.endswith("'")):
+                value: Any = raw_value[1:-1]
+            elif raw_value.lower() in {'true', 'false'}:
+                value = raw_value.lower() == 'true'
+            else:
+                try:
+                    value = int(raw_value) if raw_value.isdigit() else float(raw_value)
+                except ValueError:
+                    value = raw_value
+            args[key] = value
+        return args
+
+    def _extract_pseudo_tool_calls(self, content: str) -> list[ToolCall]:
+        text = content.strip()
+        if not text:
+            return []
+
+        segments: list[str] = []
+        for pattern in [
+            r'<\|tool_call\|>(.*?)<\|tool_call\|>',
+            r'<tool_call>(.*?)</tool_call>',
+        ]:
+            segments.extend(match.group(1).strip() for match in re.finditer(pattern, text, re.DOTALL | re.IGNORECASE))
+
+        if not segments and text.startswith('call:'):
+            segments = [text]
+
+        tool_calls: list[ToolCall] = []
+        for index, segment in enumerate(segments):
+            match = re.search(r'call:([a-zA-Z0-9_-]+)\((.*)\)', segment, re.DOTALL)
+            if not match:
+                continue
+            tool_calls.append(ToolCall(
+                id=f'content_call_{index}',
+                name=match.group(1).strip(),
+                arguments=self._parse_loose_arguments(match.group(2)),
+            ))
+        return tool_calls
+
     async def generate(self, request: ModelRequest) -> ModelResponse:
         # Build message list — prefer multi-turn messages if provided
         if request.messages is not None:
@@ -167,6 +223,9 @@ class LMStudioAdapter:
             return ModelResponse(text="", model_id=self.model_id, tool_calls=tool_calls)
 
         content = str(message0.get("content", "")).strip() or str(message0.get("reasoning_content", "")).strip()
+        parsed_tool_calls = self._extract_pseudo_tool_calls(content)
+        if parsed_tool_calls:
+            return ModelResponse(text="", model_id=self.model_id, tool_calls=parsed_tool_calls)
         if not content:
             content = "[lmstudio] empty response"
         return ModelResponse(text=content, model_id=self.model_id)

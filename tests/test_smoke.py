@@ -14,7 +14,7 @@ from harness.api.server import create_app
 from harness.execution.policy import ExecutionPolicy
 from harness.execution.runner import ExecutionDeniedError, ExecutionModule
 from harness.runtime.bootstrap import build_runtime
-from harness.model.adapter import ModelRegistry
+from harness.model.adapter import LMStudioAdapter, ModelRegistry
 from harness.runtime.config import ConfigManager
 from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.runtime.types import Task
@@ -2790,6 +2790,9 @@ def test_chat_superpowered_blocks_without_required_approvals() -> None:
     assert body["success"] is False
     assert body["mode"] == "approval-gate"
     assert "Missing approvals" in body["response"]
+    assert body["workflow_mode"] == "superpowered"
+    assert body["missing_approvals"] == ["spec", "plan"]
+    assert "required_skill_chain" in body
 
     tasks = client.get("/tasks")
     assert tasks.status_code == 200
@@ -2918,4 +2921,19 @@ def test_workflow_metrics_endpoint_reports_lightning_and_superpowered() -> None:
     assert body["lightning"]["total_tasks"] >= 1
     assert body["superpowered"]["total_tasks"] >= 1
     assert body["superpowered"]["review_ran_count"] >= 1
+
+
+def test_lmstudio_adapter_parses_pseudo_tool_call_content() -> None:
+    adapter = LMStudioAdapter(
+        base_url="http://127.0.0.1:1234/v1",
+        default_model="test-model",
+    )
+
+    parsed = adapter._extract_pseudo_tool_calls(
+        '<|tool_call|>call:web_search_basic(query: "current weather in Brooklyn, New York")<|tool_call|>'
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].name == "web_search_basic"
+    assert parsed[0].arguments == {"query": "current weather in Brooklyn, New York"}
 

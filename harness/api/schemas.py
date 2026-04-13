@@ -27,6 +27,9 @@ class ChatResponse(BaseModel):
     response: str
     model: str
     mode: str
+    workflow_mode: str | None = None
+    missing_approvals: list[str] | None = None
+    required_skill_chain: list[str] | None = None
     error: str | None = None
     estimated_total_tokens: int | None = None
 
