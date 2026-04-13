@@ -72,10 +72,19 @@ class LMStudioAdapter:
 
     model_id = "lmstudio"
 
-    def __init__(self, base_url: str, default_model: str, timeout_s: float = 45.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        default_model: str,
+        timeout_s: float = 45.0,
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.default_model = default_model
         self.timeout_s = timeout_s
+        self.max_tokens = max(128, int(max_tokens))
+        self.temperature = float(temperature)
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
         # Build message list — prefer multi-turn messages if provided
@@ -90,8 +99,8 @@ class LMStudioAdapter:
         payload: dict[str, Any] = {
             "model": self.default_model,
             "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": 512,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
         }
 
         # Full tool schemas take priority; fall back to legacy available_tools stub
@@ -176,6 +185,8 @@ class ModelRegistry:
         lmstudio_base_url = cfg.get("model.lmstudio.base_url", "http://127.0.0.1:1234/v1")
         lmstudio_model = cfg.get("model.lmstudio.model", "local-model")
         lmstudio_timeout = float(cfg.get("model.lmstudio.timeout_s", 45.0))
+        lmstudio_max_tokens = int(cfg.get("model.lmstudio.max_tokens", 2048))
+        lmstudio_temperature = float(cfg.get("model.lmstudio.temperature", 0.2))
         adapters: dict[str, ModelAdapter] = {
             "local_stub": LocalStubAdapter(),
             "openai_compatible": CloudOpenAIAdapter(),
@@ -183,6 +194,8 @@ class ModelRegistry:
                 base_url=lmstudio_base_url,
                 default_model=lmstudio_model,
                 timeout_s=lmstudio_timeout,
+                max_tokens=lmstudio_max_tokens,
+                temperature=lmstudio_temperature,
             ),
         }
         default_backend = cfg.get("model.default_backend", "local_stub")

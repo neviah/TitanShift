@@ -1,6 +1,6 @@
 {
   "orchestrator": {
-    "enable_subagents": false
+    "enable_subagents": true
   },
   "skills": {
     "market_trusted_public_keys": [
@@ -14,7 +14,9 @@
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "google/gemma-4-26b-a4b",
-      "timeout_s": 90.0
+      "timeout_s": 180.0,
+      "max_tokens": 3072,
+      "temperature": 0.2
     }
   },
   "memory": {
@@ -58,9 +60,9 @@
   },
   "state_machine": {
     "default_budget": {
-      "max_steps": 30,
-      "max_tokens": 32000,
-      "max_duration_ms": 120000
+      "max_steps": 60,
+      "max_tokens": 120000,
+      "max_duration_ms": 360000
     }
   },
   "ingestion": {

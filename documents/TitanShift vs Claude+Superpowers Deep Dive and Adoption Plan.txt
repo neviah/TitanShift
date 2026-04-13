@@ -1,0 +1,404 @@
+TitanShift vs Claude Code + Superpowers
+Deep Dive, Gap Analysis, and Adoption Blueprint
+Date: 2026-04-13
+
+============================================================
+1) Executive Summary
+============================================================
+
+Current TitanShift is functional and improving, but it is still workflow-light compared to Claude Code + Superpowers.
+
+Claude + Superpowers advantage is not only model quality. The bigger advantage is process enforcement:
+- Mandatory design before implementation.
+- Mandatory written spec and implementation plan.
+- Mandatory approval gates.
+- Mandatory subagent review loops.
+- Mandatory verification before completion.
+
+TitanShift currently has a capable reactive loop and tool calling, but it lacks robust pre-code gating, skill routing, and repeatable multi-agent quality gates.
+
+Bottom line:
+- We are not far behind on core primitives.
+- We are behind on orchestration methodology and defaults.
+- We can catch up by adding a skills-first workflow mode, structured artifacts, and review gates.
+
+
+============================================================
+2) What Claude + Superpowers Does Better
+============================================================
+
+2.1 Workflow as a first-class system
+- They treat "how work happens" as part of runtime architecture, not prompt flavor text.
+- Skills are invoked based on explicit when-to-use descriptions.
+- Skills chain in an enforced order.
+
+2.2 Hard gates before coding
+- Brainstorming skill blocks implementation until design is approved.
+- Planning skill blocks implementation until plan is complete and reviewed.
+
+2.3 Artifact discipline
+- Writes spec artifacts before code.
+- Writes plan artifacts before code.
+- Each artifact has a standard location and naming pattern.
+
+2.4 Subagent specialization and role separation
+- Implementer does work.
+- Spec reviewer checks conformance to requirements.
+- Code reviewer checks implementation quality.
+- Final reviewer checks whole branch readiness.
+
+2.5 Repeatable quality loops
+- If reviewer fails a task, implementer fixes and reviewer re-checks.
+- Completion is gated by evidence, not by model confidence.
+
+2.6 Better context hygiene
+- Fresh subagent per task avoids context pollution.
+- Controller keeps global coordination context.
+
+2.7 Better user confidence
+- Users see progress through concrete artifacts and checkpoints.
+- This reduces perceived randomness and increases trust.
+
+
+============================================================
+3) TitanShift Current Strengths
+============================================================
+
+3.1 Strong foundation already in place
+- Reactive state machine with tool-calling loop.
+- Tool registry and JSON schema support for tool definitions.
+- Orchestrator module and subagent concept already present.
+- Config-driven system with budgets and model controls.
+- UI infrastructure for chat and agent surfaces.
+
+3.2 Practical compatibility wins already shipped
+- LM Studio compatibility improvements.
+- Better timeout fallback behavior.
+- Better error surfacing in chat.
+- Existing path toward richer orchestration.
+
+3.3 Architectural flexibility
+- Current architecture can host both rapid mode and structured mode.
+- We can add a workflow engine without replacing core modules.
+
+
+============================================================
+4) Gap Analysis by Capability
+============================================================
+
+4.1 Skill routing and policy
+Current:
+- Skills concept exists in design docs.
+- Chat route does not consistently route through a skill selector.
+
+Target:
+- Build a skill policy engine that picks required skills by intent.
+- Add mandatory pre-code skill chain for creative/build requests.
+
+Delta severity: Critical
+
+4.2 Design and planning gates
+Current:
+- No hard stop requiring design approval before coding.
+
+Target:
+- Mandatory "brainstorm -> spec -> plan" gate when request implies new build/feature.
+
+Delta severity: Critical
+
+4.3 Artifact lifecycle
+Current:
+- Artifacts can be produced ad hoc, not required by flow.
+
+Target:
+- Spec and plan document creation as required outputs before implementation.
+- Versioned paths and templates.
+
+Delta severity: High
+
+4.4 Subagent role orchestration
+Current:
+- Subagents not universally used by default in chat execution path.
+- Reviewer roles not enforced.
+
+Target:
+- Implementer + spec reviewer + quality reviewer loop per task.
+- Final branch readiness review before completion.
+
+Delta severity: High
+
+4.5 Task granularity and progress tracking
+Current:
+- Budget counters exist, but task checklist governance is limited.
+
+Target:
+- Todo-backed micro-steps and explicit per-task states.
+
+Delta severity: Medium
+
+4.6 Verification as a completion gate
+Current:
+- Verification can happen but is not always mandatory by policy.
+
+Target:
+- Completion cannot be declared without verification status.
+
+Delta severity: High
+
+4.7 Initialization and persistent context
+Current:
+- Config exists, but not a strong CLAUDE.md-equivalent workflow bootstrap.
+
+Target:
+- /init-like flow to generate team guidance + optional personal local guidance.
+
+Delta severity: Medium
+
+
+============================================================
+5) Proposed TitanShift Workflow Modes (Toggle Strategy)
+============================================================
+
+Goal: Keep current speed while enabling battle-tested rigor.
+
+5.1 New config shape (conceptual)
+
+orchestrator.workflow_mode:
+- rapid
+- structured
+
+orchestrator.structured_mode:
+- require_spec_approval: true
+- require_plan_approval: true
+- require_task_reviews: true
+- require_verification_before_done: true
+- artifact_paths:
+  - specs_dir: documents/specs
+  - plans_dir: documents/plans
+
+5.2 Mode definitions
+
+Rapid mode (current-style):
+- Direct reactive loop.
+- Fast fixes, quick Q/A, low friction.
+- Minimal gating.
+
+Structured mode (Claude+Superpowers-inspired):
+- Intent classification -> mandatory pre-code chain.
+- Brainstorm skill -> spec artifact -> user approval.
+- Planning skill -> plan artifact -> user approval.
+- Subagent-driven execution with review loops.
+- Verification gate required before final done.
+
+5.3 Automatic mode recommendation
+- If task implies create/build/new product/new feature:
+  recommend structured.
+- If task is tiny fix/explanation/single-file edit:
+  recommend rapid.
+- User can override per task.
+
+
+============================================================
+6) Proposed Skill Library for TitanShift
+============================================================
+
+Minimum v1 set:
+
+6.1 brainstorming
+- Clarifies requirements one question at a time.
+- Produces approved design sections.
+- Writes spec artifact.
+
+6.2 writing-plans
+- Converts approved spec into bite-sized implementation tasks.
+- Includes exact file paths, commands, expected checks.
+- Writes plan artifact.
+
+6.3 subagent-driven-development
+- Executes one task at a time with fresh subagent.
+- Requires spec review then code quality review.
+
+6.4 test-driven-development
+- Enforces red-green-refactor per task.
+
+6.5 requesting-code-review
+- Standard review checklist.
+
+6.6 systematic-debugging
+- Root cause and hypothesis-based debugging path.
+
+6.7 verification-before-completion
+- Blocks done state until evidence-backed verification passes.
+
+
+============================================================
+7) Exact Flow to Match Claude+Superpowers Behavior
+============================================================
+
+7.1 Intake and classification
+- Parse user request intent.
+- If request is creative/build/multi-step, enter structured mode.
+
+7.2 Brainstorm phase
+- Explore existing context and constraints.
+- Ask focused clarifying questions.
+- Present 2-3 approaches with tradeoffs.
+- Present recommended design in sections.
+- Collect approval after each section.
+- Write spec artifact.
+
+7.3 Planning phase
+- Read approved spec.
+- Build detailed implementation plan.
+- Break into 2-5 minute tasks.
+- Include file map and test map.
+- Write plan artifact.
+- Get user plan approval.
+
+7.4 Execution phase
+- For each task:
+  1) Dispatch implementer subagent.
+  2) Dispatch spec-conformance reviewer.
+  3) If fail, fix and re-review.
+  4) Dispatch code-quality reviewer.
+  5) If fail, fix and re-review.
+  6) Mark task complete.
+
+7.5 Verification phase
+- Run global verification agent and checks.
+- If fail, route back to relevant tasks.
+- If pass, continue.
+
+7.6 Completion phase
+- Summarize what was changed.
+- Provide evidence of verification.
+- Present merge/continue options.
+
+
+============================================================
+8) Implementation Plan for TitanShift (Concrete)
+============================================================
+
+Phase A: Configuration and routing foundation
+- Add workflow mode config and structured-mode policy toggles.
+- Add request classifier in orchestrator entry path.
+- Add explicit transition state machine for phase gating.
+
+Phase B: Skills runtime
+- Implement skill registry load/resolve/execute path.
+- Support skill metadata fields:
+  - name
+  - description
+  - when_to_use
+  - hard_gates
+  - dependencies
+  - artifact_outputs
+- Inject compact skill list into system prompt each turn.
+
+Phase C: Artifact engine
+- Add artifact writer with naming convention and metadata headers.
+- Add approval state tracking per artifact.
+- Add immutable checkpoint records for approvals.
+
+Phase D: Structured orchestration
+- Implement mandatory chain:
+  brainstorming -> writing-plans -> execution.
+- Enforce no-code actions before approved plan in structured mode.
+
+Phase E: Subagent role framework
+- Implement role templates:
+  - implementer
+  - spec reviewer
+  - code quality reviewer
+  - verifier
+- Add per-role tool allowlists and model profiles.
+- Add looping re-review controls and stop criteria.
+
+Phase F: UI integration
+- Add workflow mode badge in chat.
+- Add phase timeline panel:
+  Design, Plan, Execute, Verify.
+- Add artifact panel with links and status.
+- Add approvals UI with explicit continue buttons.
+
+Phase G: Quality and telemetry
+- Track time per phase, retries, reviewer failure reasons, verification pass rates.
+- Add side-by-side metrics for rapid vs structured outcomes.
+
+
+============================================================
+9) Suggested Initial Generous Runtime Profile
+============================================================
+
+Applied values (this update):
+- model.lmstudio.timeout_s: 180.0
+- model.lmstudio.max_tokens: 3072
+- model.lmstudio.temperature: 0.2
+- state_machine.default_budget.max_steps: 60
+- state_machine.default_budget.max_tokens: 120000
+- state_machine.default_budget.max_duration_ms: 360000
+
+Rationale:
+- Better long-form spec and plan generation.
+- Better multi-turn execution stability.
+- More room for tool results and reflective loops.
+
+Note:
+- Larger budgets increase latency and cost per task.
+- Keep rapid mode available for small fixes.
+
+
+============================================================
+10) Risks and Mitigations
+============================================================
+
+Risk: Overly verbose plans that never execute.
+Mitigation:
+- Max plan size and hard "task granularity" constraints.
+
+Risk: Too many subagent loops increase latency.
+Mitigation:
+- Adaptive reviewer strictness by task size.
+
+Risk: Local model quality inconsistency.
+Mitigation:
+- Role-specific model profiles and fallback model chain.
+
+Risk: Workflow friction for tiny tasks.
+Mitigation:
+- Rapid mode default for small requests; structured suggested when needed.
+
+
+============================================================
+11) Success Criteria (How We Know We Caught Up)
+============================================================
+
+Operational:
+- >= 90% of feature-build requests in structured mode produce spec + plan before code.
+- >= 80% of structured tasks complete with reviewer + verifier pass on first full cycle.
+
+Quality:
+- Fewer regressions per feature release.
+- Higher pass rate on first full test run.
+
+User trust:
+- Users can see phase status and approval gates at all times.
+- "No response returned" style failures materially reduced.
+
+
+============================================================
+12) Recommendation
+============================================================
+
+Adopt dual-mode architecture immediately:
+- Keep rapid mode for responsiveness.
+- Add structured mode to match Claude+Superpowers methodology.
+
+Do not copy blindly. Copy the proven control points:
+- Hard gates
+- Artifacts
+- Role separation
+- Review loops
+- Verification gates
+
+If implemented in this order, TitanShift can become both faster than traditional workflows and closer to battle-tested reliability patterns seen in Claude+Superpowers ecosystems.
