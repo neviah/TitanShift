@@ -14,8 +14,8 @@
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "google/gemma-4-26b-a4b",
-      "timeout_s": 180.0,
-      "max_tokens": 3072,
+      "timeout_s": 240.0,
+      "max_tokens": 4096,
       "temperature": 0.2
     }
   },
@@ -55,14 +55,14 @@
       "dir",
       "echo"
     ],
-    "max_runtime_s": 30,
+    "max_runtime_s": 300,
     "max_output_bytes": 32768
   },
   "state_machine": {
     "default_budget": {
-      "max_steps": 60,
-      "max_tokens": 120000,
-      "max_duration_ms": 360000
+      "max_steps": 240,
+      "max_tokens": 300000,
+      "max_duration_ms": 2700000
     }
   },
   "ingestion": {
