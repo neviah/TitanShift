@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  Activity,
+  Binary,
   Bot,
-  CheckCheck,
+  Compass,
   FileCheck,
   FileText,
   Gauge,
   Layers,
+  Network,
   Rocket,
   SearchCheck,
-  Sparkles,
+  ShieldCheck,
+  Spline,
   Wand2,
   Wrench,
 } from 'lucide-react'
@@ -44,6 +48,7 @@ interface OrbitRingSpec {
   speed: number
   direction: 1 | -1
   nodes: OrbitNodeSpec[]
+  family: WorkflowMode | 'shared'
 }
 
 const DEFAULT_VISUAL_STATE: WorkflowVisualState = {
@@ -80,11 +85,12 @@ function buildLightningRings(): OrbitRingSpec[] {
       tilt: -12,
       speed: 24,
       direction: 1,
+      family: 'lightning',
       nodes: [
-        { key: 'prompt', label: 'Prompt', Icon: Sparkles },
-        { key: 'agent', label: 'Agent', Icon: Bot },
-        { key: 'tools', label: 'Tools', Icon: Wrench },
-        { key: 'ship', label: 'Response', Icon: Rocket },
+        { key: 'request', label: 'Request', Icon: Compass },
+        { key: 'orchestrator', label: 'Orchestrator', Icon: Bot },
+        { key: 'tools', label: 'Tooling', Icon: Wrench },
+        { key: 'response', label: 'Delivery', Icon: Rocket },
       ],
     },
   ]
@@ -99,21 +105,22 @@ function buildSuperpoweredRings(state: WorkflowVisualState): OrbitRingSpec[] {
       tilt: -16,
       speed: 30,
       direction: 1,
+      family: 'superpowered',
       nodes: [
         {
           key: 'spec',
-          label: state.specApproved ? 'Spec Locked' : 'Spec',
+          label: state.specApproved ? 'Spec Gate' : 'Spec Draft',
           Icon: FileCheck,
           emphasis: state.specApproved ? 'approved' : 'neutral',
         },
         {
           key: 'plan',
-          label: state.planApproved ? 'Plan Locked' : 'Plan',
+          label: state.planApproved ? 'Plan Gate' : 'Plan Draft',
           Icon: FileText,
           emphasis: state.planApproved ? 'approved' : 'neutral',
         },
-        { key: 'build', label: 'Implement', Icon: Wand2 },
-        { key: 'review', label: 'Review', Icon: SearchCheck },
+        { key: 'build', label: 'Implementer', Icon: Wand2 },
+        { key: 'review', label: 'Review Loop', Icon: SearchCheck },
       ],
     },
     {
@@ -123,15 +130,18 @@ function buildSuperpoweredRings(state: WorkflowVisualState): OrbitRingSpec[] {
       tilt: 18,
       speed: 42,
       direction: -1,
+      family: 'superpowered',
       nodes: [
-        { key: 'verify', label: 'Verify', Icon: CheckCheck },
+        { key: 'verify', label: 'Verifier', Icon: ShieldCheck },
         { key: 'artifacts', label: 'Artifacts', Icon: Layers },
         {
           key: 'tasks',
-          label: state.planTaskCount > 0 ? `${state.planTaskCount} Tasks` : 'Tasks',
+          label: state.planTaskCount > 0 ? `${state.planTaskCount} Tasks` : 'Plan Tasks',
           Icon: Gauge,
           emphasis: state.planTaskCount > 0 ? 'approved' : 'neutral',
         },
+        { key: 'memory', label: 'Memory', Icon: Network },
+        { key: 'telemetry', label: 'Telemetry', Icon: Activity },
         { key: 'ship', label: 'Release', Icon: Rocket },
       ],
     },
@@ -148,6 +158,7 @@ function polarToTiltedCartesian(angleDeg: number, radiusX: number, radiusY: numb
     y: x * Math.sin(tilt) + y * Math.cos(tilt),
     scale: Math.cos(radians) > 0 ? 1.06 : 0.9,
     depth: Math.cos(radians),
+    tangent: angleDeg + tiltDeg + 90,
   }
 }
 
@@ -179,28 +190,39 @@ export function ModuleBackdrop() {
   }, [])
 
   const recentRuntimeActivity = useMemo(() => {
+    const cutoff = Date.now() - 16000
     return (logs?.items ?? []).some((item) => {
       const eventType = String(item.event_type ?? '').toLowerCase()
-      return eventType.includes('task_') || eventType.includes('module_error') || eventType.includes('workflow_')
+      const ts = Date.parse(String(item.timestamp ?? ''))
+      const recentEnough = Number.isFinite(ts) ? ts >= cutoff : false
+      return recentEnough && (eventType.includes('task_') || eventType.includes('module_error') || eventType.includes('workflow_'))
     })
   }, [logs])
 
   const mode = visualState.mode
   const isActive = visualState.active || recentRuntimeActivity
-  const rings = mode === 'superpowered' ? buildSuperpoweredRings(visualState) : buildLightningRings()
+  const rings = useMemo(
+    () => [...buildLightningRings(), ...buildSuperpoweredRings(visualState)],
+    [visualState],
+  )
   const centerStatus = mode === 'superpowered'
     ? (data?.subagents_enabled ? 'review loop armed' : 'subagents offline')
     : 'rapid path'
   const centerMeta = mode === 'superpowered'
     ? `${visualState.specApproved ? 'spec' : 'draft'} / ${visualState.planApproved ? 'plan' : 'awaiting plan'}`
     : (data?.model_connected === false ? 'model offline' : 'model linked')
+  const CenterIcon = mode === 'superpowered' ? Spline : Binary
 
   return (
-    <div className={`${styles.root} ${isActive ? styles.rootActive : ''}`} aria-hidden>
+    <div className={`${styles.root} ${styles[`mode-${mode}`]} ${isActive ? styles.rootActive : ''}`} aria-hidden>
       <div className={styles.fieldGlow} />
+      <div className={`${styles.heatWake} ${isActive ? styles.heatWakeActive : ''}`} />
 
       {rings.map((ring) => (
-        <div key={ring.key} className={styles.ringShell}>
+        <div
+          key={ring.key}
+          className={`${styles.ringShell} ${styles[`family-${ring.family}`]}`}
+        >
           <div
             className={`${styles.ringTrace} ${isActive ? styles.ringTraceActive : ''}`}
             style={{
@@ -231,6 +253,10 @@ export function ModuleBackdrop() {
                 }}
                 title={node.label}
               >
+                <div
+                  className={`${styles.nodeTrail} ${isActive ? styles.nodeTrailActive : ''}`}
+                  style={{ transform: `translate(-50%, -50%) rotate(${point.tangent}deg)` }}
+                />
                 <node.Icon size={20} strokeWidth={1.8} />
                 <span className={styles.label}>{node.label}</span>
               </div>
@@ -242,6 +268,9 @@ export function ModuleBackdrop() {
       <div className={`${styles.core} ${isActive ? styles.coreActive : ''}`}>
         <div className={styles.coreHalo} />
         <div className={styles.coreInner}>
+          <div className={styles.coreBadge}>
+            <CenterIcon size={22} strokeWidth={1.9} />
+          </div>
           <span className={styles.coreEyebrow}>{mode}</span>
           <p className={styles.coreTitle}>TitanShift</p>
           <p className={styles.coreStatus}>{centerStatus}</p>
