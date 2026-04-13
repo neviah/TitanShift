@@ -11,6 +11,7 @@ export type NavTab =
   | 'settings'
 
 export type RightTab =
+  | 'run'
   | 'agent'
   | 'skills'
   | 'tools'

@@ -56,21 +56,9 @@ class LocalStubAdapter:
 
 
 class CloudOpenAIAdapter:
-    """Cloud adapter stub kept optional by config and environment setup."""
+    """Generic OpenAI-compatible adapter (OpenRouter, Ollama, local gateways)."""
 
     model_id = "openai_compatible"
-
-    async def generate(self, request: ModelRequest) -> ModelResponse:
-        raise NotImplementedError("Cloud adapter is a scaffold stub in phase 1")
-
-    def estimate_tokens(self, text: str) -> int:
-        return max(1, len(text) // 4)
-
-
-class LMStudioAdapter:
-    """OpenAI-compatible local adapter for LM Studio server."""
-
-    model_id = "lmstudio"
 
     def __init__(
         self,
@@ -79,12 +67,18 @@ class LMStudioAdapter:
         timeout_s: float = 45.0,
         max_tokens: int = 2048,
         temperature: float = 0.2,
+        api_key: str = "",
+        provider_name: str = "OpenAI-compatible provider",
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.default_model = default_model
         self.timeout_s = timeout_s
         self.max_tokens = max(128, int(max_tokens))
         self.temperature = float(temperature)
+        self.api_key = api_key.strip()
+        self.provider_name = provider_name
+        self.extra_headers = extra_headers or {}
 
     @staticmethod
     def _parse_loose_arguments(raw: str) -> dict[str, Any]:
@@ -142,6 +136,15 @@ class LMStudioAdapter:
             ))
         return tool_calls
 
+    def _build_headers(self) -> dict[str, str]:
+        headers = {
+            "Content-Type": "application/json",
+            **self.extra_headers,
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
     async def generate(self, request: ModelRequest) -> ModelResponse:
         # Build message list — prefer multi-turn messages if provided
         if request.messages is not None:
@@ -180,25 +183,25 @@ class LMStudioAdapter:
         endpoint = f"{self.base_url}/chat/completions"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_s) as client:
-                response = await client.post(endpoint, json=payload)
+                response = await client.post(endpoint, json=payload, headers=self._build_headers())
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise RuntimeError(
-                "LM Studio timed out while generating a response. "
+                f"{self.provider_name} timed out while generating a response. "
                 f"Endpoint: {endpoint}. Timeout: {self.timeout_s}s"
             ) from exc
         except httpx.HTTPStatusError as exc:
             body = exc.response.text if exc.response is not None else ""
             body_snippet = re.sub(r"\s+", " ", body).strip()[:400]
             raise RuntimeError(
-                "LM Studio rejected chat request "
+                f"{self.provider_name} rejected chat request "
                 f"({exc.response.status_code if exc.response is not None else 'unknown'}). "
                 f"Endpoint: {endpoint}. Response: {body_snippet or 'no response body'}"
             ) from exc
         except Exception as exc:
             raise RuntimeError(
-                "LM Studio request failed. Ensure LM Studio server is running and the OpenAI-compatible "
-                f"endpoint is reachable at {endpoint}. Cause: {exc}"
+                f"{self.provider_name} request failed. Ensure the endpoint is reachable at {endpoint}. "
+                f"Cause: {exc}"
             ) from exc
 
         body = response.json()
@@ -227,11 +230,45 @@ class LMStudioAdapter:
         if parsed_tool_calls:
             return ModelResponse(text="", model_id=self.model_id, tool_calls=parsed_tool_calls)
         if not content:
-            content = "[lmstudio] empty response"
+            content = "[openai_compatible] empty response"
         return ModelResponse(text=content, model_id=self.model_id)
 
     def estimate_tokens(self, text: str) -> int:
         return max(1, len(text) // 4)
+
+
+class LMStudioAdapter:
+    """OpenAI-compatible local adapter for LM Studio server."""
+
+    model_id = "lmstudio"
+
+    def __init__(
+        self,
+        base_url: str,
+        default_model: str,
+        timeout_s: float = 45.0,
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+    ) -> None:
+        self._delegate = CloudOpenAIAdapter(
+            base_url=base_url,
+            default_model=default_model,
+            timeout_s=timeout_s,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            api_key="",
+            provider_name="LM Studio",
+        )
+
+    async def generate(self, request: ModelRequest) -> ModelResponse:
+        response = await self._delegate.generate(request)
+        return ModelResponse(text=response.text, model_id=self.model_id, tool_calls=response.tool_calls)
+
+    def _extract_pseudo_tool_calls(self, content: str) -> list[ToolCall]:
+        return self._delegate._extract_pseudo_tool_calls(content)
+
+    def estimate_tokens(self, text: str) -> int:
+        return self._delegate.estimate_tokens(text)
 
 
 class ModelRegistry:
@@ -246,9 +283,31 @@ class ModelRegistry:
         lmstudio_timeout = float(cfg.get("model.lmstudio.timeout_s", 45.0))
         lmstudio_max_tokens = int(cfg.get("model.lmstudio.max_tokens", 2048))
         lmstudio_temperature = float(cfg.get("model.lmstudio.temperature", 0.2))
+        cloud_base_url = str(cfg.get("model.openai_compatible.base_url", "https://openrouter.ai/api/v1")).strip()
+        cloud_model = str(cfg.get("model.openai_compatible.model", "openai/gpt-4o-mini")).strip()
+        cloud_timeout = float(cfg.get("model.openai_compatible.timeout_s", 45.0))
+        cloud_max_tokens = int(cfg.get("model.openai_compatible.max_tokens", 2048))
+        cloud_temperature = float(cfg.get("model.openai_compatible.temperature", 0.2))
+        cloud_api_key = str(cfg.get("model.openai_compatible.api_key", "")).strip()
+        cloud_referrer = str(cfg.get("model.openai_compatible.referrer", "")).strip()
+        cloud_title = str(cfg.get("model.openai_compatible.app_title", "TitanShift")).strip()
+        cloud_headers: dict[str, str] = {}
+        if cloud_referrer:
+            cloud_headers["HTTP-Referer"] = cloud_referrer
+        if cloud_title:
+            cloud_headers["X-Title"] = cloud_title
         adapters: dict[str, ModelAdapter] = {
             "local_stub": LocalStubAdapter(),
-            "openai_compatible": CloudOpenAIAdapter(),
+            "openai_compatible": CloudOpenAIAdapter(
+                base_url=cloud_base_url,
+                default_model=cloud_model,
+                timeout_s=cloud_timeout,
+                max_tokens=cloud_max_tokens,
+                temperature=cloud_temperature,
+                api_key=cloud_api_key,
+                provider_name="OpenAI-compatible provider",
+                extra_headers=cloud_headers,
+            ),
             "lmstudio": LMStudioAdapter(
                 base_url=lmstudio_base_url,
                 default_model=lmstudio_model,

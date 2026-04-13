@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Activity,
   Bot,
   Zap,
   Wrench,
@@ -10,6 +11,7 @@ import {
 import styles from './RightPane.module.css'
 import type { RightTab } from '../../types/nav'
 import { AgentTab } from './right/AgentTab'
+import { CurrentRunTab } from './right/CurrentRunTab'
 import { HealthTab } from './right/HealthTab'
 import { SkillsTab } from './right/SkillsTab'
 import { ToolsTab } from './right/ToolsTab'
@@ -17,6 +19,7 @@ import { MemoryTab } from './right/MemoryTab'
 import { LogsTab } from './right/LogsTab'
 
 const TABS: { id: RightTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
+  { id: 'run',    label: 'Run',    Icon: Activity },
   { id: 'agent',  label: 'Agent',  Icon: Bot },
   { id: 'skills', label: 'Skills', Icon: Zap },
   { id: 'tools',  label: 'Tools',  Icon: Wrench },
@@ -26,7 +29,7 @@ const TABS: { id: RightTab; label: string; Icon: React.FC<{ size?: number }> }[]
 ]
 
 export function RightPane() {
-  const [active, setActive] = useState<RightTab>('agent')
+  const [active, setActive] = useState<RightTab>('run')
 
   return (
     <div className={styles.root}>
@@ -45,6 +48,7 @@ export function RightPane() {
       </div>
 
       <div className={styles.body}>
+        {active === 'run' && <CurrentRunTab />}
         {active === 'agent' && <AgentTab />}
         {active === 'skills' && <SkillsTab />}
         {active === 'tools' && <ToolsTab />}

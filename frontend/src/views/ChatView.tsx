@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Copy, RotateCcw } from 'lucide-react'
-import { approveArtifact, fetchConfig, sendChat } from '../api/client'
+import { ChevronDown, ChevronUp, Copy, RotateCcw } from 'lucide-react'
+import { approveArtifact, fetchArtifacts, fetchConfig, revokeArtifactApproval, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
 import { StatusIndicator } from '../components/StatusIndicator'
+import { usePolling } from '../hooks/usePolling'
 import styles from './ChatView.module.css'
 
 const VISUAL_STATE_KEY = 'titanshift-workflow-visual-state'
@@ -24,8 +25,13 @@ export function ChatView() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [pendingApprovals, setPendingApprovals] = useState<string[]>([])
   const [approvalBusy, setApprovalBusy] = useState(false)
+  const [workflowPhase, setWorkflowPhase] = useState<'idle' | 'routing' | 'approval' | 'implement' | 'review' | 'deliver' | 'error'>('idle')
+  const [workflowPanelOpen, setWorkflowPanelOpen] = useState(true)
+  const [artifactDockOpen, setArtifactDockOpen] = useState(false)
+  const [artifactBusy, setArtifactBusy] = useState(false)
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
+  const { data: artifactsData, refresh: refreshArtifacts } = usePolling(fetchArtifacts, { interval: 15000 })
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const messages = currentSession.messages
@@ -81,6 +87,7 @@ export function ChatView() {
       specApproved,
       planApproved,
       planTaskCount,
+      phase: workflowPhase,
     }
 
     try {
@@ -89,7 +96,7 @@ export function ChatView() {
     } catch {
       // Ignore storage/event failures; chat should still function normally.
     }
-  }, [workflowMode, sending, specApproved, planApproved, planTaskCount])
+  }, [workflowMode, sending, specApproved, planApproved, planTaskCount, workflowPhase])
 
   async function sendPrompt(rawText: string) {
     const text = rawText.trim()
@@ -99,6 +106,7 @@ export function ChatView() {
     setInput('')
     setSending(true)
     setError(null)
+    setWorkflowPhase('routing')
 
     try {
       const parsedPlanTasks = workflowMode === 'superpowered'
@@ -129,8 +137,16 @@ export function ChatView() {
       appendMessage({ role: 'assistant', text: reply })
       if (result.mode === 'approval-gate') {
         setPendingApprovals(Array.isArray(result.missing_approvals) ? result.missing_approvals : [])
+        setWorkflowPhase('approval')
       } else {
         setPendingApprovals([])
+        if (!result.success) {
+          setWorkflowPhase('error')
+        } else if (workflowMode === 'superpowered') {
+          setWorkflowPhase(parsedPlanTasks.length > 0 ? 'review' : 'implement')
+        } else {
+          setWorkflowPhase('deliver')
+        }
       }
       if (!result.success && result.error) {
         setError(result.error)
@@ -138,6 +154,7 @@ export function ChatView() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       appendMessage({ role: 'assistant', text: 'Request failed. Check Health and provider settings, then try again.' })
+      setWorkflowPhase('error')
     } finally {
       setSending(false)
     }
@@ -172,7 +189,9 @@ export function ChatView() {
         text: `Approval recorded for: ${approvals.join(', ')}. You can resend the request now.`,
       })
       setPendingApprovals([])
+      setWorkflowPhase('implement')
       setError(null)
+      await refreshArtifacts()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -182,7 +201,25 @@ export function ChatView() {
 
   function denyRequestedApprovals() {
     setPendingApprovals([])
+    setWorkflowPhase('idle')
     appendMessage({ role: 'assistant', text: 'Approval request dismissed.' })
+  }
+
+  async function toggleArtifactApproval(artifactType: 'spec' | 'plan', approve: boolean) {
+    if (artifactBusy) return
+    setArtifactBusy(true)
+    try {
+      if (approve) {
+        await approveArtifact(artifactType)
+      } else {
+        await revokeArtifactApproval(artifactType)
+      }
+      if (artifactType === 'spec') setSpecApproved(approve)
+      if (artifactType === 'plan') setPlanApproved(approve)
+      await refreshArtifacts()
+    } finally {
+      setArtifactBusy(false)
+    }
   }
 
   function promoteCurrentSession() {
@@ -256,7 +293,21 @@ export function ChatView() {
             Superpowered
           </button>
         </div>
-        {workflowMode === 'superpowered' && (
+        <div className={styles.workflowBarActions}>
+          <span className={`badge ${workflowPhase === 'error' ? 'badge-error' : workflowPhase === 'approval' ? 'badge-warn' : 'badge-ok'}`}>
+            {workflowPhase}
+          </span>
+          {workflowMode === 'superpowered' && (
+            <button className={styles.collapseBtn} onClick={() => setWorkflowPanelOpen((value) => !value)}>
+              {workflowPanelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              Workflow Details
+            </button>
+          )}
+        </div>
+      </div>
+
+      {workflowMode === 'superpowered' && workflowPanelOpen && (
+        <div className={styles.planComposer}>
           <div className={styles.workflowMeta}>
             <label className={styles.toggleLabel}>
               <input type="checkbox" checked={specApproved} onChange={(e) => setSpecApproved(e.target.checked)} disabled={sending} />
@@ -267,11 +318,6 @@ export function ChatView() {
               Plan approved
             </label>
           </div>
-        )}
-      </div>
-
-      {workflowMode === 'superpowered' && (
-        <div className={styles.planComposer}>
           <p className={styles.planHint}>Optional review-loop tasks, one per line</p>
           <textarea
             className={styles.planInput}
@@ -371,6 +417,36 @@ export function ChatView() {
           {sending ? '...' : '▶'}
         </button>
       </div>
+
+      <div className={styles.dockBar}>
+        <button className={styles.collapseBtn} onClick={() => setArtifactDockOpen((value) => !value)}>
+          {artifactDockOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          Artifact Dock
+        </button>
+      </div>
+      {artifactDockOpen && (
+        <div className={styles.artifactDock}>
+          {(artifactsData ?? []).slice(0, 6).map((artifact) => (
+            <div key={artifact.path} className={styles.artifactRow}>
+              <div>
+                <p className={styles.artifactName}>{artifact.filename}</p>
+                <p className={styles.artifactMeta}>{artifact.artifact_type} • {Math.max(1, Math.round(artifact.size / 1024))} KB</p>
+              </div>
+              <div className={styles.artifactActions}>
+                <span className={`badge ${artifact.approved ? 'badge-ok' : 'badge-warn'}`}>{artifact.approved ? 'approved' : 'pending'}</span>
+                <button
+                  className={styles.artifactBtn}
+                  onClick={() => void toggleArtifactApproval(artifact.artifact_type, !artifact.approved)}
+                  disabled={artifactBusy}
+                >
+                  {artifact.approved ? 'Revoke' : 'Approve'}
+                </button>
+              </div>
+            </div>
+          ))}
+          {(artifactsData ?? []).length === 0 && <p className={styles.emptyHint}>No spec or plan artifacts found yet.</p>}
+        </div>
+      )}
     </div>
   )
 }

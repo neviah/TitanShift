@@ -14,7 +14,7 @@ from harness.api.server import create_app
 from harness.execution.policy import ExecutionPolicy
 from harness.execution.runner import ExecutionDeniedError, ExecutionModule
 from harness.runtime.bootstrap import build_runtime
-from harness.model.adapter import LMStudioAdapter, ModelRegistry
+from harness.model.adapter import CloudOpenAIAdapter, LMStudioAdapter, ModelRegistry
 from harness.runtime.config import ConfigManager
 from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.runtime.types import Task
@@ -2936,4 +2936,20 @@ def test_lmstudio_adapter_parses_pseudo_tool_call_content() -> None:
     assert len(parsed) == 1
     assert parsed[0].name == "web_search_basic"
     assert parsed[0].arguments == {"query": "current weather in Brooklyn, New York"}
+
+
+def test_openai_compatible_adapter_parses_pseudo_tool_call_content() -> None:
+    adapter = CloudOpenAIAdapter(
+        base_url="https://example.com/v1",
+        default_model="test-model",
+        provider_name="Test OpenAI-compatible",
+    )
+
+    parsed = adapter._extract_pseudo_tool_calls(
+        '<tool_call>call:web_fetch(url: "https://example.org", timeout_s: 12)</tool_call>'
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].name == "web_fetch"
+    assert parsed[0].arguments == {"url": "https://example.org", "timeout_s": 12}
 

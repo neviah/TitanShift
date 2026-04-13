@@ -31,6 +31,7 @@ interface WorkflowVisualState {
   specApproved: boolean
   planApproved: boolean
   planTaskCount: number
+  phase: 'idle' | 'routing' | 'approval' | 'implement' | 'review' | 'deliver' | 'error'
 }
 
 interface OrbitNodeSpec {
@@ -57,6 +58,7 @@ const DEFAULT_VISUAL_STATE: WorkflowVisualState = {
   specApproved: false,
   planApproved: false,
   planTaskCount: 0,
+  phase: 'idle',
 }
 
 function loadVisualState(): WorkflowVisualState {
@@ -70,6 +72,14 @@ function loadVisualState(): WorkflowVisualState {
       specApproved: Boolean(parsed.specApproved),
       planApproved: Boolean(parsed.planApproved),
       planTaskCount: Number.isFinite(parsed.planTaskCount) ? Number(parsed.planTaskCount) : 0,
+      phase: (
+        parsed.phase === 'routing'
+        || parsed.phase === 'approval'
+        || parsed.phase === 'implement'
+        || parsed.phase === 'review'
+        || parsed.phase === 'deliver'
+        || parsed.phase === 'error'
+      ) ? parsed.phase : 'idle',
     }
   } catch {
     return DEFAULT_VISUAL_STATE
@@ -94,6 +104,44 @@ function buildLightningRings(): OrbitRingSpec[] {
       ],
     },
   ]
+}
+
+function phaseNodeKeys(mode: WorkflowMode, phase: WorkflowVisualState['phase']): Set<string> {
+  const keys = new Set<string>()
+  if (phase === 'routing') {
+    keys.add('request')
+    keys.add('orchestrator')
+  }
+  if (phase === 'approval') {
+    keys.add('spec')
+    keys.add('plan')
+  }
+  if (phase === 'implement') {
+    keys.add('build')
+    keys.add('tasks')
+    keys.add('tools')
+  }
+  if (phase === 'review') {
+    keys.add('review')
+    keys.add('verify')
+  }
+  if (phase === 'deliver') {
+    keys.add(mode === 'superpowered' ? 'ship' : 'response')
+  }
+  if (phase === 'error') {
+    keys.add('telemetry')
+  }
+  return keys
+}
+
+function phaseLabel(phase: WorkflowVisualState['phase']): string {
+  if (phase === 'routing') return 'Routing'
+  if (phase === 'approval') return 'Approval Gate'
+  if (phase === 'implement') return 'Implementing'
+  if (phase === 'review') return 'Review Loop'
+  if (phase === 'deliver') return 'Delivering'
+  if (phase === 'error') return 'Error State'
+  return 'Idle'
 }
 
 function buildSuperpoweredRings(state: WorkflowVisualState): OrbitRingSpec[] {
@@ -208,9 +256,10 @@ export function ModuleBackdrop() {
     () => [...buildLightningRings(), ...buildSuperpoweredRings(visualState)],
     [visualState],
   )
+  const highlightedNodes = useMemo(() => phaseNodeKeys(mode, visualState.phase), [mode, visualState.phase])
   const centerStatus = mode === 'superpowered'
-    ? (data?.subagents_enabled ? 'review loop armed' : 'subagents offline')
-    : 'rapid path'
+    ? `${phaseLabel(visualState.phase)} • ${data?.subagents_enabled ? 'review loop armed' : 'subagents offline'}`
+    : `${phaseLabel(visualState.phase)} • rapid path`
   const centerMeta = mode === 'superpowered'
     ? `${visualState.specApproved ? 'spec' : 'draft'} / ${visualState.planApproved ? 'plan' : 'awaiting plan'}`
     : (data?.model_connected === false ? 'model offline' : 'model linked')
@@ -244,10 +293,11 @@ export function ModuleBackdrop() {
               : node.emphasis === 'alert'
                 ? styles.nodeAlert
                 : ''
+            const phaseClass = highlightedNodes.has(node.key) ? styles.nodePhaseActive : ''
             return (
               <div
                 key={node.key}
-                className={`${styles.node} ${isActive ? styles.nodeActive : ''} ${emphasisClass}`}
+                className={`${styles.node} ${isActive ? styles.nodeActive : ''} ${emphasisClass} ${phaseClass}`}
                 style={{
                   left: `calc(50% + ${point.x}px)`,
                   top: `calc(50% + ${point.y}px)`,

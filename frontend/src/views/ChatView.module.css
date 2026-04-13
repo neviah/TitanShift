@@ -59,6 +59,12 @@
   background: color-mix(in oklab, var(--bg-elevated) 72%, transparent);
 }
 
+.workflowBarActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .workflowGroup {
   display: flex;
   align-items: center;
@@ -95,6 +101,25 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.collapseBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 5px 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.collapseBtn:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
 }
 
 .toggleLabel {
@@ -328,6 +353,69 @@
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   flex-shrink: 0;
+}
+
+.dockBar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 16px 0;
+  background: var(--bg-elevated);
+}
+
+.artifactDock {
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in oklab, var(--bg-elevated) 78%, transparent);
+  padding: 10px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.artifactRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-overlay);
+  padding: 8px 10px;
+}
+
+.artifactName {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.artifactMeta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.artifactActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifactBtn {
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.artifactBtn:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.artifactBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .input {

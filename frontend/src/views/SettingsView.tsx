@@ -10,7 +10,7 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 const BACKENDS = [
   { value: 'local_stub',        label: 'Local Stub (no model)',      group: 'Local' },
   { value: 'lmstudio',          label: 'LM Studio',                   group: 'Local' },
-  { value: 'openai_compatible', label: 'OpenAI Compatible (scaffold)', group: 'Cloud' },
+  { value: 'openai_compatible', label: 'OpenAI Compatible (API)', group: 'Cloud' },
 ]
 
 interface ConfigState {
@@ -19,6 +19,10 @@ interface ConfigState {
   'model.lmstudio.base_url'?: string
   'model.lmstudio.model'?: string
   'model.lmstudio.timeout_s'?: number
+  'model.openai_compatible.base_url'?: string
+  'model.openai_compatible.model'?: string
+  'model.openai_compatible.api_key'?: string
+  'model.openai_compatible.timeout_s'?: number
   'orchestrator.enable_subagents': boolean
   'tools.allow_network': boolean
   'tools.deny_all_by_default': boolean
@@ -167,6 +171,51 @@ export function SettingsView() {
               </>
             )}
 
+            {String(config['model.default_backend'] ?? '') === 'openai_compatible' && (
+              <>
+                <Field label="OpenAI-compatible base URL">
+                  <input
+                    type="text"
+                    className={styles.textInput}
+                    value={String(config['model.openai_compatible.base_url'] ?? 'https://openrouter.ai/api/v1')}
+                    onChange={(e) => patchLocal('model.openai_compatible.base_url', e.target.value)}
+                    placeholder="https://openrouter.ai/api/v1"
+                  />
+                </Field>
+
+                <Field label="Provider model id">
+                  <input
+                    type="text"
+                    className={styles.textInput}
+                    value={String(config['model.openai_compatible.model'] ?? '')}
+                    onChange={(e) => patchLocal('model.openai_compatible.model', e.target.value)}
+                    placeholder="openai/gpt-4o-mini"
+                  />
+                </Field>
+
+                <Field label="Provider API key">
+                  <input
+                    type="password"
+                    className={styles.textInput}
+                    value={String(config['model.openai_compatible.api_key'] ?? '')}
+                    onChange={(e) => patchLocal('model.openai_compatible.api_key', e.target.value)}
+                    placeholder="sk-..."
+                  />
+                </Field>
+
+                <Field label="Provider timeout (seconds)">
+                  <input
+                    type="number"
+                    className={styles.numInput}
+                    min={1}
+                    max={300}
+                    value={Number(config['model.openai_compatible.timeout_s'] ?? 45)}
+                    onChange={(e) => patchLocal('model.openai_compatible.timeout_s', Number(e.target.value))}
+                  />
+                </Field>
+              </>
+            )}
+
             <ProviderHint backend={String(config['model.default_backend'] ?? '')} />
           </Section>
 
@@ -269,7 +318,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 function ProviderHint({ backend }: { backend: string }) {
   const hints: Record<string, string> = {
     lmstudio:   'Connects to LM Studio at http://127.0.0.1:1234/v1 — start LM Studio and load a model first.',
-    openai_compatible: 'Scaffold-only backend in this build. Keep this on local_stub or lmstudio for real responses.',
+    openai_compatible: 'Uses any OpenAI-compatible API endpoint (OpenRouter, Ollama OpenAI mode, local gateways).',
     local_stub: 'Stub backend — returns canned responses. Good for testing the UI without a real model.',
   }
   const hint = hints[backend]

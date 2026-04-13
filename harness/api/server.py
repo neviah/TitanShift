@@ -1341,7 +1341,31 @@ def create_app(workspace_root: Path) -> FastAPI:
                 return False, f"LM Studio unreachable: {exc}"
 
         if backend == "openai_compatible":
-            return False, "openai_compatible is scaffold-only in this build"
+            if not bool(runtime.config.get("model.allow_cloud_adapters", True)):
+                return False, "cloud adapters are disabled by config"
+
+            base_url = str(runtime.config.get("model.openai_compatible.base_url", "")).strip().rstrip("/")
+            configured_model = str(runtime.config.get("model.openai_compatible.model", "")).strip()
+            api_key = str(runtime.config.get("model.openai_compatible.api_key", "")).strip()
+            if not base_url:
+                return False, "openai_compatible base_url is not configured"
+
+            models_url = f"{base_url}/models"
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
+            try:
+                async with httpx.AsyncClient(timeout=3.5) as client:
+                    response = await client.get(models_url, headers=headers)
+                    response.raise_for_status()
+                    body = response.json()
+                listed = [str(m.get("id", "")) for m in body.get("data", []) if isinstance(m, dict)]
+                if configured_model and listed and configured_model not in listed:
+                    return False, f"configured model not listed: {configured_model}"
+                return True, "openai_compatible provider reachable"
+            except Exception as exc:
+                return False, f"openai_compatible unreachable: {exc}"
 
         return False, f"unsupported backend: {backend}"
 

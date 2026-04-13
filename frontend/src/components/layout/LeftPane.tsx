@@ -26,6 +26,7 @@ import {
   BarChart2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import type { MouseEvent } from 'react'
 import styles from './LeftPane.module.css'
 import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
@@ -43,6 +44,22 @@ function readObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+const RECENT_ACTIVITY_MS = 3 * 60 * 1000
+
+function isRecentIso(value: string | null | undefined): boolean {
+  if (!value) return false
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return false
+  return (Date.now() - timestamp) <= RECENT_ACTIVITY_MS
+}
+
+function applyEdgeGlow(event: MouseEvent<HTMLElement>) {
+  const target = event.currentTarget
+  const rect = target.getBoundingClientRect()
+  target.style.setProperty('--mx', `${event.clientX - rect.left}px`)
+  target.style.setProperty('--my', `${event.clientY - rect.top}px`)
 }
 
 const ACTIVE_SKILLS_KEY = 'titanshift-active-skills-by-workspace-v1'
@@ -128,6 +145,23 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const roleTemplates: RoleTemplate[] = roleTemplatesData ?? []
   const artifacts: ArtifactFile[] = artifactsData ?? []
   const workflowMetrics: WorkflowMetrics | null = metricsData ?? null
+  const latestTask = tasks[0] ?? null
+  const livePulse = (logsData?.items ?? []).some((entry) => {
+    const eventType = String(entry.event_type ?? '').toLowerCase()
+    return isRecentIso(entry.timestamp) && (eventType.includes('task_') || eventType.includes('workflow_'))
+  })
+  const anchorMeta = useMemo(() => {
+    if (activeTab === 'workspaces') return { title: 'Workspace Anchor', subtitle: `${workspaces.length} workspace profiles`, hint: currentWorkspaceName }
+    if (activeTab === 'chat') return { title: 'Conversation Anchor', subtitle: `${recentSessions.length} active threads`, hint: currentWorkspaceName }
+    if (activeTab === 'tasks') return { title: 'Execution Anchor', subtitle: `${tasks.length} tracked tasks`, hint: latestTask?.status ?? 'idle' }
+    if (activeTab === 'files') return { title: 'File Anchor', subtitle: `${treeData?.length ?? 0} root nodes`, hint: currentWorkspaceName }
+    if (activeTab === 'skills') return { title: 'Skill Anchor', subtitle: `${installedSkills.length} installed`, hint: currentWorkspaceName }
+    if (activeTab === 'tools') return { title: 'Tool Anchor', subtitle: `${(toolsData ?? []).length} discovered`, hint: currentWorkspaceName }
+    if (activeTab === 'memory') return { title: 'Memory Anchor', subtitle: `${memoryData?.working_entries ?? 0} working entries`, hint: 'runtime memory summary' }
+    if (activeTab === 'logs') return { title: 'Log Anchor', subtitle: `${logsData?.items?.length ?? 0} recent events`, hint: 'live telemetry feed' }
+    if (activeTab === 'scheduler') return { title: 'Scheduler Anchor', subtitle: 'Job timeline and heartbeat', hint: 'scheduler panel' }
+    return { title: 'Settings Anchor', subtitle: 'Runtime and provider controls', hint: 'configuration' }
+  }, [activeTab, workspaces.length, currentWorkspaceName, recentSessions.length, tasks.length, latestTask?.status, treeData?.length, installedSkills.length, toolsData, memoryData?.working_entries, logsData?.items?.length])
 
   async function setArtifactApproval(artifactType: 'spec' | 'plan', approve: boolean) {
     const busyKey = `${artifactType}:${approve ? 'approve' : 'revoke'}`
@@ -298,15 +332,26 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       </nav>
 
       <section className={styles.content}>
+        <div className={`${styles.anchorCard} ${styles.edgeReactive}`} onMouseMove={applyEdgeGlow}>
+          <p className={styles.anchorTitle}>{anchorMeta.title}</p>
+          <p className={styles.anchorSubtitle}>{anchorMeta.subtitle}</p>
+          <div className={styles.anchorMetaRow}>
+            <span className={`badge ${livePulse ? 'badge-warn' : 'badge-dim'}`}>{livePulse ? 'active now' : 'idle'}</span>
+            <span className={styles.anchorHint}>{anchorMeta.hint}</span>
+          </div>
+        </div>
+
         {activeTab === 'workspaces' && (
           <div className={styles.list}>
+            <p className={styles.sectionLabel}>Workspaces</p>
             <button className={styles.newChatBtn} onClick={() => void openWorkspaceFolder()}>New Workspace (Pick Folder)</button>
             {workspaces.map((workspace) => (
               <button
                 key={workspace.id}
-                className={`${styles.itemRow} ${workspace.id === currentWorkspaceId ? styles.rowActive : ''}`}
+                className={`${styles.itemRow} ${styles.edgeReactive} ${workspace.id === currentWorkspaceId ? styles.rowActive : ''}`}
                 onClick={() => selectWorkspace(workspace.id)}
                 title={workspace.path ?? workspace.name}
+                onMouseMove={applyEdgeGlow}
               >
                 <span className={styles.rowTitle}>{workspace.name}</span>
                 <span className="badge badge-dim">{workspace.source}</span>
@@ -319,9 +364,10 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
           <>
             <button className={styles.newChatBtn} onClick={handleNewChat}>New Chat</button>
             <div className={styles.list}>
+              <p className={styles.sectionLabel}>Recent Threads</p>
               {recentSessions.length === 0 && <p className={styles.empty}>No previous chats yet.</p>}
               {recentSessions.map((session) => (
-                <div key={session.id} className={`${styles.row} ${currentSessionId === session.id ? styles.rowActive : ''}`}>
+                <div key={session.id} className={`${styles.row} ${styles.edgeReactive} ${currentSessionId === session.id ? styles.rowActive : ''} ${isRecentIso(session.updatedAt) ? styles.rowHot : ''}`} onMouseMove={applyEdgeGlow}>
                   <button
                     className={styles.rowMain}
                     title={session.title}
@@ -331,7 +377,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                     }}
                   >
                     <span className={styles.rowTitle}>{session.title}</span>
-                    <span className={styles.rowMeta}>{session.messages.length} msgs</span>
+                    <span className={styles.rowMeta}>{session.messages.length} msgs {isRecentIso(session.updatedAt) ? '• live' : ''}</span>
                   </button>
                   <div className={styles.rowActions}>
                     <button className={styles.actionBtn} onClick={() => handleRename(session.id, session.title)} data-tooltip="Rename" aria-label="Rename chat">
@@ -348,9 +394,9 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
               ))}
               {archivedSessions.length > 0 && (
                 <>
-                  <p className={styles.hint}>Archived</p>
+                  <p className={styles.sectionLabel}>Archived Threads</p>
                   {archivedSessions.map((session) => (
-                    <div key={session.id} className={styles.row}>
+                    <div key={session.id} className={`${styles.row} ${styles.edgeReactive}`} onMouseMove={applyEdgeGlow}>
                       <button className={styles.rowMain} onClick={() => restoreSession(session.id)} title={session.title}>
                         <span className={styles.rowTitle}>{session.title}</span>
                         <span className={styles.rowMeta}>archived</span>
@@ -460,9 +506,10 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
             {tasks.map((task) => (
               <button
                 key={task.task_id}
-                className={`${styles.itemRow} ${selectedTaskId === task.task_id ? styles.rowActive : ''}`}
+                className={`${styles.itemRow} ${styles.edgeReactive} ${selectedTaskId === task.task_id ? styles.rowActive : ''} ${task.status === 'running' ? styles.rowHot : ''}`}
                 onClick={() => setSelectedTaskId(task.task_id)}
                 title={task.description}
+                onMouseMove={applyEdgeGlow}
               >
                 <span className={styles.rowTitle}>{task.description}</span>
                 <span className={`badge ${task.status === 'completed' ? 'badge-ok' : task.status === 'failed' ? 'badge-error' : 'badge-warn'}`}>
@@ -689,6 +736,15 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
           </div>
         )}
       </section>
+
+      <div className={styles.pulseStrip}>
+        <span className={`${styles.pulseDot} ${livePulse ? styles.pulseDotLive : ''}`} />
+        <span className={styles.pulseText}>
+          {livePulse
+            ? `Current run active${latestTask ? ` • ${latestTask.status}` : ''}`
+            : 'Current run idle'}
+        </span>
+      </div>
 
       <div className={styles.footer}>
         <button
