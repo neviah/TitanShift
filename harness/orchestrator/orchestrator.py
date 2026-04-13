@@ -42,7 +42,7 @@ class Orchestrator:
     agents: dict[str, AgentRecord] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools)
+        self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools, self.skills)
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         self.task_store = TaskStore()
         self.agents = {
@@ -57,6 +57,30 @@ class Orchestrator:
                 active=True,
             )
         }
+
+    def get_workflow_mode(self) -> str:
+        """Get current workflow mode: 'lightning' or 'superpowered'."""
+        return str(self.config.get("orchestrator.workflow_mode", "lightning"))
+
+    def should_use_superpowered_mode(self, task_description: str) -> bool:
+        """Determine if task should route through Superpowered workflow.
+
+        Heuristic: If task implies build/create/new feature, recommend Superpowered.
+        Otherwise, use configured default mode.
+        """
+        mode = self.get_workflow_mode()
+        if mode == "superpowered":
+            return True
+        if mode == "lightning":
+            return False
+
+        # Fallback: check task keywords
+        keywords = [
+            "build", "create", "new", "feature", "design",
+            "architecture", "website", "application", "system"
+        ]
+        desc_lower = task_description.lower()
+        return any(kw in desc_lower for kw in keywords)
 
     async def run_reactive_task(self, task: Task) -> TaskResult:
         self.task_store.create(task)

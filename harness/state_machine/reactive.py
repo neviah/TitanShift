@@ -8,16 +8,24 @@ from harness.model.adapter import ModelRegistry, ModelRequest, ToolCall
 from harness.runtime.config import ConfigManager
 from harness.runtime.types import Task, TaskResult
 from harness.tools.registry import ToolRegistry
+from harness.skills.registry import SkillRegistry
 
 
 class ReactiveStateMachine:
     """Agentic tool-calling loop: LLM decides which tools to use, the loop executes them
     and feeds results back until the model returns a final text response."""
 
-    def __init__(self, models: ModelRegistry, config: ConfigManager, tools: ToolRegistry) -> None:
+    def __init__(
+        self,
+        models: ModelRegistry,
+        config: ConfigManager,
+        tools: ToolRegistry,
+        skills: SkillRegistry = None,
+    ) -> None:
         self.models = models
         self.config = config
         self.tools = tools
+        self.skills = skills
 
     async def run_task(self, task: Task) -> TaskResult:
         budget = self._resolve_budget(task)
@@ -40,6 +48,14 @@ class ReactiveStateMachine:
                 f"The active workspace folder is: {workspace_root}. "
                 "When creating or modifying files, use paths relative to this workspace."
             )
+
+        # Inject available skills if skill registry is available
+        if self.skills:
+            workflow_mode = task.input.get("workflow_mode") if task.input else self.config.get("orchestrator.workflow_mode", "lightning")
+            skills_section = self.skills.format_for_system_prompt(workflow_mode)
+            if skills_section:
+                system_parts.append("\n" + skills_section)
+
         system_prompt = " ".join(system_parts)
 
         # Build OpenAI-format tool definitions from the registry

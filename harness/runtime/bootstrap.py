@@ -76,7 +76,7 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
 
     register_builtin_tools(tools, execution)
 
-    skills = SkillRegistry()
+    skills = SkillRegistry(skill_base_path=str(workspace_root / "harness" / "skills"))
     skills.register_skill(
         SkillDefinition(
             skill_id="reactive_chat",

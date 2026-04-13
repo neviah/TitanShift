@@ -1,6 +1,23 @@
 {
   "orchestrator": {
-    "enable_subagents": true
+    "enable_subagents": true,
+    "workflow_mode": "lightning",
+    "lightning_mode": {
+      "auto_route_through_skills": false,
+      "max_tool_calls_per_response": 5
+    },
+    "superpowered_mode": {
+      "require_spec_approval": true,
+      "require_plan_approval": true,
+      "require_task_reviews": true,
+      "require_verification_before_done": true,
+      "artifact_paths": {
+        "specs_dir": "documents/specs",
+        "plans_dir": "documents/plans"
+      },
+      "initial_skill_chain": ["brainstorming", "writing-plans", "subagent-driven-development"],
+      "review_loop_max_iterations": 3
+    }
   },
   "skills": {
     "market_trusted_public_keys": [
