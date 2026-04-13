@@ -2834,3 +2834,88 @@ def test_chat_superpowered_review_loop_attaches_review_result() -> None:
     assert output["review_result"]["ok"] is True
     assert len(output["review_result"]["task_results"]) == 2
 
+
+def test_artifact_lifecycle_approve_and_revoke() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    specs_dir = Path("documents/specs")
+    plans_dir = Path("documents/plans")
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    spec_file = specs_dir / "smoke-spec.txt"
+    plan_file = plans_dir / "smoke-plan.txt"
+    approvals_path = Path(".harness/approvals.json")
+
+    try:
+        spec_file.write_text("spec content\n", encoding="utf-8")
+        plan_file.write_text("plan content\n", encoding="utf-8")
+
+        list_before = client.get("/artifacts")
+        assert list_before.status_code == 200
+        by_type_before = {row["artifact_type"]: row for row in list_before.json() if row["filename"].startswith("smoke-")}
+        assert by_type_before["spec"]["approved"] is False
+        assert by_type_before["plan"]["approved"] is False
+
+        approve_spec = client.post("/artifacts/approve", json={"artifact_type": "spec"})
+        assert approve_spec.status_code == 200
+        assert approve_spec.json()["approved"] is True
+
+        list_after_approve = client.get("/artifacts")
+        assert list_after_approve.status_code == 200
+        by_type_after = {row["artifact_type"]: row for row in list_after_approve.json() if row["filename"].startswith("smoke-")}
+        assert by_type_after["spec"]["approved"] is True
+
+        revoke_spec = client.delete("/artifacts/approve?artifact_type=spec")
+        assert revoke_spec.status_code == 200
+        assert revoke_spec.json()["approved"] is False
+    finally:
+        spec_file.unlink(missing_ok=True)
+        plan_file.unlink(missing_ok=True)
+        approvals_path.unlink(missing_ok=True)
+
+
+def test_workflow_metrics_endpoint_reports_lightning_and_superpowered() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    lightning = client.post(
+        "/chat",
+        json={
+            "prompt": "Say hello from lightning",
+            "model_backend": "local_stub",
+            "workflow_mode": "lightning",
+        },
+    )
+    assert lightning.status_code == 200
+
+    superpowered = client.post(
+        "/chat",
+        json={
+            "prompt": "Execute superpowered test task",
+            "model_backend": "local_stub",
+            "workflow_mode": "superpowered",
+            "spec_approved": True,
+            "plan_approved": True,
+            "plan_tasks": [
+                {
+                    "title": "Implement deterministic task",
+                    "implementer_status": "DONE",
+                    "spec_review_passed": True,
+                    "code_review_passed": True,
+                    "verification_passed": True,
+                }
+            ],
+        },
+    )
+    assert superpowered.status_code == 200
+
+    metrics = client.get("/metrics/workflow")
+    assert metrics.status_code == 200
+    body = metrics.json()
+    assert body["total_tasks"] >= 2
+    assert body["lightning"]["total_tasks"] >= 1
+    assert body["superpowered"]["total_tasks"] >= 1
+    assert body["superpowered"]["review_ran_count"] >= 1
+

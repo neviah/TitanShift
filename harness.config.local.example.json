@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy this file to harness.config.local.json for local dev overrides. It is gitignored.",
+  "api": {
+    "require_api_key": true,
+    "api_key": "your-read-key-here",
+    "require_admin_api_key": true,
+    "admin_api_key": "your-admin-key-here"
+  },
+  "orchestrator": {
+    "skill_execution_timeout_s": 0.01
+  },
+  "reports": {
+    "max_export_bytes": 64
+  }
+}

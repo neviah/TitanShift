@@ -16,6 +16,9 @@ import type {
   GraphifyRequest,
   GraphifyResponse,
   RoleTemplate,
+  ArtifactFile,
+  ArtifactApproveResponse,
+  WorkflowMetrics,
 } from './types'
 
 export const API_BASE = '/api'
@@ -180,4 +183,29 @@ export function fetchMemorySummary(): Promise<MemorySummary> {
 
 export function fetchLogs(limit = 20): Promise<LogQueryResponse> {
   return request(`/logs?limit=${limit}`)
+}
+
+// ---- Artifacts ----
+
+export function fetchArtifacts(): Promise<ArtifactFile[]> {
+  return request('/artifacts')
+}
+
+export function approveArtifact(artifact_type: 'spec' | 'plan'): Promise<ArtifactApproveResponse> {
+  return request('/artifacts/approve', {
+    method: 'POST',
+    body: JSON.stringify({ artifact_type }),
+  })
+}
+
+export function revokeArtifactApproval(artifact_type: string): Promise<{ artifact_type: string; approved: boolean }> {
+  return request(`/artifacts/approve?artifact_type=${encodeURIComponent(artifact_type)}`, {
+    method: 'DELETE',
+  })
+}
+
+// ---- Workflow Metrics ----
+
+export function fetchWorkflowMetrics(): Promise<WorkflowMetrics> {
+  return request('/metrics/workflow')
 }

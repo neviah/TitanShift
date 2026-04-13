@@ -38,6 +38,12 @@ from harness.api.schemas import (
     AgentSummary,
     ArtifactCleanupRequest,
     ArtifactCleanupResponse,
+    ArtifactFile,
+    ArtifactApproveRequest,
+    ArtifactApproveResponse,
+    WorkflowMetrics,
+    WorkflowModeStats,
+    SuperpoweredModeStats,
     ChatRequest,
     ChatResponse,
     ConfigUpdateRequest,
@@ -1379,6 +1385,13 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_input["plan_approved"] = body.plan_approved
         if body.plan_tasks is not None:
             task_input["plan_tasks"] = body.plan_tasks
+
+        # Merge persistently stored approvals when the request doesn't override them
+        stored_approvals = _load_approvals()
+        if "spec_approved" not in task_input and stored_approvals.get("spec"):
+            task_input["spec_approved"] = True
+        if "plan_approved" not in task_input and stored_approvals.get("plan"):
+            task_input["plan_approved"] = True
         
         # Include available tools so the LLM can choose to use them
         available_tools = runtime.tools.list_tools()
@@ -3047,6 +3060,140 @@ def create_app(workspace_root: Path) -> FastAPI:
             offset=clamped_offset,
             has_more=has_more,
             next_offset=next_offset,
+        )
+
+    # ── Artifact lifecycle ────────────────────────────────────────────────────
+    def _approvals_path() -> Path:
+        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        return storage_root / "approvals.json"
+
+    def _load_approvals() -> dict[str, bool]:
+        path = _approvals_path()
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _save_approvals(approvals: dict[str, bool]) -> None:
+        path = _approvals_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(approvals, indent=2, sort_keys=True), encoding="utf-8")
+
+    @app.get("/artifacts", response_model=list[ArtifactFile], dependencies=[Depends(require_read_api_key)])
+    async def list_artifacts() -> list[ArtifactFile]:
+        specs_dir = _active_workspace["root"] / "documents" / "specs"
+        plans_dir = _active_workspace["root"] / "documents" / "plans"
+        approvals = _load_approvals()
+        results: list[ArtifactFile] = []
+        for artifact_type, dir_path in [("spec", specs_dir), ("plan", plans_dir)]:
+            if dir_path.exists():
+                for f_path in sorted(dir_path.iterdir()):
+                    if f_path.is_file():
+                        stat = f_path.stat()
+                        results.append(
+                            ArtifactFile(
+                                artifact_type=artifact_type,
+                                filename=f_path.name,
+                                path=str(f_path.relative_to(_active_workspace["root"])).replace("\\", "/"),
+                                size=stat.st_size,
+                                modified_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                                approved=bool(approvals.get(artifact_type, False)),
+                            )
+                        )
+        return results
+
+    @app.post("/artifacts/approve", response_model=ArtifactApproveResponse, dependencies=[Depends(require_admin_api_key)])
+    async def approve_artifact(body: ArtifactApproveRequest) -> ArtifactApproveResponse:
+        if body.artifact_type not in {"spec", "plan"}:
+            raise HTTPException(status_code=400, detail="artifact_type must be 'spec' or 'plan'")
+        approvals = _load_approvals()
+        approvals[body.artifact_type] = True
+        _save_approvals(approvals)
+        return ArtifactApproveResponse(
+            artifact_type=body.artifact_type,
+            approved=True,
+            stored_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    @app.delete("/artifacts/approve", dependencies=[Depends(require_admin_api_key)])
+    async def revoke_artifact_approval(artifact_type: str) -> dict[str, Any]:
+        if artifact_type not in {"spec", "plan"}:
+            raise HTTPException(status_code=400, detail="artifact_type must be 'spec' or 'plan'")
+        approvals = _load_approvals()
+        approvals.pop(artifact_type, None)
+        _save_approvals(approvals)
+        return {"artifact_type": artifact_type, "approved": False}
+
+    # ── Workflow telemetry metrics ────────────────────────────────────────────
+    @app.get("/metrics/workflow", response_model=WorkflowMetrics, dependencies=[Depends(require_read_api_key)])
+    async def workflow_metrics() -> WorkflowMetrics:
+        events = runtime.logger.query(event_type="WORKFLOW_TELEMETRY", limit=1000)
+        payloads = [e.get("payload", {}) for e in events if isinstance(e.get("payload"), dict)]
+
+        if not payloads:
+            # Fallback for runtimes where telemetry events are not persisted yet.
+            task_rows = runtime.orchestrator.list_tasks()
+            inferred_payloads: list[dict[str, Any]] = []
+            for row in task_rows:
+                output = row.get("output", {}) if isinstance(row.get("output", {}), dict) else {}
+                review_result = output.get("review_result", {}) if isinstance(output.get("review_result", {}), dict) else {}
+                wf = str(output.get("workflow_mode", "")).strip().lower()
+                if wf not in {"lightning", "superpowered"}:
+                    if output.get("mode") in {"approval-gate", "review-loop"} or review_result:
+                        wf = "superpowered"
+                    else:
+                        wf = "lightning"
+
+                iterations = None
+                task_results = review_result.get("task_results", []) if isinstance(review_result, dict) else []
+                if isinstance(task_results, list) and task_results:
+                    iterations = max(
+                        (int(item.get("iterations", 0)) for item in task_results if isinstance(item, dict)),
+                        default=0,
+                    )
+
+                inferred_payloads.append(
+                    {
+                        "workflow_mode": wf,
+                        "duration_ms": 0,
+                        "gate_blocked": output.get("mode") == "approval-gate",
+                        "review_ran": bool(review_result),
+                        "review_passed": (bool(review_result.get("ok")) if isinstance(review_result, dict) and review_result else None),
+                        "review_iterations": iterations,
+                    }
+                )
+            payloads = inferred_payloads
+
+        lightning_p = [p for p in payloads if p.get("workflow_mode") == "lightning"]
+        sp_p = [p for p in payloads if p.get("workflow_mode") == "superpowered"]
+
+        def _avg(values: list[float]) -> float:
+            return round(sum(values) / len(values), 1) if values else 0.0
+
+        sp_reviews = [p for p in sp_p if p.get("review_ran")]
+        sp_iters = [int(p["review_iterations"]) for p in sp_reviews if p.get("review_iterations") is not None]
+
+        return WorkflowMetrics(
+            lightning=WorkflowModeStats(
+                total_tasks=len(lightning_p),
+                avg_duration_ms=_avg([float(p.get("duration_ms", 0)) for p in lightning_p]),
+            ),
+            superpowered=SuperpoweredModeStats(
+                total_tasks=len(sp_p),
+                avg_duration_ms=_avg([float(p.get("duration_ms", 0)) for p in sp_p]),
+                gate_blocked_count=sum(1 for p in sp_p if p.get("gate_blocked")),
+                review_ran_count=len(sp_reviews),
+                review_pass_rate=(
+                    round(sum(1 for p in sp_reviews if p.get("review_passed")) / len(sp_reviews), 2)
+                    if sp_reviews
+                    else None
+                ),
+                avg_review_iterations=_avg([float(i) for i in sp_iters]) if sp_iters else None,
+            ),
+            total_tasks=len(payloads),
         )
 
     return app

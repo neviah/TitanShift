@@ -202,6 +202,41 @@ export interface TaskDetail extends TaskSummary {
   output: Record<string, unknown>
 }
 
+// ---- Artifacts ----
+
+export interface ArtifactFile {
+  artifact_type: 'spec' | 'plan'
+  filename: string
+  path: string
+  size: number
+  modified_at: string
+  approved: boolean
+}
+
+export interface ArtifactApproveResponse {
+  artifact_type: string
+  approved: boolean
+  stored_at: string
+}
+
+// ---- Workflow Metrics ----
+
+export interface WorkflowModeStats {
+  total_tasks: number
+  avg_duration_ms: number
+}
+
+export interface WorkflowMetrics {
+  lightning: WorkflowModeStats
+  superpowered: WorkflowModeStats & {
+    gate_blocked_count: number
+    review_ran_count: number
+    review_pass_rate: number | null
+    avg_review_iterations: number | null
+  }
+  total_tasks: number
+}
+
 export interface WorkspaceTreeNode {
   name: string
   path: string

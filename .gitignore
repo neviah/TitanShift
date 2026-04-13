@@ -11,6 +11,10 @@ __pycache__/
 # Harness local runtime storage
 .harness/
 
+# Local developer config overrides (API keys, tight timeouts, etc.)
+# Copy harness.config.local.example.json → harness.config.local.json to use.
+harness.config.local.json
+
 # Packaging artifacts
 build/
 dist/

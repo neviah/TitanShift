@@ -340,6 +340,29 @@
   gap: 4px;
 }
 
+.smallAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.smallAction:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.smallAction:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .tree {
   display: flex;
   flex-direction: column;

@@ -655,6 +655,44 @@ class ArtifactCleanupRequest(BaseModel):
     dry_run: bool = False
 
 
+class ArtifactFile(BaseModel):
+    artifact_type: str
+    filename: str
+    path: str
+    size: int
+    modified_at: str
+    approved: bool = False
+
+
+class ArtifactApproveRequest(BaseModel):
+    artifact_type: str
+
+
+class ArtifactApproveResponse(BaseModel):
+    artifact_type: str
+    approved: bool
+    stored_at: str
+
+
+class WorkflowModeStats(BaseModel):
+    total_tasks: int
+    avg_duration_ms: float
+
+
+class SuperpoweredModeStats(WorkflowModeStats):
+    gate_blocked_count: int
+    review_ran_count: int
+    review_pass_rate: float | None = None
+    avg_review_iterations: float | None = None
+
+
+class WorkflowMetrics(BaseModel):
+    lightning: WorkflowModeStats
+    superpowered: SuperpoweredModeStats
+    total_tasks: int
+
+
+
 class ArtifactCleanupResponse(BaseModel):
     ok: bool
     dry_run: bool

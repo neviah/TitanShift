@@ -21,16 +21,19 @@ import {
   Plus,
   ArrowUp,
   ArrowDown,
+  CheckCircle,
+  XCircle,
+  BarChart2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import styles from './LeftPane.module.css'
 import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
-import { fetchConfig, fetchLogs, fetchMarketList, fetchMemorySummary, fetchRoleTemplates, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkspaceTree, sendChat } from '../../api/client'
+import { approveArtifact, fetchArtifacts, fetchConfig, fetchLogs, fetchMarketList, fetchMemorySummary, fetchRoleTemplates, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkflowMetrics, fetchWorkspaceTree, revokeArtifactApproval, sendChat } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
 import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
-import type { RoleTemplate, TaskDetail, WorkspaceTreeNode } from '../../api/types'
+import type { ArtifactFile, RoleTemplate, TaskDetail, WorkflowMetrics, WorkspaceTreeNode } from '../../api/types'
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : []
@@ -73,6 +76,9 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
   const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
   const { data: roleTemplatesData } = usePolling(fetchRoleTemplates, { interval: 30000 })
+  const { data: artifactsData, refresh: refreshArtifacts } = usePolling(fetchArtifacts, { interval: 15000 })
+  const { data: metricsData } = usePolling(fetchWorkflowMetrics, { interval: 15000 })
+  const [artifactBusy, setArtifactBusy] = useState<string | null>(null)
   const { sessions, currentSessionId, createSession, selectSession, renameSession, archiveSession, restoreSession, deleteSession } = useChatSessions()
   const {
     drafts,
@@ -120,7 +126,23 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const activeSkills = activeSkillsByWorkspace[currentWorkspaceId] ?? {}
   const activeTools = activeToolsByWorkspace[currentWorkspaceId] ?? {}
   const roleTemplates: RoleTemplate[] = roleTemplatesData ?? []
+  const artifacts: ArtifactFile[] = artifactsData ?? []
+  const workflowMetrics: WorkflowMetrics | null = metricsData ?? null
 
+  async function setArtifactApproval(artifactType: 'spec' | 'plan', approve: boolean) {
+    const busyKey = `${artifactType}:${approve ? 'approve' : 'revoke'}`
+    setArtifactBusy(busyKey)
+    try {
+      if (approve) {
+        await approveArtifact(artifactType)
+      } else {
+        await revokeArtifactApproval(artifactType)
+      }
+      await refreshArtifacts()
+    } finally {
+      setArtifactBusy(null)
+    }
+  }
   useEffect(() => {
     localStorage.setItem(ACTIVE_SKILLS_KEY, JSON.stringify(activeSkillsByWorkspace))
   }, [activeSkillsByWorkspace])
@@ -522,6 +544,58 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            <div className={styles.detailCard}>
+              <p className={styles.detailTitle}>Artifact Lifecycle</p>
+              <p className={styles.hint}>Approve plan/spec artifacts once and Superpowered gates can use the persisted state.</p>
+              {artifacts.length === 0 && <p className={styles.empty}>No artifacts found in documents/specs or documents/plans.</p>}
+              {artifacts.map((artifact) => (
+                <div key={artifact.path} className={styles.executionItem}>
+                  <p className={styles.detailLine}>
+                    <span>{artifact.filename}</span>
+                    <span className={`badge ${artifact.approved ? 'badge-ok' : 'badge-warn'}`}>
+                      {artifact.approved ? 'approved' : 'pending'}
+                    </span>
+                  </p>
+                  <p className={styles.detailText}>{artifact.path}</p>
+                  <div className={styles.badgeRow}>
+                    <span className="badge badge-dim">{artifact.artifact_type}</span>
+                    <span className="badge badge-dim">{Math.max(1, Math.round(artifact.size / 1024))} KB</span>
+                    <button
+                      className={styles.smallAction}
+                      disabled={artifactBusy !== null}
+                      onClick={() => void setArtifactApproval(artifact.artifact_type, true)}
+                    >
+                      <CheckCircle size={14} /> Approve
+                    </button>
+                    <button
+                      className={styles.smallAction}
+                      disabled={artifactBusy !== null}
+                      onClick={() => void setArtifactApproval(artifact.artifact_type, false)}
+                    >
+                      <XCircle size={14} /> Revoke
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {workflowMetrics && (
+              <div className={styles.detailCard}>
+                <p className={styles.detailTitle}>Workflow Metrics</p>
+                <div className={styles.badgeRow}>
+                  <span className="badge badge-dim"><BarChart2 size={12} /> total tasks {workflowMetrics.total_tasks}</span>
+                </div>
+                <div className={styles.stackBlock}>
+                  <p className={styles.detailLine}><span>Lightning tasks</span><span>{workflowMetrics.lightning.total_tasks}</span></p>
+                  <p className={styles.detailLine}><span>Lightning avg duration</span><span>{workflowMetrics.lightning.avg_duration_ms}ms</span></p>
+                  <p className={styles.detailLine}><span>Superpowered tasks</span><span>{workflowMetrics.superpowered.total_tasks}</span></p>
+                  <p className={styles.detailLine}><span>Superpowered avg duration</span><span>{workflowMetrics.superpowered.avg_duration_ms}ms</span></p>
+                  <p className={styles.detailLine}><span>Gate blocks</span><span>{workflowMetrics.superpowered.gate_blocked_count}</span></p>
+                  <p className={styles.detailLine}><span>Reviews run</span><span>{workflowMetrics.superpowered.review_ran_count}</span></p>
+                  <p className={styles.detailLine}><span>Review pass rate</span><span>{workflowMetrics.superpowered.review_pass_rate ?? 'n/a'}</span></p>
+                  <p className={styles.detailLine}><span>Avg review iterations</span><span>{workflowMetrics.superpowered.avg_review_iterations ?? 'n/a'}</span></p>
+                </div>
               </div>
             )}
           </div>

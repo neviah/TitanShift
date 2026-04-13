@@ -109,6 +109,56 @@ class Orchestrator:
             for t in self.role_templates.values()
         ]
 
+    async def _invoke_role_model(
+        self,
+        parent_task: Task,
+        role_key: str,
+        context: str,
+    ) -> dict[str, object]:
+        """Run the model in a named role context, returning {passed: bool, feedback: str}.
+
+        Builds a one-shot Task with a role-scoped system prompt and parses the
+        LLM response for a PASS / FAIL verdict.  Falls back to pass on invocation
+        error so review loops are not permanently blocked by infrastructure issues.
+        """
+        template = self.role_templates.get(role_key)
+        role_name = template.role_name if template else role_key.replace("_", " ").title()
+        goal = template.goal if template else ""
+        review_task = Task(
+            id=f"{parent_task.id}:{role_key}:{uuid.uuid4().hex[:8]}",
+            description=(
+                f"[{role_name}] {goal}\n\n"
+                f"Context:\n{context}\n\n"
+                "Respond with PASS or FAIL on the first line, followed by a concise explanation "
+                "(1–3 sentences) justifying your decision."
+            ),
+            input={
+                "model_backend": parent_task.input.get(
+                    "model_backend",
+                    self.config.get("model.default_backend", "local_stub"),
+                ),
+                # Prevent review tasks from triggering another review loop
+                "workflow_mode": "lightning",
+            },
+        )
+        try:
+            result = await self.state_machine.run_task(review_task)
+            response_text = str(result.output.get("response", "")).strip()
+        except Exception as exc:
+            return {"passed": False, "feedback": f"Reviewer invocation failed: {exc}"}
+
+        first_line = response_text.split("\n")[0].upper()
+        passed: bool
+        if first_line.startswith("FAIL"):
+            passed = False
+        elif first_line.startswith("PASS"):
+            passed = True
+        else:
+            # Ambiguous response — check for FAIL anywhere in first 60 chars; else default to pass
+            passed = "FAIL" not in response_text.upper()[:60]
+
+        return {"passed": passed, "feedback": response_text[:600]}
+
     async def _spawn_role_subagent(self, parent_task: Task, role_key: str, description: str) -> str:
         """Spawn a subagent from a named role template."""
         template = self.role_templates.get(role_key)
@@ -137,10 +187,13 @@ class Orchestrator:
         parent_task: Task,
         plan_tasks: list[dict[str, object]],
     ) -> dict[str, object]:
-        """Run implementer -> reviewers -> verifier loop for each plan task.
+        """Run implementer → spec reviewer → code reviewer → verifier for each plan task.
 
-        This loop currently supports deterministic pass/fail simulation via task input
-        flags to make orchestration testable before full autonomous review agents.
+        When a plan task item contains explicit simulation flags
+        (``implementer_status``, ``spec_review_passed``, ``code_review_passed``,
+        ``verification_passed``) they are used directly — this keeps unit tests fast and
+        deterministic.  When those flags are absent the model is invoked for each role,
+        producing real feedback that is stored in the result.
         """
         max_iterations = int(self.config.get("orchestrator.superpowered_mode.review_loop_max_iterations", 3))
         require_verification = bool(
@@ -152,7 +205,9 @@ class Orchestrator:
         for idx, item in enumerate(plan_tasks, start=1):
             title = str(item.get("title") or item.get("task") or f"Task {idx}")
             item_result: dict[str, object] = {"task": title, "index": idx, "iterations": 0}
+            simulation_mode = "implementer_status" in item
 
+            # ── Implementer ──────────────────────────────────────────────────────────
             implementer_id = await self._spawn_role_subagent(
                 parent_task,
                 "implementer",
@@ -160,17 +215,30 @@ class Orchestrator:
             )
             item_result["implementer_agent_id"] = implementer_id
 
-            implementer_status = str(item.get("implementer_status", "DONE")).strip().upper()
-            if implementer_status not in {"DONE", "DONE_WITH_CONCERNS"}:
-                return {
-                    "ok": False,
-                    "failed_task": title,
-                    "error": f"Implementer did not complete task: status={implementer_status}",
-                    "task_results": task_results,
-                }
+            if simulation_mode:
+                implementer_status = str(item.get("implementer_status", "DONE")).strip().upper()
+                if implementer_status not in {"DONE", "DONE_WITH_CONCERNS"}:
+                    return {
+                        "ok": False,
+                        "failed_task": title,
+                        "error": f"Implementer did not complete task: status={implementer_status}",
+                        "task_results": task_results,
+                    }
+            else:
+                impl_context = f"Task #{idx}: {title}\nDescription: {str(item.get('description', title))}"
+                impl_result = await self._invoke_role_model(parent_task, "implementer", impl_context)
+                item_result["implementer_feedback"] = impl_result["feedback"]
+                if not impl_result["passed"]:
+                    return {
+                        "ok": False,
+                        "failed_task": title,
+                        "error": f"Implementer reported failure: {impl_result['feedback'][:200]}",
+                        "task_results": task_results,
+                    }
 
-            spec_pass = bool(item.get("spec_review_passed", True))
-            code_pass = bool(item.get("code_review_passed", True))
+            # ── Review loop ──────────────────────────────────────────────────────────
+            spec_pass = bool(item.get("spec_review_passed", True)) if simulation_mode else False
+            code_pass = bool(item.get("code_review_passed", True)) if simulation_mode else False
 
             for iteration in range(1, max_iterations + 1):
                 item_result["iterations"] = iteration
@@ -187,19 +255,33 @@ class Orchestrator:
                 item_result["spec_reviewer_agent_id"] = spec_id
                 item_result["code_reviewer_agent_id"] = code_id
 
+                if not simulation_mode:
+                    review_context = (
+                        f"Task #{idx}: {title}\n"
+                        f"Implementer output: {item_result.get('implementer_feedback', 'N/A')}"
+                    )
+                    spec_result = await self._invoke_role_model(parent_task, "spec_reviewer", review_context)
+                    code_result = await self._invoke_role_model(parent_task, "code_reviewer", review_context)
+                    spec_pass = spec_result["passed"]
+                    code_pass = code_result["passed"]
+                    item_result["spec_review_feedback"] = spec_result["feedback"]
+                    item_result["code_review_feedback"] = code_result["feedback"]
+
                 if spec_pass and code_pass:
                     break
                 if iteration == max_iterations:
                     return {
                         "ok": False,
                         "failed_task": title,
-                        "error": "Review loop exceeded max iterations",
+                        "error": "Review loop exceeded max iterations without passing all checks",
                         "task_results": task_results,
                     }
-                # If a simulated review fails once, allow next iteration to represent fix-and-rerun.
-                spec_pass = True
-                code_pass = True
+                # Allow the loop to continue; real reviewers will re-evaluate next iteration
+                if simulation_mode:
+                    spec_pass = True
+                    code_pass = True
 
+            # ── Verifier ─────────────────────────────────────────────────────────────
             if require_verification:
                 verifier_id = await self._spawn_role_subagent(
                     parent_task,
@@ -207,11 +289,24 @@ class Orchestrator:
                     f"Verify completion evidence for planned task #{idx}: {title}",
                 )
                 item_result["verifier_agent_id"] = verifier_id
-                if not bool(item.get("verification_passed", True)):
+
+                if simulation_mode:
+                    verification_passed = bool(item.get("verification_passed", True))
+                else:
+                    verify_context = (
+                        f"Task #{idx}: {title}\n"
+                        f"Iteration count: {item_result['iterations']}\n"
+                        f"Spec feedback: {item_result.get('spec_review_feedback', 'N/A')}"
+                    )
+                    verify_result = await self._invoke_role_model(parent_task, "verifier", verify_context)
+                    verification_passed = verify_result["passed"]
+                    item_result["verification_feedback"] = verify_result["feedback"]
+
+                if not verification_passed:
                     return {
                         "ok": False,
                         "failed_task": title,
-                        "error": "Verification failed",
+                        "error": "Verification failed — evidence did not meet acceptance criteria",
                         "task_results": task_results,
                     }
 
@@ -287,106 +382,133 @@ class Orchestrator:
         self.task_store.create(task)
         self.task_store.mark_started(task.id)
         review_result: dict[str, object] | None = None
+        _telemetry: dict[str, object] = {
+            "task_id": task.id,
+            "workflow_mode": "unknown",
+            "duration_ms": 0,
+            "gate_blocked": False,
+            "review_ran": False,
+            "review_passed": None,
+            "review_iterations": None,
+        }
+        _start = datetime.now(timezone.utc)
 
-        workflow_mode = self._resolve_workflow_mode(task)
-        task.input["workflow_mode"] = workflow_mode
+        try:
+            workflow_mode = self._resolve_workflow_mode(task)
+            task.input["workflow_mode"] = workflow_mode
+            _telemetry["workflow_mode"] = workflow_mode
 
-        missing_approvals = self._collect_missing_approvals(task, workflow_mode)
-        if missing_approvals:
-            required_chain = self.skills.get_superpowered_initial_chain()
-            gate_message = (
-                "Superpowered mode requires approvals before implementation. "
-                f"Missing approvals: {', '.join(missing_approvals)}."
-            )
-            await self.event_bus.publish(
-                "MODULE_ERROR",
-                {
-                    "source": "orchestrator.approval_gate",
-                    "task_id": task.id,
-                    "workflow_mode": workflow_mode,
-                    "missing_approvals": missing_approvals,
-                    "required_skill_chain": required_chain,
-                    "error": gate_message,
-                },
-            )
-            result = TaskResult(
-                task_id=task.id,
-                output={
-                    "response": gate_message,
-                    "mode": "approval-gate",
-                    "workflow_mode": workflow_mode,
-                    "missing_approvals": missing_approvals,
-                    "required_skill_chain": required_chain,
-                },
-                success=False,
-                error=gate_message,
-            )
+            missing_approvals = self._collect_missing_approvals(task, workflow_mode)
+            if missing_approvals:
+                required_chain = self.skills.get_superpowered_initial_chain()
+                gate_message = (
+                    "Superpowered mode requires approvals before implementation. "
+                    f"Missing approvals: {', '.join(missing_approvals)}."
+                )
+                await self.event_bus.publish(
+                    "MODULE_ERROR",
+                    {
+                        "source": "orchestrator.approval_gate",
+                        "task_id": task.id,
+                        "workflow_mode": workflow_mode,
+                        "missing_approvals": missing_approvals,
+                        "required_skill_chain": required_chain,
+                        "error": gate_message,
+                    },
+                )
+                result = TaskResult(
+                    task_id=task.id,
+                    output={
+                        "response": gate_message,
+                        "mode": "approval-gate",
+                        "workflow_mode": workflow_mode,
+                        "missing_approvals": missing_approvals,
+                        "required_skill_chain": required_chain,
+                    },
+                    success=False,
+                    error=gate_message,
+                )
+                _telemetry["gate_blocked"] = True
+                self.task_store.mark_completed(result)
+                await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
+                return result
+
+            if workflow_mode == "superpowered" and bool(
+                self.config.get("orchestrator.superpowered_mode.require_task_reviews", True)
+            ):
+                plan_tasks = task.input.get("plan_tasks", [])
+                if isinstance(plan_tasks, list) and plan_tasks:
+                    if not self.enable_subagents:
+                        msg = (
+                            "Superpowered task reviews require subagents, but orchestrator.enable_subagents is false."
+                        )
+                        result = TaskResult(
+                            task_id=task.id,
+                            output={
+                                "response": msg,
+                                "mode": "review-loop",
+                                "workflow_mode": workflow_mode,
+                                "plan_tasks_count": len(plan_tasks),
+                            },
+                            success=False,
+                            error=msg,
+                        )
+                        self.task_store.mark_completed(result)
+                        await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
+                        return result
+
+                    _telemetry["review_ran"] = True
+                    review_result = await self._run_superpowered_review_loop(task, plan_tasks)
+                    review_ok = bool(review_result.get("ok", False))
+                    _telemetry["review_passed"] = review_ok
+                    task_results_list = review_result.get("task_results", [])
+                    if isinstance(task_results_list, list) and task_results_list:
+                        _telemetry["review_iterations"] = max(
+                            (int(r.get("iterations", 0)) for r in task_results_list if isinstance(r, dict)),
+                            default=0,
+                        )
+                    if not review_ok:
+                        msg = str(review_result.get("error", "Superpowered review loop failed"))
+                        result = TaskResult(
+                            task_id=task.id,
+                            output={
+                                "response": msg,
+                                "mode": "review-loop",
+                                "workflow_mode": workflow_mode,
+                                "review_result": review_result,
+                            },
+                            success=False,
+                            error=msg,
+                        )
+                        self.task_store.mark_completed(result)
+                        await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
+                        return result
+                    task.input["review_result"] = review_result
+
+            await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": self.enable_subagents})
+            self.memory.append_short_term("main-agent", {"task": task.description})
+            try:
+                result = await self.state_machine.run_task(task)
+                result.output["workflow_mode"] = workflow_mode
+                if review_result is not None:
+                    result.output["review_result"] = review_result
+            except Exception as exc:
+                await self.event_bus.publish(
+                    "MODULE_ERROR",
+                    {
+                        "source": "orchestrator",
+                        "task_id": task.id,
+                        "error": str(exc),
+                    },
+                )
+                result = TaskResult(task_id=task.id, output={}, success=False, error=f"Unhandled runtime error: {exc}")
             self.task_store.mark_completed(result)
             await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
             return result
 
-        if workflow_mode == "superpowered" and bool(
-            self.config.get("orchestrator.superpowered_mode.require_task_reviews", True)
-        ):
-            plan_tasks = task.input.get("plan_tasks", [])
-            if isinstance(plan_tasks, list) and plan_tasks:
-                if not self.enable_subagents:
-                    msg = (
-                        "Superpowered task reviews require subagents, but orchestrator.enable_subagents is false."
-                    )
-                    result = TaskResult(
-                        task_id=task.id,
-                        output={
-                            "response": msg,
-                            "mode": "review-loop",
-                            "workflow_mode": workflow_mode,
-                            "plan_tasks_count": len(plan_tasks),
-                        },
-                        success=False,
-                        error=msg,
-                    )
-                    self.task_store.mark_completed(result)
-                    await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
-                    return result
-
-                review_result = await self._run_superpowered_review_loop(task, plan_tasks)
-                if not bool(review_result.get("ok", False)):
-                    msg = str(review_result.get("error", "Superpowered review loop failed"))
-                    result = TaskResult(
-                        task_id=task.id,
-                        output={
-                            "response": msg,
-                            "mode": "review-loop",
-                            "workflow_mode": workflow_mode,
-                            "review_result": review_result,
-                        },
-                        success=False,
-                        error=msg,
-                    )
-                    self.task_store.mark_completed(result)
-                    await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
-                    return result
-                task.input["review_result"] = review_result
-
-        await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": self.enable_subagents})
-        self.memory.append_short_term("main-agent", {"task": task.description})
-        try:
-            result = await self.state_machine.run_task(task)
-            if review_result is not None:
-                result.output["review_result"] = review_result
-        except Exception as exc:
-            await self.event_bus.publish(
-                "MODULE_ERROR",
-                {
-                    "source": "orchestrator",
-                    "task_id": task.id,
-                    "error": str(exc),
-                },
-            )
-            result = TaskResult(task_id=task.id, output={}, success=False, error=f"Unhandled runtime error: {exc}")
-        self.task_store.mark_completed(result)
-        await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
-        return result
+        finally:
+            _telemetry["duration_ms"] = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
+            await self.event_bus.publish("WORKFLOW_TELEMETRY", _telemetry)
 
     async def spawn_subagent(self, _task: Task) -> str:
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
