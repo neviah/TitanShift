@@ -135,7 +135,10 @@ class CloudOpenAIAdapter:
         tool_calls: list[ToolCall] = []
         seen: set[tuple[str, str]] = set()
         for index, segment in enumerate(segments):
+            # Try parentheses first, then curly-brace argument syntax
             match = re.search(r'call:([a-zA-Z0-9_.-]+)\((.*)\)', segment, re.DOTALL)
+            if not match:
+                match = re.search(r'call:([a-zA-Z0-9_.-]+)\{(.*)\}', segment, re.DOTALL)
             if not match:
                 continue
             raw_name = match.group(1).strip()
@@ -246,6 +249,9 @@ class CloudOpenAIAdapter:
         parsed_tool_calls = self._extract_pseudo_tool_calls(content)
         if parsed_tool_calls:
             return ModelResponse(text="", model_id=self.model_id, tool_calls=parsed_tool_calls)
+        # Strip any unprocessed tool-call markup so raw syntax never reaches the chat UI
+        _cleaned = re.sub(r'<\|?tool_call\|?>.*', '', content, flags=re.DOTALL | re.IGNORECASE).strip()
+        content = _cleaned if _cleaned else content
         if not content:
             content = "[openai_compatible] empty response"
         return ModelResponse(text=content, model_id=self.model_id)

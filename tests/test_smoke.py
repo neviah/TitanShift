@@ -2976,3 +2976,19 @@ def test_openai_compatible_adapter_parses_pseudo_tool_call_content() -> None:
     assert parsed[0].name == "web_fetch"
     assert parsed[0].arguments == {"url": "https://example.org", "timeout_s": 12}
 
+
+def test_lmstudio_adapter_parses_curly_brace_tool_call_syntax() -> None:
+    """Model sometimes emits {args} instead of (args) — must be handled."""
+    adapter = LMStudioAdapter(
+        base_url="http://127.0.0.1:1234/v1",
+        default_model="test-model",
+    )
+
+    parsed = adapter._extract_pseudo_tool_calls(
+        '<|tool_call|>call:web_fetch{url: "https://wttr.in/Brooklyn?format=3"}<tool_call>'
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].name == "web_fetch"
+    assert parsed[0].arguments.get("url") == "https://wttr.in/Brooklyn?format=3"
+
