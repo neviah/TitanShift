@@ -6,6 +6,9 @@ import { useTaskDrafts } from '../contexts/TaskDraftsContext'
 import { StatusIndicator } from '../components/StatusIndicator'
 import styles from './ChatView.module.css'
 
+const VISUAL_STATE_KEY = 'titanshift-workflow-visual-state'
+const VISUAL_EVENT_NAME = 'titanshift:workflow-visual'
+
 export function ChatView() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -32,6 +35,10 @@ export function ChatView() {
   }, [messages])
 
   const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending])
+  const planTaskCount = useMemo(
+    () => planTasksText.split('\n').map((line) => line.trim()).filter(Boolean).length,
+    [planTasksText],
+  )
 
   useEffect(() => {
     let mounted = true
@@ -63,6 +70,23 @@ export function ChatView() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
+
+  useEffect(() => {
+    const nextState = {
+      mode: workflowMode,
+      active: sending,
+      specApproved,
+      planApproved,
+      planTaskCount,
+    }
+
+    try {
+      window.localStorage.setItem(VISUAL_STATE_KEY, JSON.stringify(nextState))
+      window.dispatchEvent(new CustomEvent(VISUAL_EVENT_NAME, { detail: nextState }))
+    } catch {
+      // Ignore storage/event failures; chat should still function normally.
+    }
+  }, [workflowMode, sending, specApproved, planApproved, planTaskCount])
 
   async function sendPrompt(rawText: string) {
     const text = rawText.trim()
