@@ -632,6 +632,9 @@ def test_skills_endpoint_and_search() -> None:
     body = response.json()
     assert isinstance(body, list)
     assert any(row["skill_id"] == "reactive_chat" for row in body)
+    assert any(row["skill_id"] == "brainstorming" for row in body)
+    assert any(row["skill_id"] == "writing-plans" for row in body)
+    assert any(row["skill_id"] == "subagent-driven-development" for row in body)
     assert all("mode" in row for row in body)
 
     response_q = client.get("/skills?query=shell")

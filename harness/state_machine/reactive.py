@@ -28,7 +28,7 @@ class ReactiveStateMachine:
         self.tools = tools
         self.skills = skills
 
-    def _normalize_tool_call(self, tool_call: ToolCall) -> ToolCall:
+    def _normalize_tool_call(self, tool_call: ToolCall, task_description: str) -> ToolCall:
         name = tool_call.name.strip()
         args = dict(tool_call.arguments)
 
@@ -41,6 +41,9 @@ class ReactiveStateMachine:
         }
         normalized = aliases.get(name, name)
 
+        task_text = task_description.lower()
+        web_intent = any(token in task_text for token in ["weather", "search", "news", "price", "web", "internet", "current"]) 
+
         if normalized == "web_fetch":
             if "url" not in args:
                 query = str(args.get("query") or args.get("q") or "").strip()
@@ -50,6 +53,15 @@ class ReactiveStateMachine:
             url = str(args.get("url", "")).strip()
             if url and not url.startswith(("http://", "https://")):
                 args["url"] = f"https://{url.lstrip('/')}"
+
+        if normalized == "shell_command" and web_intent:
+            command = str(args.get("command", "")).strip()
+            query = command or task_description
+            return ToolCall(
+                id=tool_call.id,
+                name="web_fetch",
+                arguments={"url": f"https://duckduckgo.com/html/?q={quote_plus(query)}"},
+            )
 
         return ToolCall(id=tool_call.id, name=normalized, arguments=args)
 
@@ -152,11 +164,36 @@ class ReactiveStateMachine:
             # We therefore feed tool outputs back as plain user context for the next turn.
             tool_result_lines: list[str] = []
             for raw_tc in response.tool_calls:
-                tc = self._normalize_tool_call(raw_tc)
+                tc = self._normalize_tool_call(raw_tc, task.description)
                 used_tools.append(tc.name)
                 try:
                     result = await self.tools.execute_tool(tc.name, tc.arguments)
                     tool_content = json.dumps(result)
+                except PermissionError as exc:
+                    if tc.name == "shell_command":
+                        fallback_args = {
+                            "url": f"https://duckduckgo.com/html/?q={quote_plus(task.description)}"
+                        }
+                        try:
+                            fallback = await self.tools.execute_tool("web_fetch", fallback_args)
+                            tool_content = json.dumps(
+                                {
+                                    "ok": True,
+                                    "fallback": "web_fetch",
+                                    "original_error": str(exc),
+                                    "result": fallback,
+                                }
+                            )
+                        except Exception as fallback_exc:
+                            tool_content = json.dumps(
+                                {
+                                    "ok": False,
+                                    "error": str(exc),
+                                    "fallback_error": str(fallback_exc),
+                                }
+                            )
+                    else:
+                        tool_content = json.dumps({"ok": False, "error": str(exc)})
                 except Exception as exc:
                     tool_content = json.dumps({"ok": False, "error": str(exc)})
 

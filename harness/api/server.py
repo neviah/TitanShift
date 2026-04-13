@@ -618,8 +618,10 @@ def create_app(workspace_root: Path) -> FastAPI:
     market_installed = _load_market_installed([s.skill_id for s in runtime.skills.list_skills()])
 
     # Reconcile runtime skill registry with persisted installed-state.
+    # Only market-managed skills should be unregistered here; built-ins and
+    # orchestrator/runtime skills must remain available.
     for current in list(runtime.skills.list_skills()):
-        if current.skill_id not in market_installed:
+        if current.skill_id in market_registry and current.skill_id not in market_installed:
             runtime.skills.unregister_skill(current.skill_id)
     for installed_id in sorted(market_installed):
         if runtime.skills.get_skill(installed_id) is None and installed_id in market_registry:
@@ -3091,7 +3093,7 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     # ── Artifact lifecycle ────────────────────────────────────────────────────
     def _approvals_path() -> Path:
-        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        storage_root = _active_workspace["root"] / str(runtime.config.get("memory.storage_dir", ".harness"))
         return storage_root / "approvals.json"
 
     def _load_approvals() -> dict[str, bool]:

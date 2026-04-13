@@ -25,6 +25,7 @@ export function ChatView() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [pendingApprovals, setPendingApprovals] = useState<string[]>([])
   const [approvalBusy, setApprovalBusy] = useState(false)
+  const [blockedPrompt, setBlockedPrompt] = useState<string | null>(null)
   const [workflowPhase, setWorkflowPhase] = useState<'idle' | 'routing' | 'approval' | 'implement' | 'review' | 'deliver' | 'error'>('idle')
   const [workflowPanelOpen, setWorkflowPanelOpen] = useState(true)
   const [artifactDockOpen, setArtifactDockOpen] = useState(false)
@@ -74,6 +75,7 @@ export function ChatView() {
     setSelectionMode(false)
     setSelectedMessageIndexes([])
     setPendingApprovals([])
+    setBlockedPrompt(null)
   }, [currentSession.id])
 
   useEffect(() => {
@@ -98,11 +100,13 @@ export function ChatView() {
     }
   }, [workflowMode, sending, specApproved, planApproved, planTaskCount, workflowPhase])
 
-  async function sendPrompt(rawText: string) {
+  async function sendPrompt(rawText: string, options?: { replay?: boolean }) {
     const text = rawText.trim()
     if (!text || sending) return
 
-    appendMessage({ role: 'user', text })
+    if (!options?.replay) {
+      appendMessage({ role: 'user', text })
+    }
     setInput('')
     setSending(true)
     setError(null)
@@ -137,9 +141,11 @@ export function ChatView() {
       appendMessage({ role: 'assistant', text: reply })
       if (result.mode === 'approval-gate') {
         setPendingApprovals(Array.isArray(result.missing_approvals) ? result.missing_approvals : [])
+        setBlockedPrompt(text)
         setWorkflowPhase('approval')
       } else {
         setPendingApprovals([])
+        setBlockedPrompt(null)
         if (!result.success) {
           setWorkflowPhase('error')
         } else if (workflowMode === 'superpowered') {
@@ -186,12 +192,15 @@ export function ChatView() {
       if (approvals.includes('plan')) setPlanApproved(true)
       appendMessage({
         role: 'assistant',
-        text: `Approval recorded for: ${approvals.join(', ')}. You can resend the request now.`,
+        text: `Approval recorded for: ${approvals.join(', ')}. Resuming request automatically...`,
       })
       setPendingApprovals([])
       setWorkflowPhase('implement')
       setError(null)
       await refreshArtifacts()
+      if (blockedPrompt && blockedPrompt.trim().length > 0) {
+        await sendPrompt(blockedPrompt, { replay: true })
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -201,6 +210,7 @@ export function ChatView() {
 
   function denyRequestedApprovals() {
     setPendingApprovals([])
+    setBlockedPrompt(null)
     setWorkflowPhase('idle')
     appendMessage({ role: 'assistant', text: 'Approval request dismissed.' })
   }
