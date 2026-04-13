@@ -52,6 +52,7 @@ class ReactiveStateMachine:
         ]
 
         used_tools: list[str] = []
+        last_tool_result_lines: list[str] = []
         final_text = ""
         last_model_id = model.model_id
         total_tokens = model.estimate_tokens(task.description)
@@ -78,6 +79,22 @@ class ReactiveStateMachine:
                     timeout=budget["max_duration_ms"] / 1000.0,
                 )
             except asyncio.TimeoutError:
+                if last_tool_result_lines:
+                    fallback = (
+                        "Timed out while generating the final response, but tool results were collected:\n\n"
+                        + "\n".join(last_tool_result_lines)
+                    )
+                    return TaskResult(
+                        task_id=task.id,
+                        output={
+                            "response": fallback,
+                            "model": last_model_id,
+                            "mode": "reactive",
+                            "estimated_total_tokens": total_tokens,
+                            "used_tools": used_tools,
+                        },
+                        success=True,
+                    )
                 return TaskResult(task_id=task.id, output={}, success=False, error="Budget exceeded: task timeout")
 
             last_model_id = response.model_id
@@ -107,6 +124,7 @@ class ReactiveStateMachine:
                 tool_result_lines.append(
                     f"Tool `{tc.name}` called with {json.dumps(tc.arguments)} returned: {condensed}"
                 )
+            last_tool_result_lines = tool_result_lines.copy()
 
             messages.append({
                 "role": "user",

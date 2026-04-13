@@ -58,9 +58,9 @@
   },
   "state_machine": {
     "default_budget": {
-      "max_steps": 10,
-      "max_tokens": 8192,
-      "max_duration_ms": 60000
+      "max_steps": 30,
+      "max_tokens": 32000,
+      "max_duration_ms": 120000
     }
   },
   "ingestion": {

@@ -91,7 +91,7 @@ class LMStudioAdapter:
             "model": self.default_model,
             "messages": messages,
             "temperature": 0.2,
-            "max_tokens": 1024,
+            "max_tokens": 512,
         }
 
         # Full tool schemas take priority; fall back to legacy available_tools stub
