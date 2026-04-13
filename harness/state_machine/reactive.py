@@ -67,12 +67,13 @@ class ReactiveStateMachine:
                 )
 
             try:
+                active_tool_defs = tool_defs if not used_tools else None
                 response = await asyncio.wait_for(
                     model.generate(ModelRequest(
                         prompt="",
                         system_prompt=system_prompt,
                         messages=messages,
-                        tool_definitions=tool_defs or None,
+                        tool_definitions=active_tool_defs,
                     )),
                     timeout=budget["max_duration_ms"] / 1000.0,
                 )
@@ -88,23 +89,9 @@ class ReactiveStateMachine:
                 break
 
             # --- Execute tool calls and append results to history ---
-            # Append the assistant message that requested the tools
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments),
-                        },
-                    }
-                    for tc in response.tool_calls
-                ],
-            })
-
+            # LM Studio compatibility note: some model/server combos reject tool-role messages.
+            # We therefore feed tool outputs back as plain user context for the next turn.
+            tool_result_lines: list[str] = []
             for tc in response.tool_calls:
                 used_tools.append(tc.name)
                 try:
@@ -114,12 +101,20 @@ class ReactiveStateMachine:
                     tool_content = json.dumps({"ok": False, "error": str(exc)})
 
                 total_tokens += model.estimate_tokens(tool_content)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "name": tc.name,
-                    "content": tool_content,
-                })
+                condensed = tool_content[:2800]
+                if len(tool_content) > 2800:
+                    condensed += " ... [tool output truncated]"
+                tool_result_lines.append(
+                    f"Tool `{tc.name}` called with {json.dumps(tc.arguments)} returned: {condensed}"
+                )
+
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Tool outputs are now available. Use them as primary evidence and answer the original request.\n"
+                    + "\n".join(tool_result_lines)
+                ),
+            })
         else:
             # Loop exhausted without a break (no final text produced)
             if not final_text:

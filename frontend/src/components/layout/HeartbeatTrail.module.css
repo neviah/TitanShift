@@ -9,10 +9,10 @@
 .particlesContainer {
   position: absolute;
   inset: 0;
-  opacity: 0.42;
+  opacity: 0.62;
   background:
-    radial-gradient(120% 80% at 50% 50%, rgba(190, 20, 20, 0.08), transparent 60%),
-    linear-gradient(180deg, rgba(120, 10, 10, 0.05), transparent 35%, rgba(120, 10, 10, 0.05));
+    radial-gradient(120% 80% at 50% 50%, rgba(220, 35, 35, 0.12), transparent 60%),
+    linear-gradient(180deg, rgba(120, 10, 10, 0.08), transparent 35%, rgba(120, 10, 10, 0.08));
 }
 
 .particlesContainer :global(canvas) {

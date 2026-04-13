@@ -64,6 +64,8 @@ const fragment = /* glsl */ `
 
 export function HeartbeatTrail() {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const mouseRef = useRef({ x: 0, y: 0 })
+  const driftRef = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
     const container = containerRef.current
@@ -92,7 +94,7 @@ export function HeartbeatTrail() {
     window.addEventListener('resize', resize)
     resize()
 
-    const count = 260
+    const count = 720
     const positions = new Float32Array(count * 3)
     const randoms = new Float32Array(count * 4)
     const colors = new Float32Array(count * 3)
@@ -136,6 +138,14 @@ export function HeartbeatTrail() {
 
     const particles = new Mesh(gl, { mode: gl.POINTS, geometry, program })
 
+    const handleMouseMove = (event: MouseEvent) => {
+      const rect = container.getBoundingClientRect()
+      const x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1
+      const y = -((((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2) - 1)
+      mouseRef.current = { x, y }
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+
     let rafId = 0
     let last = performance.now()
     let elapsed = 0
@@ -147,8 +157,13 @@ export function HeartbeatTrail() {
       elapsed += delta * 0.09
 
       program.uniforms.uTime.value = elapsed * 0.001
-      particles.rotation.x = Math.sin(elapsed * 0.0002) * 0.09
-      particles.rotation.y = Math.cos(elapsed * 0.0005) * 0.14
+      driftRef.current.x += (mouseRef.current.x - driftRef.current.x) * 0.04
+      driftRef.current.y += (mouseRef.current.y - driftRef.current.y) * 0.04
+
+      particles.position.x = -driftRef.current.x * 1.15
+      particles.position.y = -driftRef.current.y * 0.9
+      particles.rotation.x = Math.sin(elapsed * 0.0002) * 0.09 + driftRef.current.y * 0.12
+      particles.rotation.y = Math.cos(elapsed * 0.0005) * 0.14 - driftRef.current.x * 0.2
       particles.rotation.z += 0.00075
 
       renderer.render({ scene: particles, camera })
@@ -159,6 +174,7 @@ export function HeartbeatTrail() {
     return () => {
       cancelAnimationFrame(rafId)
       window.removeEventListener('resize', resize)
+      window.removeEventListener('mousemove', handleMouseMove)
       if (container.contains(gl.canvas)) {
         container.removeChild(gl.canvas)
       }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as _json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from typing import Protocol
@@ -116,10 +117,23 @@ class LMStudioAdapter:
             async with httpx.AsyncClient(timeout=self.timeout_s) as client:
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                "LM Studio timed out while generating a response. "
+                f"Endpoint: {endpoint}. Timeout: {self.timeout_s}s"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            body = exc.response.text if exc.response is not None else ""
+            body_snippet = re.sub(r"\s+", " ", body).strip()[:400]
+            raise RuntimeError(
+                "LM Studio rejected chat request "
+                f"({exc.response.status_code if exc.response is not None else 'unknown'}). "
+                f"Endpoint: {endpoint}. Response: {body_snippet or 'no response body'}"
+            ) from exc
         except Exception as exc:
             raise RuntimeError(
                 "LM Studio request failed. Ensure LM Studio server is running and the OpenAI-compatible "
-                f"endpoint is reachable at {endpoint}"
+                f"endpoint is reachable at {endpoint}. Cause: {exc}"
             ) from exc
 
         body = response.json()

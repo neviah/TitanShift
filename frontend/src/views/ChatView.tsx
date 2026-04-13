@@ -68,8 +68,16 @@ export function ChatView() {
         prompt: text,
         ...(preferredBackend ? { model_backend: preferredBackend } : {}),
       })
-      const reply = (result.response ?? '').trim() || 'No response returned.'
+      const reply = (
+        (result.response ?? '').trim()
+        || (result.error ?? '').trim()
+        || (result.success ? '' : 'Request completed without an assistant response.')
+        || 'No response returned.'
+      )
       appendMessage({ role: 'assistant', text: reply })
+      if (!result.success && result.error) {
+        setError(result.error)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       appendMessage({ role: 'assistant', text: 'Request failed. Check Health and provider settings, then try again.' })
