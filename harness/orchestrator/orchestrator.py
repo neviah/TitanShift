@@ -339,6 +339,105 @@ class Orchestrator:
         desc_lower = task_description.lower()
         return any(kw in desc_lower for kw in keywords)
 
+    def _detect_lightning_domains(self, task_description: str) -> list[str]:
+        """Infer coarse domains from task text for lightweight specialist spawning."""
+        text = task_description.lower()
+        domain_keywords: list[tuple[str, list[str]]] = [
+            ("research", ["research", "find", "search", "compare", "analyze", "investigate", "current", "weather"]),
+            ("coding", ["code", "implement", "fix", "bug", "refactor", "api", "test", "build"]),
+            ("planning", ["plan", "roadmap", "strategy", "architecture", "design", "spec"]),
+            ("writing", ["write", "document", "doc", "proposal", "summary"]),
+            ("operations", ["deploy", "infra", "ops", "ci", "runtime", "monitor", "incident"]),
+        ]
+        domains: list[str] = []
+        for domain, keywords in domain_keywords:
+            if any(token in text for token in keywords):
+                domains.append(domain)
+        return domains
+
+    def _should_spawn_lightning_subagents(self, task: Task) -> tuple[bool, list[str], list[str]]:
+        """Return (should_spawn, domains, reasons) for lightning-mode subagent routing."""
+        description = task.description.strip()
+        if not description:
+            return False, [], []
+
+        domains = self._detect_lightning_domains(description)
+        lowered = description.lower()
+        reasons: list[str] = []
+
+        if len(domains) >= 2:
+            reasons.append("multi-domain")
+        if any(token in lowered for token in ["plan", "review", "verify", "multi-step", "step by step"]):
+            reasons.append("explicit-workflow-request")
+        if any(token in lowered for token in ["and then", "then", "also", "plus"]):
+            reasons.append("chained-instructions")
+        if any(token in lowered for token in ["critical", "production", "security", "urgent", "risk"]):
+            reasons.append("high-risk-context")
+        if len(description) >= 180:
+            reasons.append("high-complexity")
+
+        return bool(reasons), domains, reasons
+
+    async def _maybe_spawn_lightning_subagents(self, task: Task) -> list[str]:
+        """Spawn 1-3 generic specialist subagents for complex lightning tasks."""
+        should_spawn, domains, reasons = self._should_spawn_lightning_subagents(task)
+        if not should_spawn:
+            return []
+
+        role_map: dict[str, str] = {
+            "research": "Research Specialist Agent",
+            "coding": "Implementation Specialist Agent",
+            "planning": "Planning Specialist Agent",
+            "writing": "Documentation Specialist Agent",
+            "operations": "Operations Specialist Agent",
+        }
+        selected_domains = domains[:3]
+        if not selected_domains:
+            selected_domains = ["planning", "coding"]
+
+        spawned_ids: list[str] = []
+        seen_roles: set[str] = set()
+        max_subagents = 3
+
+        for domain in selected_domains:
+            role = role_map.get(domain, "Specialist Agent")
+            if role in seen_roles:
+                continue
+            seen_roles.add(role)
+            child_task = Task(
+                id=f"{task.id}:lightning:{domain}:{uuid.uuid4().hex[:8]}",
+                description=(
+                    f"Lightning delegated domain: {domain}. Parent task: {task.description}\n"
+                    "Collect domain-specific guidance and supporting evidence for the coordinator."
+                ),
+                input={
+                    "role": role,
+                    "model_backend": task.input.get(
+                        "model_backend",
+                        self.config.get("model.default_backend", "local_stub"),
+                    ),
+                    "workflow_mode": "lightning",
+                },
+            )
+            spawned_ids.append(await self.spawn_subagent(child_task))
+            if len(spawned_ids) >= max_subagents:
+                break
+
+        if spawned_ids:
+            await self.event_bus.publish(
+                "AGENT_SPAWNED",
+                {
+                    "task_id": task.id,
+                    "subagents": True,
+                    "mode": "lightning",
+                    "strategy": "triggered",
+                    "trigger_reasons": reasons,
+                    "domains": selected_domains,
+                    "spawned_ids": list(spawned_ids),
+                },
+            )
+        return spawned_ids
+
     def _resolve_workflow_mode(self, task: Task) -> str:
         """Resolve workflow mode for a specific task.
 
@@ -390,8 +489,10 @@ class Orchestrator:
             "review_ran": False,
             "review_passed": None,
             "review_iterations": None,
+            "lightning_subagents_spawned": 0,
         }
         _start = datetime.now(timezone.utc)
+        lightning_spawned_ids: list[str] = []
 
         try:
             workflow_mode = self._resolve_workflow_mode(task)
@@ -497,11 +598,27 @@ class Orchestrator:
                         return result
                     task.input["review_result"] = review_result
 
+            if workflow_mode == "lightning" and self.enable_subagents:
+                try:
+                    lightning_spawned_ids = await self._maybe_spawn_lightning_subagents(task)
+                    _telemetry["lightning_subagents_spawned"] = len(lightning_spawned_ids)
+                except Exception as exc:
+                    await self.event_bus.publish(
+                        "MODULE_ERROR",
+                        {
+                            "source": "orchestrator.lightning_spawn",
+                            "task_id": task.id,
+                            "error": str(exc),
+                        },
+                    )
+
             await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": self.enable_subagents})
             self.memory.append_short_term("main-agent", {"task": task.description})
             try:
                 result = await self.state_machine.run_task(task)
                 result.output["workflow_mode"] = workflow_mode
+                if lightning_spawned_ids:
+                    result.output["spawned_subagents"] = list(lightning_spawned_ids)
                 if review_result is not None:
                     result.output["review_result"] = review_result
             except Exception as exc:

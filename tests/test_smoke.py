@@ -2946,6 +2946,47 @@ def test_workflow_metrics_endpoint_reports_lightning_and_superpowered() -> None:
     assert body["superpowered"]["review_ran_count"] >= 1
 
 
+def test_chat_lightning_triggers_subagents_and_returns_response() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "prompt": (
+                "Research current weather patterns in Brooklyn and then draft an implementation plan "
+                "for a weather widget API, including a short testing checklist."
+            ),
+            "model_backend": "local_stub",
+            "workflow_mode": "lightning",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["workflow_mode"] == "lightning"
+    assert isinstance(body["response"], str) and body["response"].strip()
+
+    tasks = client.get("/tasks")
+    assert tasks.status_code == 200
+    task_id = tasks.json()[0]["task_id"]
+
+    detail = client.get(f"/tasks/{task_id}")
+    assert detail.status_code == 200
+    output = detail.json()["output"]
+    spawned = output.get("spawned_subagents", [])
+    assert output.get("workflow_mode") == "lightning"
+    assert isinstance(spawned, list)
+    assert 1 <= len(spawned) <= 3
+
+    agents = client.get("/agents")
+    assert agents.status_code == 200
+    known_agent_ids = {row["agent_id"] for row in agents.json()}
+    for spawned_id in spawned:
+        assert spawned_id in known_agent_ids
+
+
 def test_lmstudio_adapter_parses_pseudo_tool_call_content() -> None:
     adapter = LMStudioAdapter(
         base_url="http://127.0.0.1:1234/v1",
