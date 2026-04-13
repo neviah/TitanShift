@@ -25,6 +25,7 @@ class ModelRequest:
     available_tools: list[dict[str, str]] | None = None  # legacy compat
     messages: list[dict[str, Any]] | None = None          # multi-turn; overrides prompt when set
     tool_definitions: list[dict[str, Any]] | None = None  # full OpenAI-format tool schemas
+    timeout_s: float | None = None
 
 
 @dataclass(slots=True)
@@ -93,7 +94,7 @@ class CloudOpenAIAdapter:
                 return {}
 
         args: dict[str, Any] = {}
-        pattern = re.compile(r'(\w+)\s*:\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^,]+)(?:,|$)')
+        pattern = re.compile(r'["\']?([\w-]+)["\']?\s*:\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^,]+)(?:,|$)')
         for match in pattern.finditer(text):
             key = match.group(1)
             raw_value = match.group(2).strip()
@@ -118,9 +119,17 @@ class CloudOpenAIAdapter:
         for pattern in [
             r'<\|tool_call\|>(.*?)<\|tool_call\|>',
             r'<tool_call>(.*?)</tool_call>',
+            r'<\|tool_call>(.*?)<tool_call\|>',
+            r'<\|tool_call>(.*?)<\|tool_call\|>',
+            r'<\|tool_call\|>(.*?)<tool_call\|>',
+            r'<tool_call>(.*?)<tool_call\|>',
             r'<\|tool_call\|>(.*?)<tool_call>',
             r'<tool_call>(.*?)<\|tool_call\|>',
+            r'<\|tool_call>(.*?)<tool_call>',
+            r'<tool_call>(.*?)<\|tool_call>',
             r'<\|tool_call\|>(.*)$',
+            r'<\|tool_call>(.*)$',
+            r'<tool_call\|>(.*)$',
             r'<tool_call>(.*)$',
         ]:
             segments.extend(match.group(1).strip() for match in re.finditer(pattern, text, re.DOTALL | re.IGNORECASE))
@@ -136,14 +145,14 @@ class CloudOpenAIAdapter:
         seen: set[tuple[str, str]] = set()
         for index, segment in enumerate(segments):
             # Try parentheses first, then curly-brace argument syntax
-            match = re.search(r'call:([a-zA-Z0-9_.-]+)\((.*)\)', segment, re.DOTALL)
+            match = re.search(r'call:([a-zA-Z0-9_.:-]+)\s*\((.*)\)', segment, re.DOTALL)
             if not match:
-                match = re.search(r'call:([a-zA-Z0-9_.-]+)\{(.*)\}', segment, re.DOTALL)
+                match = re.search(r'call:([a-zA-Z0-9_.:-]+)\s*\{(.*)\}', segment, re.DOTALL)
             if not match:
                 continue
             raw_name = match.group(1).strip()
             # Normalize provider-specific dotted names into registry-safe identifiers.
-            normalized_name = raw_name.replace('.', '_')
+            normalized_name = raw_name.replace('.', '_').replace(':', '_')
             raw_args = match.group(2)
             identity = (normalized_name, raw_args.strip())
             if identity in seen:
@@ -201,14 +210,15 @@ class CloudOpenAIAdapter:
             payload["tool_choice"] = "auto"
 
         endpoint = f"{self.base_url}/chat/completions"
+        effective_timeout = float(request.timeout_s) if request.timeout_s is not None else self.timeout_s
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_s) as client:
+            async with httpx.AsyncClient(timeout=effective_timeout) as client:
                 response = await client.post(endpoint, json=payload, headers=self._build_headers())
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise RuntimeError(
                 f"{self.provider_name} timed out while generating a response. "
-                f"Endpoint: {endpoint}. Timeout: {self.timeout_s}s"
+                f"Endpoint: {endpoint}. Timeout: {effective_timeout}s"
             ) from exc
         except httpx.HTTPStatusError as exc:
             body = exc.response.text if exc.response is not None else ""

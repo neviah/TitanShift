@@ -172,18 +172,23 @@ class SkillRegistry:
             # Show all skills, especially those tagged as superpowered
             skills_to_show = [s for s in self.list_skills() if "builtin" in s.tags or "superpowered" in s.tags]
         else:
-            # Lightning mode: show available skills on demand
-            skills_to_show = self.list_skills()
+            # Lightning mode: avoid injecting built-in workflow skills that models may mistake for tools.
+            skills_to_show = [s for s in self.list_skills() if "builtin" not in s.tags and "superpowered" not in s.tags]
 
         if not skills_to_show:
             return ""
 
-        lines = ["## Available Skills\n"]
+        lines = [
+            "## Available Skills\n",
+            "These are workflow patterns and prompts, not callable tools.",
+            "Do not emit skill names inside <tool_call> blocks.",
+            "Only call actual tools from the provided tool schema; use these skills implicitly as guidance.\n",
+        ]
         for skill in sorted(skills_to_show, key=lambda s: s.skill_id):
             # Skip the built-in reactive_chat and safe_shell_command for prompt display
             if skill.skill_id in ("reactive_chat", "safe_shell_command"):
                 continue
-            lines.append(f"- **/{skill.skill_id}** — {skill.description}")
+            lines.append(f"- **{skill.skill_id}** — {skill.description}")
 
         return "\n".join(lines)
 

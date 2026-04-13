@@ -48,9 +48,15 @@ class PermissionPolicy:
             if not any(req.startswith(str(base.resolve())) for base in self.allowed_paths):
                 return False, "required_path_not_allowed"
 
-        arg_path = args.get("path") or args.get("target_path")
+        arg_path = args.get("path") or args.get("target_path") or args.get("directory_path")
         if arg_path:
-            req = str((Path(str(arg_path))).resolve())
+            candidate = Path(str(arg_path))
+            if candidate.is_absolute():
+                req = str(candidate.resolve())
+            elif self.allowed_paths:
+                req = str((self.allowed_paths[0] / candidate).resolve())
+            else:
+                req = str(candidate.resolve())
             if not any(req.startswith(str(base.resolve())) for base in self.allowed_paths):
                 return False, "argument_path_not_allowed"
 

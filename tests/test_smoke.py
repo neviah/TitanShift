@@ -473,6 +473,35 @@ def test_agents_endpoint() -> None:
     assert body[0]["agent_id"] == "main-agent"
 
 
+def test_write_file_tool_writes_relative_workspace_path() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target = Path(".harness/test-write-file-tool.txt")
+    target.unlink(missing_ok=True)
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "write_file",
+                {
+                    "target_path": ".harness/test-write-file-tool.txt",
+                    "content": "hello from tool\n",
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert target.read_text(encoding="utf-8") == "hello from tool\n"
+    finally:
+        target.unlink(missing_ok=True)
+
+
+def test_lightning_skill_prompt_hides_builtin_workflow_skills() -> None:
+    app = create_app(Path(".").resolve())
+    skills_section = app.state.runtime.skills.format_for_system_prompt("lightning")
+    assert "brainstorming" not in skills_section
+    assert "subagent-driven-development" not in skills_section
+
+
 def test_agents_spawn_endpoint_when_enabled() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("orchestrator.enable_subagents", True)
@@ -3032,4 +3061,19 @@ def test_lmstudio_adapter_parses_curly_brace_tool_call_syntax() -> None:
     assert len(parsed) == 1
     assert parsed[0].name == "web_fetch"
     assert parsed[0].arguments.get("url") == "https://wttr.in/Brooklyn?format=3"
+
+
+def test_lmstudio_adapter_parses_malformed_delimiter_and_whitespace_tool_call() -> None:
+    adapter = LMStudioAdapter(
+        base_url="http://127.0.0.1:1234/v1",
+        default_model="test-model",
+    )
+
+    parsed = adapter._extract_pseudo_tool_calls(
+        '<|tool_call>call:subagent-driven-development {"plan": "draft widget app"}<tool_call|>'
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].name == "subagent-driven-development"
+    assert parsed[0].arguments == {"plan": "draft widget app"}
 

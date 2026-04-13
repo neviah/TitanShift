@@ -38,6 +38,11 @@ class ReactiveStateMachine:
             "search_web": "web_fetch",
             "browser_search": "web_fetch",
             "web.browse": "web_fetch",
+            "file_write": "write_file",
+            "write_workspace_file": "write_file",
+            "save_file": "write_file",
+            "mkdir": "create_directory",
+            "create_folder": "create_directory",
         }
         normalized = aliases.get(name, name)
 
@@ -65,6 +70,16 @@ class ReactiveStateMachine:
 
         return ToolCall(id=tool_call.id, name=normalized, arguments=args)
 
+    def _is_skill_like_pseudo_call(self, tool_call: ToolCall) -> bool:
+        if self.skills is None:
+            return False
+
+        normalized_name = tool_call.name.strip().lower()
+        skill_ids = [skill.skill_id.replace('-', '_').lower() for skill in self.skills.list_skills()]
+        if normalized_name in skill_ids:
+            return True
+        return any(skill_id in normalized_name for skill_id in skill_ids)
+
     async def run_task(self, task: Task) -> TaskResult:
         budget = self._resolve_budget(task)
         if budget["max_steps"] < 1:
@@ -80,6 +95,10 @@ class ReactiveStateMachine:
             "When you need to look up live information, fetch web pages, check news, prices, search results, "
             "or any real-time data — always use the web_fetch tool. Do not explain that you cannot browse; "
             "just call the tool with the appropriate URL.",
+            "When the user asks you to create or modify workspace files, use create_directory and write_file. "
+            "Do not merely describe the files when you can create them.",
+            "Only emit tool calls for actual tools from the provided tool schema. Never emit tool calls for skills "
+            "such as brainstorming, writing-plans, or subagent-driven-development.",
         ]
         if workspace_root:
             system_parts.append(
@@ -129,6 +148,7 @@ class ReactiveStateMachine:
                         system_prompt=system_prompt,
                         messages=messages,
                         tool_definitions=active_tool_defs,
+                        timeout_s=max(5.0, min(float(getattr(model, "timeout_s", 45.0)), budget["max_duration_ms"] / 1000.0)),
                     )),
                     timeout=budget["max_duration_ms"] / 1000.0,
                 )
@@ -150,6 +170,24 @@ class ReactiveStateMachine:
                         success=True,
                     )
                 return TaskResult(task_id=task.id, output={}, success=False, error="Budget exceeded: task timeout")
+            except RuntimeError as exc:
+                if last_tool_result_lines and "timed out" in str(exc).lower():
+                    fallback = (
+                        "The model timed out while preparing the final write-up, but workspace/tool actions completed:\n\n"
+                        + "\n".join(last_tool_result_lines)
+                    )
+                    return TaskResult(
+                        task_id=task.id,
+                        output={
+                            "response": fallback,
+                            "model": last_model_id,
+                            "mode": "reactive",
+                            "estimated_total_tokens": total_tokens,
+                            "used_tools": used_tools,
+                        },
+                        success=True,
+                    )
+                raise
 
             last_model_id = response.model_id
 
@@ -166,6 +204,23 @@ class ReactiveStateMachine:
             for raw_tc in response.tool_calls:
                 tc = self._normalize_tool_call(raw_tc, task.description)
                 used_tools.append(tc.name)
+                if self._is_skill_like_pseudo_call(tc):
+                    tool_content = json.dumps(
+                        {
+                            "ok": True,
+                            "skill_like_call": tc.name,
+                            "note": (
+                                "Skills are not callable tools. Use the skill guidance implicitly and "
+                                "continue answering the user directly without emitting a skill call."
+                            ),
+                            "arguments": tc.arguments,
+                        }
+                    )
+                    total_tokens += model.estimate_tokens(tool_content)
+                    tool_result_lines.append(
+                        f"Tool-like skill call `{tc.name}` with {json.dumps(tc.arguments)} was converted into guidance: {tool_content}"
+                    )
+                    continue
                 try:
                     result = await self.tools.execute_tool(tc.name, tc.arguments)
                     tool_content = json.dumps(result)
@@ -255,6 +310,14 @@ class ReactiveStateMachine:
         default_steps = int(self.config.get("state_machine.default_budget.max_steps", 10))
         default_tokens = int(self.config.get("state_machine.default_budget.max_tokens", 8192))
         default_duration = int(self.config.get("state_machine.default_budget.max_duration_ms", 60000))
+
+        workflow_mode = str(task.input.get("workflow_mode", "")).strip().lower() if task.input else ""
+        if workflow_mode == "lightning":
+            default_steps = int(self.config.get("orchestrator.lightning_mode.default_budget.max_steps", default_steps))
+            default_tokens = int(self.config.get("orchestrator.lightning_mode.default_budget.max_tokens", default_tokens))
+            default_duration = int(
+                self.config.get("orchestrator.lightning_mode.default_budget.max_duration_ms", default_duration)
+            )
 
         req_budget = task.input.get("budget", {}) if task.input else {}
         return {

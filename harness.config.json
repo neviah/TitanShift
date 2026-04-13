@@ -4,7 +4,12 @@
     "workflow_mode": "lightning",
     "lightning_mode": {
       "auto_route_through_skills": false,
-      "max_tool_calls_per_response": 5
+      "max_tool_calls_per_response": 5,
+      "default_budget": {
+        "max_steps": 60,
+        "max_tokens": 12000,
+        "max_duration_ms": 90000
+      }
     },
     "superpowered_mode": {
       "require_spec_approval": true,
@@ -15,9 +20,14 @@
         "specs_dir": "documents/specs",
         "plans_dir": "documents/plans"
       },
-      "initial_skill_chain": ["brainstorming", "writing-plans", "subagent-driven-development"],
+      "initial_skill_chain": [
+        "brainstorming",
+        "writing-plans",
+        "subagent-driven-development"
+      ],
       "review_loop_max_iterations": 3
-    }
+    },
+    "skill_execution_timeout_s": 15.0
   },
   "skills": {
     "market_trusted_public_keys": [
@@ -49,7 +59,9 @@
     ],
     "allowed_tool_names": [
       "shell_command",
-      "web_fetch"
+      "web_fetch",
+      "create_directory",
+      "write_file"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [
@@ -77,8 +89,8 @@
   },
   "state_machine": {
     "default_budget": {
-      "max_steps": 240,
-      "max_tokens": 300000,
+      "max_steps": 1000,
+      "max_tokens": 2555,
       "max_duration_ms": 2700000
     }
   },
@@ -86,10 +98,10 @@
     "enable_graphify_plugin": false
   },
   "api": {
-    "require_api_key": false,
-    "api_key": "",
-    "require_admin_api_key": false,
-    "admin_api_key": ""
+    "require_api_key": true,
+    "api_key": "read123",
+    "require_admin_api_key": true,
+    "admin_api_key": "admin123"
   },
   "reports": {
     "redact_by_default": true,

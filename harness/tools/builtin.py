@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import re
 import shlex
 from typing import Any
@@ -12,6 +13,10 @@ from harness.tools.registry import ToolRegistry
 
 
 def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> None:
+    def _resolve_workspace_path(raw_path: str) -> Path:
+        candidate = Path(raw_path)
+        return candidate.resolve() if candidate.is_absolute() else (execution.default_cwd / candidate).resolve()
+
     async def shell_command_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw = str(args.get("command", "")).strip()
         if not raw:
@@ -45,6 +50,71 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "cwd": {"type": "string", "description": "Optional working directory"},
                 },
                 "required": ["command"],
+            },
+        )
+    )
+
+    async def create_directory_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("directory_path") or args.get("path") or "").strip()
+        if not raw_path:
+            raise ValueError("directory_path is required")
+        target = _resolve_workspace_path(raw_path)
+        target.mkdir(parents=True, exist_ok=True)
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "created": True,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="create_directory",
+            description="Create a directory inside the allowed workspace. Use this before writing multiple related files or scaffolding a small app.",
+            handler=create_directory_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "directory_path": {"type": "string", "description": "Directory path relative to workspace root or absolute allowed path"},
+                },
+                "required": ["directory_path"],
+            },
+        )
+    )
+
+    async def write_file_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        if not raw_path:
+            raise ValueError("target_path is required")
+        content = str(args.get("content", ""))
+        overwrite = bool(args.get("overwrite", True))
+        target = _resolve_workspace_path(raw_path)
+        existed_before = target.exists()
+        if target.exists() and target.is_dir():
+            raise ValueError(f"target_path points to a directory: {target}")
+        if target.exists() and not overwrite:
+            raise ValueError(f"target_path already exists and overwrite=false: {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "bytes_written": len(content.encode("utf-8")),
+            "overwrote": existed_before,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="write_file",
+            description="Write or overwrite a UTF-8 text file inside the allowed workspace. Use this to create app files like HTML, CSS, JS, JSON, or config files.",
+            handler=write_file_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "content": {"type": "string", "description": "Full file contents to write"},
+                    "overwrite": {"type": "boolean", "description": "Whether existing files may be replaced; defaults to true"},
+                },
+                "required": ["target_path", "content"],
             },
         )
     )

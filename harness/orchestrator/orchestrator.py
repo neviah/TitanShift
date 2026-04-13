@@ -37,6 +37,14 @@ class RoleTemplate:
 
 
 @dataclass(slots=True)
+class LightningTaskProfile:
+    domains: list[str]
+    suggested_roles: list[str]
+    required_skills: list[str]
+    trigger_reasons: list[str]
+
+
+@dataclass(slots=True)
 class Orchestrator:
     config: ConfigManager
     event_bus: EventBus
@@ -355,11 +363,11 @@ class Orchestrator:
                 domains.append(domain)
         return domains
 
-    def _should_spawn_lightning_subagents(self, task: Task) -> tuple[bool, list[str], list[str]]:
-        """Return (should_spawn, domains, reasons) for lightning-mode subagent routing."""
+    def _build_lightning_task_profile(self, task: Task) -> LightningTaskProfile:
+        """Infer a lightweight profile for lightning subagent routing."""
         description = task.description.strip()
         if not description:
-            return False, [], []
+            return LightningTaskProfile(domains=[], suggested_roles=[], required_skills=[], trigger_reasons=[])
 
         domains = self._detect_lightning_domains(description)
         lowered = description.lower()
@@ -376,39 +384,49 @@ class Orchestrator:
         if len(description) >= 180:
             reasons.append("high-complexity")
 
-        return bool(reasons), domains, reasons
-
-    async def _maybe_spawn_lightning_subagents(self, task: Task) -> list[str]:
-        """Spawn 1-3 generic specialist subagents for complex lightning tasks."""
-        should_spawn, domains, reasons = self._should_spawn_lightning_subagents(task)
-        if not should_spawn:
-            return []
-
+        skill_matches = self.skills.search_skills(description)[:5]
+        required_skills = [skill.skill_id for skill in skill_matches]
         role_map: dict[str, str] = {
             "research": "Research Specialist Agent",
-            "coding": "Implementation Specialist Agent",
+            "coding": "Developer Agent",
             "planning": "Planning Specialist Agent",
             "writing": "Documentation Specialist Agent",
             "operations": "Operations Specialist Agent",
         }
-        selected_domains = domains[:3]
-        if not selected_domains:
-            selected_domains = ["planning", "coding"]
+        suggested_roles = [role_map.get(domain, "Specialist Agent") for domain in domains[:3]]
+        if not suggested_roles and required_skills:
+            suggested_roles = ["Developer Agent"]
+        return LightningTaskProfile(
+            domains=domains,
+            suggested_roles=suggested_roles,
+            required_skills=required_skills,
+            trigger_reasons=reasons,
+        )
+
+    async def _maybe_spawn_lightning_subagents(self, task: Task) -> list[str]:
+        """Spawn 1-3 specialist subagents for complex lightning tasks."""
+        profile = self._build_lightning_task_profile(task)
+        if not profile.trigger_reasons:
+            return []
+
+        selected_domains = profile.domains[:3] or ["planning", "coding"]
+        selected_roles = profile.suggested_roles[:3] or ["Developer Agent", "Planning Specialist Agent"]
 
         spawned_ids: list[str] = []
         seen_roles: set[str] = set()
         max_subagents = 3
 
-        for domain in selected_domains:
-            role = role_map.get(domain, "Specialist Agent")
+        for index, role in enumerate(selected_roles):
             if role in seen_roles:
                 continue
             seen_roles.add(role)
+            domain = selected_domains[min(index, len(selected_domains) - 1)]
             child_task = Task(
                 id=f"{task.id}:lightning:{domain}:{uuid.uuid4().hex[:8]}",
                 description=(
                     f"Lightning delegated domain: {domain}. Parent task: {task.description}\n"
-                    "Collect domain-specific guidance and supporting evidence for the coordinator."
+                    "Collect domain-specific guidance and supporting evidence for the coordinator. "
+                    "If the task requires creating files, prefer the available file tools over merely outlining a plan."
                 ),
                 input={
                     "role": role,
@@ -419,7 +437,12 @@ class Orchestrator:
                     "workflow_mode": "lightning",
                 },
             )
-            spawned_ids.append(await self.spawn_subagent(child_task))
+            agent_id = await self.spawn_subagent(child_task)
+            if profile.required_skills:
+                available_skills = [skill_id for skill_id in profile.required_skills[:3] if self.skills.get_skill(skill_id) is not None]
+                if available_skills:
+                    await self.assign_skills_to_agent(agent_id, available_skills)
+            spawned_ids.append(agent_id)
             if len(spawned_ids) >= max_subagents:
                 break
 
@@ -431,8 +454,9 @@ class Orchestrator:
                     "subagents": True,
                     "mode": "lightning",
                     "strategy": "triggered",
-                    "trigger_reasons": reasons,
+                    "trigger_reasons": profile.trigger_reasons,
                     "domains": selected_domains,
+                    "roles": selected_roles,
                     "spawned_ids": list(spawned_ids),
                 },
             )

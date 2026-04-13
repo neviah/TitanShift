@@ -6,7 +6,16 @@
   "orchestrator": {
     "enable_subagents": false,
     "default_role": "General Agent",
-    "skill_execution_timeout_s": 15.0
+    "skill_execution_timeout_s": 15.0,
+    "lightning_mode": {
+      "auto_route_through_skills": true,
+      "max_tool_calls_per_response": 5,
+      "default_budget": {
+        "max_steps": 60,
+        "max_tokens": 12000,
+        "max_duration_ms": 90000
+      }
+    }
   },
   "skills": {
     "market_registry_file": "skills_market_registry.json",
@@ -50,6 +59,28 @@
       "password": "",
       "database": ""
     }
+  },
+  "tools": {
+    "deny_all_by_default": true,
+    "allow_network": false,
+    "allowed_paths": [
+      "."
+    ],
+    "allowed_tool_names": [
+      "shell_command",
+      "web_fetch",
+      "create_directory",
+      "write_file"
+    ],
+    "blocked_tool_names": [],
+    "allowed_command_prefixes": [
+      "where",
+      "git",
+      "python",
+      "curl",
+      "dir",
+      "echo"
+    ]
   },
   "tools": {
     "deny_all_by_default": true,
