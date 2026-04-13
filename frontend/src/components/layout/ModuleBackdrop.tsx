@@ -272,7 +272,7 @@ export function ModuleBackdrop() {
             <CenterIcon size={22} strokeWidth={1.9} />
           </div>
           <span className={styles.coreEyebrow}>{mode}</span>
-          <p className={styles.coreTitle}>TitanShift</p>
+          <p className={styles.coreTitle}>Orchestrator</p>
           <p className={styles.coreStatus}>{centerStatus}</p>
           <p className={styles.coreMeta}>{centerMeta}</p>
         </div>

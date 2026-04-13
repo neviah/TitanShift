@@ -23,6 +23,31 @@ import type {
 
 export const API_BASE = '/api'
 
+type AuthScope = 'read' | 'admin'
+
+const LOCAL_READ_KEY = 'titanshift-api-key'
+const LOCAL_ADMIN_KEY = 'titanshift-admin-api-key'
+
+function isLocalhost(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
+}
+
+function getStoredApiKey(scope: AuthScope): string {
+  if (typeof window === 'undefined') return ''
+  const storageKey = scope === 'admin' ? LOCAL_ADMIN_KEY : LOCAL_READ_KEY
+  const stored = window.localStorage.getItem(storageKey)?.trim() ?? ''
+  if (stored) return stored
+
+  // Local dev convenience: match the repo's current local harness defaults so the UI works
+  // out of the box during localhost testing. Persisted localStorage values override this.
+  if (isLocalhost()) {
+    return scope === 'admin' ? 'admin123' : 'read123'
+  }
+
+  return ''
+}
+
 function deriveSkillName(skillId: string): string {
   const cleaned = skillId.trim()
   if (!cleaned) return 'Untitled skill'
@@ -33,9 +58,14 @@ function deriveSkillName(skillId: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, authScope: AuthScope = 'read'): Promise<T> {
+  const apiKey = getStoredApiKey(authScope)
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { 'x-api-key': apiKey } : {}),
+      ...init?.headers,
+    },
     ...init,
   })
   if (!res.ok) {
@@ -61,7 +91,7 @@ export function graphifyIngest(body: GraphifyRequest): Promise<GraphifyResponse>
   return request('/ingestion/graphify', {
     method: 'POST',
     body: JSON.stringify(body),
-  })
+  }, 'admin')
 }
 
 // ---- Health / Status ----
@@ -80,7 +110,7 @@ export function updateConfig(key: string, value: unknown): Promise<unknown> {
   return request('/config', {
     method: 'POST',
     body: JSON.stringify({ key, value }),
-  })
+  }, 'admin')
 }
 
 // ---- Market ----
@@ -112,21 +142,21 @@ export function installSkill(skillId: string): Promise<unknown> {
   return request('/skills/market/install', {
     method: 'POST',
     body: JSON.stringify({ skill_id: skillId }),
-  })
+  }, 'admin')
 }
 
 export function uninstallSkill(skillId: string): Promise<unknown> {
   return request('/skills/market/uninstall', {
     method: 'POST',
     body: JSON.stringify({ skill_id: skillId }),
-  })
+  }, 'admin')
 }
 
 export function syncRemoteMarket(source: string): Promise<unknown> {
   return request('/skills/market/remote/sync', {
     method: 'POST',
     body: JSON.stringify({ source, force: true }),
-  })
+  }, 'admin')
 }
 
 // ---- Chat ----
@@ -195,13 +225,13 @@ export function approveArtifact(artifact_type: 'spec' | 'plan'): Promise<Artifac
   return request('/artifacts/approve', {
     method: 'POST',
     body: JSON.stringify({ artifact_type }),
-  })
+  }, 'admin')
 }
 
 export function revokeArtifactApproval(artifact_type: string): Promise<{ artifact_type: string; approved: boolean }> {
   return request(`/artifacts/approve?artifact_type=${encodeURIComponent(artifact_type)}`, {
     method: 'DELETE',
-  })
+  }, 'admin')
 }
 
 // ---- Workflow Metrics ----

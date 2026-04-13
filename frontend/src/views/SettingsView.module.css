@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-surface);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -14,6 +14,8 @@
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
   gap: 12px;
+  background: color-mix(in oklab, var(--bg-surface) 74%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .pageTitle {
@@ -85,6 +87,9 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-surface) 16%, transparent), transparent 22%),
+    radial-gradient(circle at 50% 12%, color-mix(in oklab, var(--accent-dim) 12%, transparent), transparent 36%);
 }
 
 /* Section */
@@ -100,10 +105,11 @@
 }
 
 .sectionBody {
-  background: var(--bg-elevated);
+  background: color-mix(in oklab, var(--bg-elevated) 76%, transparent);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  backdrop-filter: blur(10px);
 }
 
 /* Field */
@@ -216,7 +222,7 @@
   padding: 8px 14px 10px;
   border-top: 1px solid var(--border-subtle);
   line-height: 1.5;
-  background: var(--bg-surface);
+  background: color-mix(in oklab, var(--bg-surface) 62%, transparent);
   border-bottom-left-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-lg);
 }

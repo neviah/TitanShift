@@ -251,8 +251,7 @@ export function ChatView() {
       <div className={styles.messages}>
         {messages.length === 0 ? (
           <div className={styles.empty}>
-            <p className={styles.emptyTitle}>TitanShift</p>
-            <p className={styles.emptyHint}>Start a conversation...</p>
+            <p className={styles.emptyHint}>Pick a workflow, then start a request.</p>
           </div>
         ) : (
           <div className={styles.thread}>
