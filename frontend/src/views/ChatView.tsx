@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Copy, RotateCcw } from 'lucide-react'
 import { fetchConfig, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
@@ -13,6 +14,7 @@ export function ChatView() {
   const [preferredBackend, setPreferredBackend] = useState<string | null>(null)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedMessageIndexes, setSelectedMessageIndexes] = useState<number[]>([])
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -54,8 +56,8 @@ export function ChatView() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
-  async function send() {
-    const text = input.trim()
+  async function sendPrompt(rawText: string) {
+    const text = rawText.trim()
     if (!text || sending) return
 
     appendMessage({ role: 'user', text })
@@ -84,6 +86,20 @@ export function ChatView() {
     } finally {
       setSending(false)
     }
+  }
+
+  async function copyMessage(text: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1200)
+    } catch {
+      setError('Copy failed. Clipboard permission may be blocked.')
+    }
+  }
+
+  async function send() {
+    await sendPrompt(input)
   }
 
   function promoteCurrentSession() {
@@ -151,16 +167,35 @@ export function ChatView() {
               <div key={`${m.role}-${i}`} className={`${styles.msg} ${m.role === 'user' ? styles.user : styles.assistant}`}>
                 <div className={styles.msgHead}>
                   <p className={styles.msgRole}>{m.role === 'user' ? 'You' : 'TitanShift'}</p>
-                  {selectionMode && m.role === 'user' && (
-                    <label className={styles.selectLabel}>
-                      <input
-                        type="checkbox"
-                        checked={selectedMessageIndexes.includes(i)}
-                        onChange={() => toggleSelectedMessage(i)}
-                      />
-                      Select
-                    </label>
-                  )}
+                  <div className={styles.msgTools}>
+                    {selectionMode && m.role === 'user' && (
+                      <label className={styles.selectLabel}>
+                        <input
+                          type="checkbox"
+                          checked={selectedMessageIndexes.includes(i)}
+                          onChange={() => toggleSelectedMessage(i)}
+                        />
+                        Select
+                      </label>
+                    )}
+                    <button
+                      className={styles.msgToolBtn}
+                      title={copiedKey === `${m.role}-${i}` ? 'Copied' : 'Copy'}
+                      onClick={() => void copyMessage(m.text, `${m.role}-${i}`)}
+                    >
+                      <Copy size={13} />
+                    </button>
+                    {m.role === 'user' && (
+                      <button
+                        className={styles.msgToolBtn}
+                        title="Resend"
+                        disabled={sending}
+                        onClick={() => void sendPrompt(m.text)}
+                      >
+                        <RotateCcw size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p className={styles.msgText}>{m.text}</p>
               </div>
