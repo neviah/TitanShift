@@ -8,6 +8,7 @@ import { LeftPane } from './components/layout/LeftPane'
 import { CenterPane } from './components/layout/CenterPane'
 import { RightPane } from './components/layout/RightPane'
 import { TopBar } from './components/layout/TopBar'
+import { HeartbeatTrail } from './components/layout/HeartbeatTrail'
 import type { NavTab } from './types/nav'
 import styles from './App.module.css'
 
@@ -49,6 +50,7 @@ function Shell() {
         onToggleRight={() => setRightCollapsed((v) => !v)}
       />
       <div className={styles.body}>
+        <HeartbeatTrail />
         <TriPane
           leftCollapsed={leftCollapsed}
           rightCollapsed={rightCollapsed}

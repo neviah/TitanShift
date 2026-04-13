@@ -42,7 +42,7 @@ class Orchestrator:
     agents: dict[str, AgentRecord] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.state_machine = ReactiveStateMachine(self.models, self.config)
+        self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools)
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         self.task_store = TaskStore()
         self.agents = {

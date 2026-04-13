@@ -9,7 +9,7 @@
     "market_allow_v1_hash_fallback": false
   },
   "model": {
-    "default_backend": "local_stub",
+    "default_backend": "lmstudio",
     "allow_cloud_adapters": true,
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
@@ -24,15 +24,35 @@
   },
   "tools": {
     "deny_all_by_default": true,
-    "allow_network": false,
-    "allowed_paths": ["."],
-    "allowed_tool_names": ["shell_command"],
+    "allow_network": true,
+    "allowed_paths": [
+      "."
+    ],
+    "allowed_tool_names": [
+      "shell_command",
+      "web_fetch"
+    ],
     "blocked_tool_names": [],
-    "allowed_command_prefixes": ["where", "git", "python", "dir", "echo"]
+    "allowed_command_prefixes": [
+      "where",
+      "git",
+      "python",
+      "curl",
+      "dir",
+      "echo"
+    ]
   },
   "execution": {
-    "allowed_cwd_roots": ["."],
-    "allowed_command_prefixes": ["where", "git", "python", "dir", "echo"],
+    "allowed_cwd_roots": [
+      "."
+    ],
+    "allowed_command_prefixes": [
+      "where",
+      "git",
+      "python",
+      "dir",
+      "echo"
+    ],
     "max_runtime_s": 30,
     "max_output_bytes": 32768
   },
@@ -54,7 +74,14 @@
   },
   "reports": {
     "redact_by_default": true,
-    "redacted_keys": ["api_key", "x_api_key", "authorization", "token", "secret", "password"],
+    "redacted_keys": [
+      "api_key",
+      "x_api_key",
+      "authorization",
+      "token",
+      "secret",
+      "password"
+    ],
     "max_export_bytes": 262144,
     "cleanup_max_age_days": 7,
     "cleanup_glob": "*.json"

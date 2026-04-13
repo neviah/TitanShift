@@ -455,7 +455,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
             <p className={styles.hint}>Workspace tree</p>
             {currentWorkspacePath
               ? <p className={styles.hint} title={currentWorkspacePath} style={{ fontSize: 10, wordBreak: 'break-all', opacity: 0.7 }}>{currentWorkspacePath}</p>
-              : <p className={styles.hint} style={{ fontSize: 10, opacity: 0.5 }}>No folder selected — showing project root</p>
+              : <p className={styles.hint} style={{ fontSize: 10, opacity: 0.5 }}>Workspace path not bound yet. Select this workspace again to bind a folder path.</p>
             }
             {!treeData || treeData.length === 0 ? <p className={styles.empty}>No files available.</p> : (
               <div className={styles.tree}>

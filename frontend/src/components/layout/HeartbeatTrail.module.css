@@ -1,0 +1,74 @@
+.root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  overflow: hidden;
+}
+
+.scan {
+  position: absolute;
+  top: 42%;
+  left: -25%;
+  width: 28%;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(33, 200, 137, 0), rgba(33, 200, 137, 0.75), rgba(33, 200, 137, 0));
+  filter: blur(0.3px) drop-shadow(0 0 8px rgba(33, 200, 137, 0.55));
+  animation: travel 7s linear infinite;
+}
+
+.wave {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 41.8%, rgba(33, 200, 137, 0.08) 42%, transparent 42.2%) no-repeat,
+    linear-gradient(90deg,
+      transparent 0%,
+      transparent 24%,
+      rgba(33, 200, 137, 0.42) 25%,
+      rgba(33, 200, 137, 0.55) 25.5%,
+      transparent 26%,
+      transparent 49%,
+      rgba(33, 200, 137, 0.24) 50%,
+      transparent 51%,
+      transparent 74%,
+      rgba(33, 200, 137, 0.18) 75%,
+      transparent 76%,
+      transparent 100%
+    ) no-repeat;
+  background-size: 100% 100%, 240% 2px;
+  background-position: 0 0, -140% 42%;
+  opacity: 0.35;
+  animation: waveTravel 7s linear infinite;
+}
+
+@keyframes travel {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateX(450%);
+    opacity: 0;
+  }
+}
+
+@keyframes waveTravel {
+  0% {
+    background-position: 0 0, -140% 42%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.35;
+  }
+  100% {
+    background-position: 0 0, 180% 42%;
+    opacity: 0;
+  }
+}

@@ -121,10 +121,36 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [currentWorkspacePath, syncBackendRoot])
 
   function selectWorkspace(id: string) {
-    setState((prev) => ({
-      workspaces: prev.workspaces.some((w) => w.id === id) ? moveWorkspaceToFront(prev.workspaces, id) : prev.workspaces,
-      currentWorkspaceId: prev.workspaces.some((w) => w.id === id) ? id : prev.currentWorkspaceId,
-    }))
+    setState((prev) => {
+      const found = prev.workspaces.find((w) => w.id === id)
+      if (!found) {
+        return {
+          workspaces: prev.workspaces,
+          currentWorkspaceId: prev.currentWorkspaceId,
+        }
+      }
+
+      // Backfill old folder workspaces that were created before path binding existed.
+      if (found.source === 'folder' && !found.path) {
+        const entered = window.prompt(
+          `Workspace "${found.name}" does not have a bound folder path yet. Enter full path now:`,
+          '',
+        )
+        if (entered && entered.trim()) {
+          const nextPath = entered.trim()
+          const updated = prev.workspaces.map((w) => (w.id === id ? { ...w, path: nextPath } : w))
+          return {
+            workspaces: moveWorkspaceToFront(updated, id),
+            currentWorkspaceId: id,
+          }
+        }
+      }
+
+      return {
+        workspaces: moveWorkspaceToFront(prev.workspaces, id),
+        currentWorkspaceId: id,
+      }
+    })
   }
 
   function createWorkspace(name: string) {
@@ -141,24 +167,40 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }
 
   async function openWorkspaceFolder() {
-    const folderPath = window.prompt(
-      'Enter the full path to the workspace folder (e.g. D:\\Projects\\MyProject):',
-    )
-    if (!folderPath || !folderPath.trim()) return
+    const picker = (window as { showDirectoryPicker?: () => Promise<{ name?: string }> }).showDirectoryPicker
 
-    const trimmed = folderPath.trim()
-    const folderName = trimmed.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? trimmed
-    const id = folderName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `workspace-${Date.now()}`
+    let folderName = `workspace-${Date.now()}`
+    if (picker) {
+      try {
+        const handle = await picker()
+        folderName = String(handle?.name ?? '').trim() || folderName
+      } catch {
+        return
+      }
+    }
+
+    const folderPath = window.prompt(
+      'Enter the full path to the workspace folder (required for file tree binding):',
+      '',
+    )
+    const trimmed = (folderPath ?? '').trim()
+
+    const displayName = folderName || (trimmed.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? trimmed)
+    if (!displayName) return
+
+    const resolvedPath = trimmed.length > 0 ? trimmed : undefined
+    const idBase = resolvedPath ?? displayName
+    const id = idBase.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `workspace-${Date.now()}`
 
     setState((prev) => {
       const existing = prev.workspaces.find((w) => w.id === id)
       if (existing) {
         // Update path if it changed
-        const updated = prev.workspaces.map((w) => w.id === id ? { ...w, path: trimmed } : w)
+        const updated = prev.workspaces.map((w) => w.id === id ? { ...w, path: resolvedPath ?? w.path } : w)
         return { workspaces: moveWorkspaceToFront(updated, id), currentWorkspaceId: id }
       }
       return {
-        workspaces: [{ id, name: folderName, path: trimmed, source: 'folder' }, ...prev.workspaces],
+        workspaces: [{ id, name: displayName, path: resolvedPath, source: 'folder' }, ...prev.workspaces],
         currentWorkspaceId: id,
       }
     })
