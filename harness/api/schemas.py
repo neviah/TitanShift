@@ -20,6 +20,8 @@ class ChatRequest(BaseModel):
     spec_approved: bool | None = None
     plan_approved: bool | None = None
     plan_tasks: list[dict[str, Any]] | None = None
+    create_task_template: bool = False
+    task_template_name: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -32,6 +34,77 @@ class ChatResponse(BaseModel):
     required_skill_chain: list[str] | None = None
     error: str | None = None
     estimated_total_tokens: int | None = None
+    task_template_id: str | None = None
+
+
+class TaskTemplate(BaseModel):
+    template_id: str
+    name: str
+    prompt: str
+    workflow_mode: str
+    model_backend: str
+    required_tools: list[str] = Field(default_factory=list)
+    budget: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+    last_run_task_id: str | None = None
+
+
+class TaskTemplateCreateRequest(BaseModel):
+    name: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    workflow_mode: str | None = None
+    model_backend: str | None = None
+    required_tools: list[str] | None = None
+    budget: BudgetOverride | None = None
+
+
+class TaskTemplateCreateResponse(BaseModel):
+    ok: bool
+    template: TaskTemplate
+
+
+class TaskTemplateRunRequest(BaseModel):
+    model_backend: str | None = None
+    workflow_mode: str | None = None
+    budget: BudgetOverride | None = None
+
+
+class TaskTemplateRunResponse(BaseModel):
+    ok: bool
+    template_id: str
+    task_id: str
+    status: str
+
+
+class SchedulerTemplateJobCreateRequest(BaseModel):
+    template_id: str = Field(min_length=1)
+    job_id: str | None = None
+    description: str | None = None
+    schedule_type: str = "interval"
+    interval_seconds: int = Field(default=60, ge=1)
+    cron: str | None = None
+    enabled: bool = True
+    timeout_s: float | None = None
+    max_failures: int = Field(default=3, ge=1)
+
+
+class SchedulerTemplateJobCreateResponse(BaseModel):
+    ok: bool
+    job_id: str
+    template_id: str
+
+
+class SchedulerTemplateJob(BaseModel):
+    job_id: str
+    template_id: str
+    description: str
+    schedule_type: str
+    interval_seconds: int
+    cron: str | None = None
+    enabled: bool
+    timeout_s: float | None = None
+    max_failures: int
 
 
 class TaskSummary(BaseModel):

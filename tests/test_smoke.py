@@ -288,6 +288,78 @@ def test_scheduler_job_toggle_endpoint() -> None:
     assert missing.status_code == 404
 
 
+def test_chat_can_create_task_template() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "prompt": "Create a weather widget app with html css and js",
+            "create_task_template": True,
+            "task_template_name": "Weather widget template",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["mode"] == "task-template"
+    assert isinstance(body.get("task_template_id"), str)
+
+    templates = client.get("/tasks/templates")
+    assert templates.status_code == 200
+    rows = templates.json()
+    assert any(t.get("template_id") == body["task_template_id"] for t in rows)
+
+
+def test_task_template_run_and_scheduler_binding() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    create_template = client.post(
+        "/tasks/templates",
+        json={
+            "name": "quick local stub task",
+            "prompt": "Say hello from template",
+            "workflow_mode": "lightning",
+            "model_backend": "local_stub",
+        },
+    )
+    assert create_template.status_code == 200
+    template_id = create_template.json()["template"]["template_id"]
+
+    run_template = client.post(f"/tasks/templates/{template_id}/run", json={"model_backend": "local_stub"})
+    assert run_template.status_code == 200
+    run_body = run_template.json()
+    assert run_body["ok"] is True
+    assert isinstance(run_body["task_id"], str)
+
+    bind_job = client.post(
+        "/scheduler/template-jobs",
+        json={
+            "template_id": template_id,
+            "job_id": "test-template-job",
+            "schedule_type": "interval",
+            "interval_seconds": 1,
+            "enabled": True,
+        },
+    )
+    assert bind_job.status_code == 200
+    assert bind_job.json()["ok"] is True
+
+    list_jobs = client.get("/scheduler/template-jobs")
+    assert list_jobs.status_code == 200
+    assert any(j.get("job_id") == "test-template-job" for j in list_jobs.json())
+
+    tick = client.post("/scheduler/tick")
+    assert tick.status_code == 200
+    assert "test-template-job" in tick.json().get("ran_jobs", [])
+
+    remove_job = client.delete("/scheduler/template-jobs/test-template-job")
+    assert remove_job.status_code == 200
+    assert remove_job.json()["deleted"] is True
+
+
 def test_scheduler_auto_disables_repeated_failures() -> None:
     scheduler = Scheduler()
 

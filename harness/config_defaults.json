@@ -70,13 +70,20 @@
       "shell_command",
       "web_fetch",
       "create_directory",
-      "write_file"
+      "write_file",
+      "read_file",
+      "list_directory",
+      "rename_or_move",
+      "delete_file",
+      "search_workspace",
+      "run_project_check"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [
       "where",
       "git",
       "python",
+      "npm",
       "curl",
       "dir",
       "echo"
@@ -86,13 +93,24 @@
     "deny_all_by_default": true,
     "allow_network": false,
     "allowed_paths": ["."],
-    "allowed_tool_names": ["shell_command"],
+    "allowed_tool_names": [
+      "shell_command",
+      "web_fetch",
+      "create_directory",
+      "write_file",
+      "read_file",
+      "list_directory",
+      "rename_or_move",
+      "delete_file",
+      "search_workspace",
+      "run_project_check"
+    ],
     "blocked_tool_names": [],
-    "allowed_command_prefixes": ["where", "git", "python", "dir", "echo"]
+    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"]
   },
   "execution": {
     "allowed_cwd_roots": ["."],
-    "allowed_command_prefixes": ["where", "git", "python", "dir", "echo"],
+    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"],
     "max_runtime_s": 30,
     "max_output_bytes": 32768
   },

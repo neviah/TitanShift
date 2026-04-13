@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 import shlex
@@ -115,6 +116,229 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "overwrite": {"type": "boolean", "description": "Whether existing files may be replaced; defaults to true"},
                 },
                 "required": ["target_path", "content"],
+            },
+        )
+    )
+
+    async def read_file_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("path") or args.get("target_path") or "").strip()
+        if not raw_path:
+            raise ValueError("path is required")
+        target = _resolve_workspace_path(raw_path)
+        if not target.exists() or not target.is_file():
+            raise ValueError(f"file not found: {target}")
+        max_chars = int(args.get("max_chars", 12000))
+        content = target.read_text(encoding="utf-8", errors="replace")
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "content": content[:max_chars],
+            "truncated": len(content) > max_chars,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="read_file",
+            description="Read a text file from the allowed workspace. Use this before edits to inspect existing content.",
+            handler=read_file_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "max_chars": {"type": "integer", "description": "Max characters to return (default 12000)"},
+                },
+                "required": ["path"],
+            },
+        )
+    )
+
+    async def list_directory_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("path") or args.get("directory_path") or ".").strip()
+        target = _resolve_workspace_path(raw_path)
+        if not target.exists() or not target.is_dir():
+            raise ValueError(f"directory not found: {target}")
+        max_entries = max(1, min(int(args.get("max_entries", 200)), 1000))
+        entries = sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        rows: list[dict[str, Any]] = []
+        for item in entries[:max_entries]:
+            rows.append(
+                {
+                    "name": item.name,
+                    "path": str(item).replace("\\", "/"),
+                    "is_dir": item.is_dir(),
+                }
+            )
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "entries": rows,
+            "truncated": len(entries) > max_entries,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="list_directory",
+            description="List files and folders under a workspace directory.",
+            handler=list_directory_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Directory path relative to workspace root (default .)"},
+                    "max_entries": {"type": "integer", "description": "Maximum entries returned (default 200)"},
+                },
+            },
+        )
+    )
+
+    async def rename_or_move_handler(args: dict[str, Any]) -> dict[str, Any]:
+        source_raw = str(args.get("source_path") or "").strip()
+        destination_raw = str(args.get("destination_path") or "").strip()
+        if not source_raw or not destination_raw:
+            raise ValueError("source_path and destination_path are required")
+        source = _resolve_workspace_path(source_raw)
+        destination = _resolve_workspace_path(destination_raw)
+        if not source.exists():
+            raise ValueError(f"source_path not found: {source}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(destination)
+        return {
+            "ok": True,
+            "source_path": str(source).replace("\\", "/"),
+            "destination_path": str(destination).replace("\\", "/"),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="rename_or_move",
+            description="Rename or move a file/directory inside the workspace.",
+            handler=rename_or_move_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source_path": {"type": "string"},
+                    "destination_path": {"type": "string"},
+                },
+                "required": ["source_path", "destination_path"],
+            },
+        )
+    )
+
+    async def delete_file_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("path") or args.get("target_path") or "").strip()
+        if not raw_path:
+            raise ValueError("path is required")
+        if str(args.get("confirm", "")).strip() != "I_UNDERSTAND_DELETE":
+            raise PermissionError("delete_file requires confirm='I_UNDERSTAND_DELETE'")
+        target = _resolve_workspace_path(raw_path)
+        if not target.exists():
+            return {"ok": True, "path": str(target).replace("\\", "/"), "deleted": False}
+        if target.is_dir():
+            for root, dirs, files in os.walk(target, topdown=False):
+                for f in files:
+                    Path(root, f).unlink(missing_ok=True)
+                for d in dirs:
+                    Path(root, d).rmdir()
+            target.rmdir()
+        else:
+            target.unlink(missing_ok=True)
+        return {"ok": True, "path": str(target).replace("\\", "/"), "deleted": True}
+
+    tools.register_tool(
+        ToolDefinition(
+            name="delete_file",
+            description="Delete a file or directory inside the workspace. Requires explicit confirmation token.",
+            handler=delete_file_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "confirm": {"type": "string", "description": "Must be exactly I_UNDERSTAND_DELETE"},
+                },
+                "required": ["path", "confirm"],
+            },
+        )
+    )
+
+    async def search_workspace_handler(args: dict[str, Any]) -> dict[str, Any]:
+        query = str(args.get("query") or "").strip().lower()
+        if not query:
+            raise ValueError("query is required")
+        max_results = max(1, min(int(args.get("max_results", 50)), 500))
+        rows: list[dict[str, Any]] = []
+        for root, _, files in os.walk(execution.default_cwd):
+            for file_name in files:
+                full = Path(root) / file_name
+                rel = str(full.relative_to(execution.default_cwd)).replace("\\", "/")
+                matched = query in rel.lower()
+                if not matched:
+                    try:
+                        text = full.read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        continue
+                    idx = text.lower().find(query)
+                    if idx >= 0:
+                        snippet_start = max(0, idx - 80)
+                        snippet_end = min(len(text), idx + 120)
+                        rows.append({"path": rel, "snippet": text[snippet_start:snippet_end]})
+                else:
+                    rows.append({"path": rel, "snippet": ""})
+                if len(rows) >= max_results:
+                    return {"ok": True, "query": query, "results": rows, "truncated": True}
+        return {"ok": True, "query": query, "results": rows, "truncated": False}
+
+    tools.register_tool(
+        ToolDefinition(
+            name="search_workspace",
+            description="Search workspace paths and file contents for a query string.",
+            handler=search_workspace_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer", "description": "Maximum matches to return"},
+                },
+                "required": ["query"],
+            },
+        )
+    )
+
+    async def run_project_check_handler(args: dict[str, Any]) -> dict[str, Any]:
+        check = str(args.get("check") or "").strip().lower()
+        cwd = args.get("cwd")
+        mapping: dict[str, tuple[str, list[str]]] = {
+            "python_tests": ("python", ["-m", "pytest", "-q"]),
+            "npm_test": ("npm", ["test"]),
+            "npm_build": ("npm", ["run", "build"]),
+            "python_check": ("python", ["-m", "pytest", "-q"]),
+        }
+        if check not in mapping:
+            raise ValueError("check must be one of: python_tests, python_check, npm_test, npm_build")
+        command, command_args = mapping[check]
+        try:
+            result = await execution.run_command(command, *command_args, cwd=cwd)
+        except ExecutionDeniedError as exc:
+            return {"ok": False, "error": str(exc), "check": check}
+        return {
+            "ok": result.returncode == 0,
+            "check": check,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "truncated": result.truncated,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="run_project_check",
+            description="Run approved project checks like pytest and npm build via a constrained wrapper.",
+            handler=run_project_check_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "check": {"type": "string", "description": "python_tests | python_check | npm_test | npm_build"},
+                    "cwd": {"type": "string", "description": "Optional working directory"},
+                },
+                "required": ["check"],
             },
         )
     )

@@ -82,6 +82,9 @@ from harness.api.schemas import (
     RunHistoryVerifyResponse,
     SchedulerJobToggleRequest,
     SchedulerJobToggleResponse,
+    SchedulerTemplateJob,
+    SchedulerTemplateJobCreateRequest,
+    SchedulerTemplateJobCreateResponse,
     SchedulerHeartbeatResponse,
     SchedulerJob,
     SchedulerMaintenanceRegisterResponse,
@@ -109,6 +112,11 @@ from harness.api.schemas import (
     UiIngestionOverviewResponse,
     UiMarketOverviewResponse,
     TaskDetail,
+    TaskTemplate,
+    TaskTemplateCreateRequest,
+    TaskTemplateCreateResponse,
+    TaskTemplateRunRequest,
+    TaskTemplateRunResponse,
     TaskSummary,
     WorkspaceFileResponse,
     WorkspaceTreeNode,
@@ -130,6 +138,8 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     # Mutable workspace root — can be changed at runtime via /workspace/set-root
     _active_workspace: dict[str, Path] = {"root": workspace_root}
+    _task_templates: dict[str, dict[str, Any]] = {}
+    _scheduled_template_jobs: dict[str, dict[str, Any]] = {}
 
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
         if not enabled:
@@ -1259,6 +1269,187 @@ def create_app(workspace_root: Path) -> FastAPI:
                 skipped_paths.append(str(path))
         return deleted_paths, skipped_paths
 
+    def _storage_root() -> Path:
+        return _active_workspace["root"] / str(runtime.config.get("memory.storage_dir", ".harness"))
+
+    def _task_templates_path() -> Path:
+        return _storage_root() / "task_templates.json"
+
+    def _scheduled_template_jobs_path() -> Path:
+        return _storage_root() / "scheduled_template_jobs.json"
+
+    def _save_task_templates() -> None:
+        path = _task_templates_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "templates": sorted(_task_templates.values(), key=lambda x: str(x.get("updated_at", "")), reverse=True),
+        }
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _load_task_templates() -> None:
+        _task_templates.clear()
+        path = _task_templates_path()
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        rows = payload.get("templates", []) if isinstance(payload, dict) else []
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            template_id = str(row.get("template_id", "")).strip()
+            if not template_id:
+                continue
+            _task_templates[template_id] = row
+
+    def _save_scheduled_template_jobs() -> None:
+        path = _scheduled_template_jobs_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "jobs": sorted(_scheduled_template_jobs.values(), key=lambda x: str(x.get("job_id", ""))),
+        }
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _load_scheduled_template_jobs() -> None:
+        _scheduled_template_jobs.clear()
+        path = _scheduled_template_jobs_path()
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        rows = payload.get("jobs", []) if isinstance(payload, dict) else []
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            job_id = str(row.get("job_id", "")).strip()
+            template_id = str(row.get("template_id", "")).strip()
+            if not job_id or not template_id:
+                continue
+            _scheduled_template_jobs[job_id] = row
+
+    def _normalize_required_tools(tools: list[str] | None) -> list[str]:
+        if not tools:
+            return []
+        names = {str(t).strip() for t in tools if str(t).strip()}
+        return sorted(names)
+
+    def _draft_template_from_prompt(*, prompt: str, name: str | None = None) -> dict[str, Any]:
+        lowered = prompt.lower()
+        required_tools: set[str] = set()
+        if any(k in lowered for k in ["file", "folder", "directory", "create", "write", "read"]):
+            required_tools.update(["create_directory", "write_file", "read_file", "list_directory"])
+        if any(k in lowered for k in ["search", "find", "grep", "scan"]):
+            required_tools.add("search_workspace")
+        if any(k in lowered for k in ["test", "build", "check", "verify"]):
+            required_tools.add("run_project_check")
+        if any(k in lowered for k in ["delete", "remove"]):
+            required_tools.add("delete_file")
+        if any(k in lowered for k in ["rename", "move"]):
+            required_tools.add("rename_or_move")
+
+        workflow_mode = "superpowered" if any(k in lowered for k in ["review", "validate", "audit"]) else "lightning"
+        model_backend = str(runtime.config.get("model.default_backend", "local_stub"))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        template_id = f"tmpl-{uuid.uuid4().hex[:10]}"
+        display_name = (name or "").strip() or prompt.strip().splitlines()[0][:80] or "Generated task template"
+        budget = {
+            "max_steps": int(runtime.config.get("state_machine.default_budget.max_steps", 16)),
+            "max_tokens": int(runtime.config.get("state_machine.default_budget.max_tokens", 12000)),
+            "max_duration_ms": int(runtime.config.get("state_machine.default_budget.max_duration_ms", 180000)),
+        }
+        return {
+            "template_id": template_id,
+            "name": display_name,
+            "prompt": prompt,
+            "workflow_mode": workflow_mode,
+            "model_backend": model_backend,
+            "required_tools": sorted(required_tools),
+            "budget": budget,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "last_run_task_id": None,
+        }
+
+    async def _run_template(template: dict[str, Any], overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        merged = dict(template)
+        overrides = overrides or {}
+        if overrides.get("model_backend"):
+            merged["model_backend"] = overrides["model_backend"]
+        if overrides.get("workflow_mode"):
+            merged["workflow_mode"] = overrides["workflow_mode"]
+        if overrides.get("budget"):
+            merged["budget"] = overrides["budget"]
+
+        task_input: dict[str, Any] = {
+            "model_backend": merged.get("model_backend"),
+            "workflow_mode": merged.get("workflow_mode"),
+            "budget": merged.get("budget") or {},
+            "required_tools": list(merged.get("required_tools") or []),
+            "workspace_root": str(_active_workspace["root"]).replace("\\", "/"),
+        }
+        available_tools = runtime.tools.list_tools()
+        task_input["available_tools"] = [
+            {"name": t.name, "description": t.description or ""}
+            for t in available_tools
+            if runtime.tools.preview_policy(t)[0]
+        ]
+        task = Task(
+            id=f"template-{uuid.uuid4().hex[:12]}",
+            description=str(merged.get("prompt", "")).strip(),
+            input=task_input,
+        )
+        result = await runtime.orchestrator.run_reactive_task(task)
+        template["last_run_task_id"] = task.id
+        template["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _task_templates[str(template.get("template_id"))] = template
+        _save_task_templates()
+        return {
+            "task_id": task.id,
+            "status": "completed" if result.success else "failed",
+            "result": result,
+        }
+
+    def _register_template_job_from_record(record: dict[str, Any]) -> None:
+        job_id = str(record.get("job_id", "")).strip()
+        template_id = str(record.get("template_id", "")).strip()
+        if not job_id or not template_id:
+            raise ValueError("job_id and template_id are required")
+
+        async def _execute_template_job() -> None:
+            template = _task_templates.get(template_id)
+            if template is None:
+                raise RuntimeError(f"template not found: {template_id}")
+            await _run_template(template, overrides={})
+
+        runtime.scheduler.register_job(
+            ScheduledJob(
+                job_id=job_id,
+                description=str(record.get("description", f"Run task template {template_id}")),
+                schedule_type=str(record.get("schedule_type", "interval")),
+                interval_seconds=max(1, int(record.get("interval_seconds", 60))),
+                cron=str(record.get("cron")) if record.get("cron") else None,
+                enabled=bool(record.get("enabled", True)),
+                timeout_s=float(record["timeout_s"]) if record.get("timeout_s") is not None else None,
+                max_failures=max(1, int(record.get("max_failures", 3))),
+                callback=_execute_template_job,
+            )
+        )
+
+    def _rehydrate_template_scheduler_jobs() -> None:
+        for record in _scheduled_template_jobs.values():
+            try:
+                _register_template_job_from_record(record)
+            except Exception:
+                continue
+
     def _register_maintenance_jobs() -> list[str]:
         registered: list[str] = []
 
@@ -1317,8 +1508,12 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         return registered
 
+    _load_task_templates()
+    _load_scheduled_template_jobs()
+
     if bool(runtime.config.get("scheduler.enable_maintenance_jobs", False)):
         _register_maintenance_jobs()
+    _rehydrate_template_scheduler_jobs()
 
     async def _resolve_model_connection() -> tuple[bool, str]:
         backend = str(runtime.config.get("model.default_backend", "local_stub"))
@@ -1398,6 +1593,26 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_read_api_key)])
     async def chat(body: ChatRequest) -> ChatResponse:
+        if body.create_task_template:
+            template = _draft_template_from_prompt(prompt=body.prompt, name=body.task_template_name)
+            if body.workflow_mode:
+                template["workflow_mode"] = body.workflow_mode
+            if body.model_backend:
+                template["model_backend"] = body.model_backend
+            if body.budget:
+                template["budget"] = body.budget.model_dump(exclude_none=True)
+            template_id = str(template["template_id"])
+            _task_templates[template_id] = template
+            _save_task_templates()
+            return ChatResponse(
+                success=True,
+                response=f"Task template saved: {template_id}",
+                model="system",
+                mode="task-template",
+                workflow_mode=str(template.get("workflow_mode", "lightning")),
+                task_template_id=template_id,
+            )
+
         task_input: dict = {}
         if body.model_backend:
             task_input["model_backend"] = body.model_backend
@@ -1449,6 +1664,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             required_skill_chain=result.output.get("required_skill_chain"),
             error=result.error,
             estimated_total_tokens=result.output.get("estimated_total_tokens"),
+            task_template_id=None,
         )
 
     @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_read_api_key)])
@@ -1461,6 +1677,76 @@ def create_app(workspace_root: Path) -> FastAPI:
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskDetail(**task)
+
+    @app.get("/tasks/templates", response_model=list[TaskTemplate], dependencies=[Depends(require_read_api_key)])
+    async def list_task_templates() -> list[TaskTemplate]:
+        rows = sorted(_task_templates.values(), key=lambda r: str(r.get("updated_at", "")), reverse=True)
+        return [TaskTemplate(**row) for row in rows]
+
+    @app.post("/tasks/templates", response_model=TaskTemplateCreateResponse, dependencies=[Depends(require_admin_api_key)])
+    async def create_task_template(body: TaskTemplateCreateRequest) -> TaskTemplateCreateResponse:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        template_id = f"tmpl-{uuid.uuid4().hex[:10]}"
+        workflow_mode = (body.workflow_mode or "lightning").strip().lower()
+        if workflow_mode not in {"lightning", "superpowered"}:
+            raise HTTPException(status_code=400, detail="workflow_mode must be lightning or superpowered")
+
+        template = {
+            "template_id": template_id,
+            "name": body.name.strip(),
+            "prompt": body.prompt,
+            "workflow_mode": workflow_mode,
+            "model_backend": (body.model_backend or str(runtime.config.get("model.default_backend", "local_stub"))).strip(),
+            "required_tools": _normalize_required_tools(body.required_tools),
+            "budget": body.budget.model_dump(exclude_none=True) if body.budget else {
+                "max_steps": int(runtime.config.get("state_machine.default_budget.max_steps", 16)),
+                "max_tokens": int(runtime.config.get("state_machine.default_budget.max_tokens", 12000)),
+                "max_duration_ms": int(runtime.config.get("state_machine.default_budget.max_duration_ms", 180000)),
+            },
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "last_run_task_id": None,
+        }
+        _task_templates[template_id] = template
+        _save_task_templates()
+        return TaskTemplateCreateResponse(ok=True, template=TaskTemplate(**template))
+
+    @app.get("/tasks/templates/{template_id}", response_model=TaskTemplate, dependencies=[Depends(require_read_api_key)])
+    async def get_task_template(template_id: str) -> TaskTemplate:
+        template = _task_templates.get(template_id)
+        if template is None:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return TaskTemplate(**template)
+
+    @app.delete("/tasks/templates/{template_id}", dependencies=[Depends(require_admin_api_key)])
+    async def delete_task_template(template_id: str) -> dict[str, Any]:
+        existed = _task_templates.pop(template_id, None)
+        _save_task_templates()
+        return {"ok": True, "template_id": template_id, "deleted": existed is not None}
+
+    @app.post(
+        "/tasks/templates/{template_id}/run",
+        response_model=TaskTemplateRunResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def run_task_template(template_id: str, body: TaskTemplateRunRequest) -> TaskTemplateRunResponse:
+        template = _task_templates.get(template_id)
+        if template is None:
+            raise HTTPException(status_code=404, detail="Template not found")
+        overrides: dict[str, Any] = {}
+        if body.model_backend:
+            overrides["model_backend"] = body.model_backend
+        if body.workflow_mode:
+            overrides["workflow_mode"] = body.workflow_mode
+        if body.budget:
+            overrides["budget"] = body.budget.model_dump(exclude_none=True)
+        run = await _run_template(template, overrides=overrides)
+        return TaskTemplateRunResponse(
+            ok=True,
+            template_id=template_id,
+            task_id=str(run["task_id"]),
+            status=str(run["status"]),
+        )
 
     def _build_workspace_tree(root: Path, current: Path, max_depth: int = 3) -> list[WorkspaceTreeNode]:
         if max_depth < 0:
@@ -1834,6 +2120,50 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.get("/scheduler/jobs", response_model=list[SchedulerJob], dependencies=[Depends(require_read_api_key)])
     async def scheduler_jobs() -> list[SchedulerJob]:
         return [SchedulerJob(**j) for j in runtime.scheduler.list_jobs()]
+
+    @app.get("/scheduler/template-jobs", response_model=list[SchedulerTemplateJob], dependencies=[Depends(require_read_api_key)])
+    async def scheduler_template_jobs() -> list[SchedulerTemplateJob]:
+        rows = sorted(_scheduled_template_jobs.values(), key=lambda r: str(r.get("job_id", "")))
+        return [SchedulerTemplateJob(**row) for row in rows]
+
+    @app.post(
+        "/scheduler/template-jobs",
+        response_model=SchedulerTemplateJobCreateResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def scheduler_create_template_job(body: SchedulerTemplateJobCreateRequest) -> SchedulerTemplateJobCreateResponse:
+        template_id = body.template_id.strip()
+        if template_id not in _task_templates:
+            raise HTTPException(status_code=404, detail="Template not found")
+        schedule_type = body.schedule_type.strip().lower()
+        if schedule_type not in {"interval", "cron"}:
+            raise HTTPException(status_code=400, detail="schedule_type must be interval or cron")
+        if schedule_type == "cron" and not (body.cron or "").strip():
+            raise HTTPException(status_code=400, detail="cron is required for cron schedule")
+
+        job_id = (body.job_id or "").strip() or f"tmpl-job-{uuid.uuid4().hex[:8]}"
+        record = {
+            "job_id": job_id,
+            "template_id": template_id,
+            "description": body.description or f"Run template {template_id}",
+            "schedule_type": schedule_type,
+            "interval_seconds": max(1, int(body.interval_seconds)),
+            "cron": body.cron,
+            "enabled": body.enabled,
+            "timeout_s": body.timeout_s,
+            "max_failures": max(1, int(body.max_failures)),
+        }
+        _scheduled_template_jobs[job_id] = record
+        _register_template_job_from_record(record)
+        _save_scheduled_template_jobs()
+        return SchedulerTemplateJobCreateResponse(ok=True, job_id=job_id, template_id=template_id)
+
+    @app.delete("/scheduler/template-jobs/{job_id}", dependencies=[Depends(require_admin_api_key)])
+    async def scheduler_delete_template_job(job_id: str) -> dict[str, Any]:
+        existed = _scheduled_template_jobs.pop(job_id, None)
+        runtime.scheduler.remove_job(job_id)
+        _save_scheduled_template_jobs()
+        return {"ok": True, "job_id": job_id, "deleted": existed is not None}
 
     @app.get("/agents", response_model=list[AgentSummary], dependencies=[Depends(require_read_api_key)])
     async def agents() -> list[AgentSummary]:
