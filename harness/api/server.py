@@ -1377,6 +1377,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_input["spec_approved"] = body.spec_approved
         if body.plan_approved is not None:
             task_input["plan_approved"] = body.plan_approved
+        if body.plan_tasks is not None:
+            task_input["plan_tasks"] = body.plan_tasks
         
         # Include available tools so the LLM can choose to use them
         available_tools = runtime.tools.list_tools()
@@ -1917,6 +1919,10 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.get("/skills/market", response_model=list[SkillMarketItem], dependencies=[Depends(require_read_api_key)])
     async def skills_market() -> list[SkillMarketItem]:
         return _current_market_rows()
+
+    @app.get("/roles/templates", dependencies=[Depends(require_read_api_key)])
+    async def role_templates() -> list[dict[str, object]]:
+        return runtime.orchestrator.list_role_templates()
 
     @app.post(
         "/skills/market/install",

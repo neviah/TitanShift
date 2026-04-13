@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     workflow_mode: str | None = None
     spec_approved: bool | None = None
     plan_approved: bool | None = None
+    plan_tasks: list[dict[str, Any]] | None = None
 
 
 class ChatResponse(BaseModel):

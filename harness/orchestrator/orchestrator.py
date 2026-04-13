@@ -29,6 +29,14 @@ class AgentRecord:
 
 
 @dataclass(slots=True)
+class RoleTemplate:
+    role_key: str
+    role_name: str
+    goal: str
+    required_skills: list[str]
+
+
+@dataclass(slots=True)
 class Orchestrator:
     config: ConfigManager
     event_bus: EventBus
@@ -38,12 +46,14 @@ class Orchestrator:
     tools: ToolRegistry
     state_machine: ReactiveStateMachine = field(init=False)
     enable_subagents: bool = field(init=False)
+    role_templates: dict[str, RoleTemplate] = field(init=False)
     task_store: TaskStore = field(init=False)
     agents: dict[str, AgentRecord] = field(init=False)
 
     def __post_init__(self) -> None:
         self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools, self.skills)
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
+        self.role_templates = self._build_default_role_templates()
         self.task_store = TaskStore()
         self.agents = {
             "main-agent": AgentRecord(
@@ -57,6 +67,156 @@ class Orchestrator:
                 active=True,
             )
         }
+
+    def _build_default_role_templates(self) -> dict[str, RoleTemplate]:
+        """Build default role templates for Superpowered review loops."""
+        return {
+            "implementer": RoleTemplate(
+                role_key="implementer",
+                role_name="Implementer Agent",
+                goal="Implement the assigned task exactly as specified in the approved plan.",
+                required_skills=["subagent-driven-development", "test-driven-development"],
+            ),
+            "spec_reviewer": RoleTemplate(
+                role_key="spec_reviewer",
+                role_name="Spec Reviewer Agent",
+                goal="Validate implementation against approved requirements and plan acceptance criteria.",
+                required_skills=["subagent-driven-development"],
+            ),
+            "code_reviewer": RoleTemplate(
+                role_key="code_reviewer",
+                role_name="Code Reviewer Agent",
+                goal="Review code quality, architecture fit, and maintainability before merge.",
+                required_skills=["subagent-driven-development"],
+            ),
+            "verifier": RoleTemplate(
+                role_key="verifier",
+                role_name="Verification Agent",
+                goal="Run evidence-based validation before marking work complete.",
+                required_skills=["verification-before-completion"],
+            ),
+        }
+
+    def list_role_templates(self) -> list[dict[str, object]]:
+        """List role template metadata for UI/API inspection."""
+        return [
+            {
+                "role_key": t.role_key,
+                "role_name": t.role_name,
+                "goal": t.goal,
+                "required_skills": list(t.required_skills),
+            }
+            for t in self.role_templates.values()
+        ]
+
+    async def _spawn_role_subagent(self, parent_task: Task, role_key: str, description: str) -> str:
+        """Spawn a subagent from a named role template."""
+        template = self.role_templates.get(role_key)
+        if template is None:
+            raise KeyError(f"Role template not found: {role_key}")
+
+        child_task = Task(
+            id=f"{parent_task.id}:{role_key}:{uuid.uuid4().hex[:8]}",
+            description=description,
+            input={
+                "role": template.role_name,
+                "model_backend": parent_task.input.get(
+                    "model_backend",
+                    self.config.get("model.default_backend", "local_stub"),
+                ),
+            },
+        )
+        agent_id = await self.spawn_subagent(child_task)
+        await self.assign_skills_to_agent(agent_id, template.required_skills)
+        return agent_id
+
+    async def _run_superpowered_review_loop(
+        self,
+        parent_task: Task,
+        plan_tasks: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """Run implementer -> reviewers -> verifier loop for each plan task.
+
+        This loop currently supports deterministic pass/fail simulation via task input
+        flags to make orchestration testable before full autonomous review agents.
+        """
+        max_iterations = int(self.config.get("orchestrator.superpowered_mode.review_loop_max_iterations", 3))
+        require_verification = bool(
+            self.config.get("orchestrator.superpowered_mode.require_verification_before_done", True)
+        )
+
+        task_results: list[dict[str, object]] = []
+
+        for idx, item in enumerate(plan_tasks, start=1):
+            title = str(item.get("title") or item.get("task") or f"Task {idx}")
+            item_result: dict[str, object] = {"task": title, "index": idx, "iterations": 0}
+
+            implementer_id = await self._spawn_role_subagent(
+                parent_task,
+                "implementer",
+                f"Implement planned task #{idx}: {title}",
+            )
+            item_result["implementer_agent_id"] = implementer_id
+
+            implementer_status = str(item.get("implementer_status", "DONE")).strip().upper()
+            if implementer_status not in {"DONE", "DONE_WITH_CONCERNS"}:
+                return {
+                    "ok": False,
+                    "failed_task": title,
+                    "error": f"Implementer did not complete task: status={implementer_status}",
+                    "task_results": task_results,
+                }
+
+            spec_pass = bool(item.get("spec_review_passed", True))
+            code_pass = bool(item.get("code_review_passed", True))
+
+            for iteration in range(1, max_iterations + 1):
+                item_result["iterations"] = iteration
+                spec_id = await self._spawn_role_subagent(
+                    parent_task,
+                    "spec_reviewer",
+                    f"Review spec compliance for planned task #{idx}: {title}",
+                )
+                code_id = await self._spawn_role_subagent(
+                    parent_task,
+                    "code_reviewer",
+                    f"Review code quality for planned task #{idx}: {title}",
+                )
+                item_result["spec_reviewer_agent_id"] = spec_id
+                item_result["code_reviewer_agent_id"] = code_id
+
+                if spec_pass and code_pass:
+                    break
+                if iteration == max_iterations:
+                    return {
+                        "ok": False,
+                        "failed_task": title,
+                        "error": "Review loop exceeded max iterations",
+                        "task_results": task_results,
+                    }
+                # If a simulated review fails once, allow next iteration to represent fix-and-rerun.
+                spec_pass = True
+                code_pass = True
+
+            if require_verification:
+                verifier_id = await self._spawn_role_subagent(
+                    parent_task,
+                    "verifier",
+                    f"Verify completion evidence for planned task #{idx}: {title}",
+                )
+                item_result["verifier_agent_id"] = verifier_id
+                if not bool(item.get("verification_passed", True)):
+                    return {
+                        "ok": False,
+                        "failed_task": title,
+                        "error": "Verification failed",
+                        "task_results": task_results,
+                    }
+
+            item_result["ok"] = True
+            task_results.append(item_result)
+
+        return {"ok": True, "task_results": task_results, "max_iterations": max_iterations}
 
     def get_workflow_mode(self) -> str:
         """Get current workflow mode: 'lightning' or 'superpowered'."""
@@ -121,8 +281,10 @@ class Orchestrator:
         return missing
 
     async def run_reactive_task(self, task: Task) -> TaskResult:
+        self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         self.task_store.create(task)
         self.task_store.mark_started(task.id)
+        review_result: dict[str, object] | None = None
 
         workflow_mode = self._resolve_workflow_mode(task)
         task.input["workflow_mode"] = workflow_mode
@@ -161,10 +323,55 @@ class Orchestrator:
             await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
             return result
 
-        await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": False})
+        if workflow_mode == "superpowered" and bool(
+            self.config.get("orchestrator.superpowered_mode.require_task_reviews", True)
+        ):
+            plan_tasks = task.input.get("plan_tasks", [])
+            if isinstance(plan_tasks, list) and plan_tasks:
+                if not self.enable_subagents:
+                    msg = (
+                        "Superpowered task reviews require subagents, but orchestrator.enable_subagents is false."
+                    )
+                    result = TaskResult(
+                        task_id=task.id,
+                        output={
+                            "response": msg,
+                            "mode": "review-loop",
+                            "workflow_mode": workflow_mode,
+                            "plan_tasks_count": len(plan_tasks),
+                        },
+                        success=False,
+                        error=msg,
+                    )
+                    self.task_store.mark_completed(result)
+                    await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
+                    return result
+
+                review_result = await self._run_superpowered_review_loop(task, plan_tasks)
+                if not bool(review_result.get("ok", False)):
+                    msg = str(review_result.get("error", "Superpowered review loop failed"))
+                    result = TaskResult(
+                        task_id=task.id,
+                        output={
+                            "response": msg,
+                            "mode": "review-loop",
+                            "workflow_mode": workflow_mode,
+                            "review_result": review_result,
+                        },
+                        success=False,
+                        error=msg,
+                    )
+                    self.task_store.mark_completed(result)
+                    await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
+                    return result
+                task.input["review_result"] = review_result
+
+        await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": self.enable_subagents})
         self.memory.append_short_term("main-agent", {"task": task.description})
         try:
             result = await self.state_machine.run_task(task)
+            if review_result is not None:
+                result.output["review_result"] = review_result
         except Exception as exc:
             await self.event_bus.publish(
                 "MODULE_ERROR",
