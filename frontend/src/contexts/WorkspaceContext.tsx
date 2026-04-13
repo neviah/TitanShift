@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { fetchWorkspaceInfo, setWorkspaceRoot } from '../api/client'
 
 interface Workspace {
   id: string
@@ -84,15 +85,34 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // Sync workspace root with backend whenever active workspace path changes
   const syncBackendRoot = useCallback(async (path: string) => {
     try {
-      await fetch('/api/workspace/set-root', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      })
+      await setWorkspaceRoot(path)
     } catch {
       // best-effort; backend may not be running yet
     }
   }, [])
+
+  useEffect(() => {
+    if (currentWorkspacePath) return
+    let mounted = true
+    void fetchWorkspaceInfo()
+      .then((info) => {
+        if (!mounted) return
+        const root = String(info?.root ?? '').trim()
+        if (!root) return
+        setState((prev) => {
+          const hasDefault = prev.workspaces.some((w) => w.id === 'default')
+          if (!hasDefault) return prev
+          return {
+            ...prev,
+            workspaces: prev.workspaces.map((w) => (w.id === 'default' ? { ...w, path: root } : w)),
+          }
+        })
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [currentWorkspacePath])
 
   useEffect(() => {
     if (currentWorkspacePath) {

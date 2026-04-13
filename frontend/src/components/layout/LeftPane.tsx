@@ -58,7 +58,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { workspaces, currentWorkspaceId, currentWorkspaceName, currentWorkspacePath, selectWorkspace, openWorkspaceFolder } = useWorkspace()
   const { data: taskData } = usePolling(fetchTasks, { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
-  const { data: treeData } = usePolling(fetchWorkspaceTree, { interval: 30000 })
+  const { data: treeData, refresh: refreshTree } = usePolling(fetchWorkspaceTree, { interval: 30000 })
   const { data: toolsData } = usePolling(fetchTools, { interval: 30000 })
   const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
   const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
@@ -116,6 +116,10 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   useEffect(() => {
     localStorage.setItem(ACTIVE_TOOLS_KEY, JSON.stringify(activeToolsByWorkspace))
   }, [activeToolsByWorkspace])
+
+  useEffect(() => {
+    void refreshTree()
+  }, [currentWorkspaceId, currentWorkspacePath, refreshTree])
 
   useEffect(() => {
     if (!selectedTaskId && tasks.length > 0) {

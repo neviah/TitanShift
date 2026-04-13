@@ -17,7 +17,7 @@ import type {
   GraphifyResponse,
 } from './types'
 
-const API_BASE = '/api'
+export const API_BASE = '/api'
 
 function deriveSkillName(skillId: string): string {
   const cleaned = skillId.trim()
@@ -148,6 +148,17 @@ export function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
 
 export function fetchWorkspaceTree(): Promise<WorkspaceTreeNode[]> {
   return request('/workspace/tree')
+}
+
+export function fetchWorkspaceInfo(): Promise<{ root: string }> {
+  return request('/workspace/info')
+}
+
+export function setWorkspaceRoot(path: string): Promise<{ root: string }> {
+  return request('/workspace/set-root', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  })
 }
 
 export function fetchWorkspaceFile(path: string): Promise<WorkspaceFileResponse> {

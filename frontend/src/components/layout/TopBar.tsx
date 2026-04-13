@@ -1,7 +1,7 @@
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Palette } from 'lucide-react'
 import { useTheme, type Theme } from '../../contexts/ThemeContext'
 import { usePolling } from '../../hooks/usePolling'
-import { fetchStatus } from '../../api/client'
+import { fetchConfig, fetchStatus } from '../../api/client'
 import styles from './TopBar.module.css'
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -21,8 +21,9 @@ interface TopBarProps {
 export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRight }: TopBarProps) {
   const { theme, setTheme } = useTheme()
   const { data, error } = usePolling(fetchStatus, { interval: 8000 })
+  const { data: cfg } = usePolling(fetchConfig, { interval: 8000 })
 
-  const backend = data?.default_model_backend ?? 'unknown'
+  const backend = String(cfg?.['model.default_backend'] ?? data?.default_model_backend ?? 'unknown')
   const checking = !data && !error
   const connected = checking ? false : (data?.model_connected ?? (backend === 'local_stub'))
   const statusLabel = checking ? 'checking' : (connected ? 'connected' : 'disconnected')

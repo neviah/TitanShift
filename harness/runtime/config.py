@@ -41,6 +41,8 @@ class ConfigManager:
 
     def set(self, key: str, value: Any) -> None:
         self._overrides[key] = value
+        self._set_dot(self._file_config, key, value)
+        self._save_file_config()
 
     def get_scoped(self, scope: str, key: str, default: Any = None) -> Any:
         return self.get(f"{scope}.{key}", default)
@@ -53,3 +55,20 @@ class ConfigManager:
                 return None
             current = current[part]
         return current
+
+    @staticmethod
+    def _set_dot(data: dict[str, Any], dot_key: str, value: Any) -> None:
+        parts = dot_key.split('.')
+        current = data
+        for part in parts[:-1]:
+            if part not in current or not isinstance(current[part], dict):
+                current[part] = {}
+            current = current[part]
+        current[parts[-1]] = value
+
+    def _save_file_config(self) -> None:
+        path = self.workspace_root / 'harness.config.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('w', encoding='utf-8') as f:
+            json.dump(self._file_config, f, indent=2)
+            f.write('\n')
