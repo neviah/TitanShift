@@ -7,6 +7,9 @@ import type {
   ChatResponse,
   TaskSummary,
   TaskDetail,
+  TaskTemplate,
+  SchedulerJob,
+  SchedulerTemplateJob,
   WorkspaceTreeNode,
   WorkspaceFileResponse,
   ToolSummary,
@@ -198,6 +201,41 @@ export function fetchRoleTemplates(): Promise<RoleTemplate[]> {
 
 export function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
   return request(`/tasks/${taskId}`)
+}
+
+export function fetchTaskTemplates(): Promise<TaskTemplate[]> {
+  return request('/tasks/templates')
+}
+
+export function fetchSchedulerJobs(): Promise<SchedulerJob[]> {
+  return request('/scheduler/jobs')
+}
+
+export function fetchSchedulerTemplateJobs(): Promise<SchedulerTemplateJob[]> {
+  return request('/scheduler/template-jobs')
+}
+
+export function createSchedulerTemplateJob(body: {
+  template_id: string
+  job_id?: string
+  description?: string
+  schedule_type: 'interval' | 'cron'
+  interval_seconds?: number
+  cron?: string
+  enabled?: boolean
+  timeout_s?: number
+  max_failures?: number
+}): Promise<{ ok: boolean; job_id: string; template_id: string }> {
+  return request('/scheduler/template-jobs', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, 'admin')
+}
+
+export function deleteSchedulerTemplateJob(jobId: string): Promise<{ ok: boolean; job_id: string; deleted: boolean }> {
+  return request(`/scheduler/template-jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  }, 'admin')
 }
 
 export function fetchWorkspaceTree(): Promise<WorkspaceTreeNode[]> {

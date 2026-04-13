@@ -164,6 +164,8 @@ export interface ChatRequest {
   spec_approved?: boolean
   plan_approved?: boolean
   plan_tasks?: Array<Record<string, unknown>>
+  create_task_template?: boolean
+  task_template_name?: string
   budget?: {
     max_steps?: number
     max_tokens?: number
@@ -181,6 +183,7 @@ export interface ChatResponse {
   required_skill_chain?: string[] | null
   error: string | null
   estimated_total_tokens: number | null
+  task_template_id?: string | null
 }
 
 export interface RuntimeSkillSummary {
@@ -214,6 +217,51 @@ export interface TaskSummary {
 
 export interface TaskDetail extends TaskSummary {
   output: Record<string, unknown>
+}
+
+export interface TaskTemplate {
+  template_id: string
+  name: string
+  prompt: string
+  workflow_mode: 'lightning' | 'superpowered' | string
+  model_backend: string
+  required_tools: string[]
+  budget: {
+    max_steps?: number
+    max_tokens?: number
+    max_duration_ms?: number
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+  last_run_task_id?: string | null
+}
+
+export interface SchedulerJob {
+  job_id: string
+  description: string
+  schedule_type: 'interval' | 'cron' | string
+  interval_seconds: number
+  cron?: string | null
+  enabled: boolean
+  timeout_s?: number | null
+  max_failures: number
+  run_count: number
+  failure_count: number
+  last_run_at?: string | null
+  last_error?: string | null
+}
+
+export interface SchedulerTemplateJob {
+  job_id: string
+  template_id: string
+  description: string
+  schedule_type: 'interval' | 'cron' | string
+  interval_seconds: number
+  cron?: string | null
+  enabled: boolean
+  timeout_s?: number | null
+  max_failures: number
 }
 
 // ---- Artifacts ----

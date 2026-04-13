@@ -22,16 +22,13 @@ function Shell() {
   function handleLeftSectionChange(section: NavTab) {
     setActiveLeftSection(section)
 
-    // Settings always owns the center pane. Skills opens market in center.
+    // Some tabs intentionally own the center pane.
+    if (section === 'settings' || section === 'skills' || section === 'scheduler') {
+      setActiveTab(section)
+      return
+    }
+
     // Other sections keep center in chat for side-by-side workflows.
-    if (section === 'settings') {
-      setActiveTab('settings')
-      return
-    }
-    if (section === 'skills') {
-      setActiveTab('skills')
-      return
-    }
     setActiveTab('chat')
   }
 
