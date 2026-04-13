@@ -1671,13 +1671,8 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def list_tasks() -> list[TaskSummary]:
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
 
-    @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_read_api_key)])
-    async def get_task(task_id: str) -> TaskDetail:
-        task = runtime.orchestrator.get_task(task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail="Task not found")
-        return TaskDetail(**task)
-
+    # Template routes MUST be registered before /tasks/{task_id} so FastAPI does
+    # not swallow GET /tasks/templates as a parameterised task lookup.
     @app.get("/tasks/templates", response_model=list[TaskTemplate], dependencies=[Depends(require_read_api_key)])
     async def list_task_templates() -> list[TaskTemplate]:
         rows = sorted(_task_templates.values(), key=lambda r: str(r.get("updated_at", "")), reverse=True)
@@ -1747,6 +1742,13 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_id=str(run["task_id"]),
             status=str(run["status"]),
         )
+
+    @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_read_api_key)])
+    async def get_task(task_id: str) -> TaskDetail:
+        task = runtime.orchestrator.get_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return TaskDetail(**task)
 
     def _build_workspace_tree(root: Path, current: Path, max_depth: int = 3) -> list[WorkspaceTreeNode]:
         if max_depth < 0:

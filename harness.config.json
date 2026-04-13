@@ -8,7 +8,7 @@
       "default_budget": {
         "max_steps": 60,
         "max_tokens": 12000,
-        "max_duration_ms": 90000
+        "max_duration_ms": 300000
       }
     },
     "superpowered_mode": {
