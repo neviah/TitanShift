@@ -2776,32 +2776,44 @@ def test_roles_templates_endpoint_returns_superpowered_roles() -> None:
 def test_chat_superpowered_blocks_without_required_approvals() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)
+    approvals_path = Path(".harness/approvals.json")
+    original_approvals: str | None = None
+    if approvals_path.exists():
+        original_approvals = approvals_path.read_text(encoding="utf-8")
+        approvals_path.unlink()
 
-    response = client.post(
-        "/chat",
-        json={
-            "prompt": "Build a new workflow module",
-            "model_backend": "local_stub",
-            "workflow_mode": "superpowered",
-        },
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["success"] is False
-    assert body["mode"] == "approval-gate"
-    assert "Missing approvals" in body["response"]
-    assert body["workflow_mode"] == "superpowered"
-    assert body["missing_approvals"] == ["spec", "plan"]
-    assert "required_skill_chain" in body
+    try:
+        response = client.post(
+            "/chat",
+            json={
+                "prompt": "Build a new workflow module",
+                "model_backend": "local_stub",
+                "workflow_mode": "superpowered",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is False
+        assert body["mode"] == "approval-gate"
+        assert "Missing approvals" in body["response"]
+        assert body["workflow_mode"] == "superpowered"
+        assert body["missing_approvals"] == ["spec", "plan"]
+        assert "required_skill_chain" in body
 
-    tasks = client.get("/tasks")
-    assert tasks.status_code == 200
-    task_id = tasks.json()[0]["task_id"]
-    detail = client.get(f"/tasks/{task_id}")
-    assert detail.status_code == 200
-    output = detail.json()["output"]
-    assert output["workflow_mode"] == "superpowered"
-    assert output["missing_approvals"] == ["spec", "plan"]
+        tasks = client.get("/tasks")
+        assert tasks.status_code == 200
+        task_id = tasks.json()[0]["task_id"]
+        detail = client.get(f"/tasks/{task_id}")
+        assert detail.status_code == 200
+        output = detail.json()["output"]
+        assert output["workflow_mode"] == "superpowered"
+        assert output["missing_approvals"] == ["spec", "plan"]
+    finally:
+        if original_approvals is not None:
+            approvals_path.parent.mkdir(parents=True, exist_ok=True)
+            approvals_path.write_text(original_approvals, encoding="utf-8")
+        elif approvals_path.exists():
+            approvals_path.unlink()
 
 
 def test_chat_superpowered_review_loop_attaches_review_result() -> None:
@@ -2849,6 +2861,10 @@ def test_artifact_lifecycle_approve_and_revoke() -> None:
     spec_file = specs_dir / "smoke-spec.txt"
     plan_file = plans_dir / "smoke-plan.txt"
     approvals_path = Path(".harness/approvals.json")
+    original_approvals: str | None = None
+    if approvals_path.exists():
+        original_approvals = approvals_path.read_text(encoding="utf-8")
+        approvals_path.unlink()
 
     try:
         spec_file.write_text("spec content\n", encoding="utf-8")
@@ -2875,7 +2891,11 @@ def test_artifact_lifecycle_approve_and_revoke() -> None:
     finally:
         spec_file.unlink(missing_ok=True)
         plan_file.unlink(missing_ok=True)
-        approvals_path.unlink(missing_ok=True)
+        if original_approvals is not None:
+            approvals_path.parent.mkdir(parents=True, exist_ok=True)
+            approvals_path.write_text(original_approvals, encoding="utf-8")
+        else:
+            approvals_path.unlink(missing_ok=True)
 
 
 def test_workflow_metrics_endpoint_reports_lightning_and_superpowered() -> None:

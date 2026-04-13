@@ -75,24 +75,6 @@
   transform: scale(var(--super-scale));
 }
 
-.ringTrace {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  border-radius: 999px;
-  border: 1px solid rgba(179, 184, 190, 0.16);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.015) inset,
-    0 0 42px rgba(200, 205, 212, 0.04);
-}
-
-.ringTraceActive {
-  border-color: rgba(255, 92, 92, 0.22);
-  box-shadow:
-    0 0 0 1px rgba(255, 120, 120, 0.04) inset,
-    0 0 46px rgba(255, 60, 60, 0.11);
-}
-
 .node {
   position: absolute;
   min-width: 5.9rem;

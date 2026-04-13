@@ -118,21 +118,38 @@ class CloudOpenAIAdapter:
         for pattern in [
             r'<\|tool_call\|>(.*?)<\|tool_call\|>',
             r'<tool_call>(.*?)</tool_call>',
+            r'<\|tool_call\|>(.*?)<tool_call>',
+            r'<tool_call>(.*?)<\|tool_call\|>',
+            r'<\|tool_call\|>(.*)$',
+            r'<tool_call>(.*)$',
         ]:
             segments.extend(match.group(1).strip() for match in re.finditer(pattern, text, re.DOTALL | re.IGNORECASE))
 
-        if not segments and text.startswith('call:'):
-            segments = [text]
+        if not segments:
+            if 'call:' in text:
+                segments = [text]
+            else:
+                lines = [line.strip() for line in text.splitlines() if line.strip()]
+                segments.extend([line for line in lines if line.lower().startswith('tool_call') or 'call:' in line.lower()])
 
         tool_calls: list[ToolCall] = []
+        seen: set[tuple[str, str]] = set()
         for index, segment in enumerate(segments):
-            match = re.search(r'call:([a-zA-Z0-9_-]+)\((.*)\)', segment, re.DOTALL)
+            match = re.search(r'call:([a-zA-Z0-9_.-]+)\((.*)\)', segment, re.DOTALL)
             if not match:
                 continue
+            raw_name = match.group(1).strip()
+            # Normalize provider-specific dotted names into registry-safe identifiers.
+            normalized_name = raw_name.replace('.', '_')
+            raw_args = match.group(2)
+            identity = (normalized_name, raw_args.strip())
+            if identity in seen:
+                continue
+            seen.add(identity)
             tool_calls.append(ToolCall(
                 id=f'content_call_{index}',
-                name=match.group(1).strip(),
-                arguments=self._parse_loose_arguments(match.group(2)),
+                name=normalized_name,
+                arguments=self._parse_loose_arguments(raw_args),
             ))
         return tool_calls
 

@@ -437,6 +437,18 @@ class Orchestrator:
                 self.config.get("orchestrator.superpowered_mode.require_task_reviews", True)
             ):
                 plan_tasks = task.input.get("plan_tasks", [])
+                if isinstance(plan_tasks, list):
+                    normalized_plan_tasks = [row for row in plan_tasks if isinstance(row, dict)]
+                else:
+                    normalized_plan_tasks = []
+
+                # If approvals are in place but no explicit plan tasks were provided,
+                # seed a default task so Superpowered mode still executes the role chain.
+                if not normalized_plan_tasks:
+                    normalized_plan_tasks = [{"title": task.description[:120] or "Implement requested change"}]
+                    task.input["plan_tasks"] = normalized_plan_tasks
+
+                plan_tasks = normalized_plan_tasks
                 if isinstance(plan_tasks, list) and plan_tasks:
                     if not self.enable_subagents:
                         msg = (

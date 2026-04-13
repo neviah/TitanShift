@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from urllib.parse import quote_plus
 from typing import Any
 
 from harness.model.adapter import ModelRegistry, ModelRequest, ToolCall
@@ -26,6 +27,31 @@ class ReactiveStateMachine:
         self.config = config
         self.tools = tools
         self.skills = skills
+
+    def _normalize_tool_call(self, tool_call: ToolCall) -> ToolCall:
+        name = tool_call.name.strip()
+        args = dict(tool_call.arguments)
+
+        aliases: dict[str, str] = {
+            "web_search_basic": "web_fetch",
+            "web_search": "web_fetch",
+            "search_web": "web_fetch",
+            "browser_search": "web_fetch",
+            "web.browse": "web_fetch",
+        }
+        normalized = aliases.get(name, name)
+
+        if normalized == "web_fetch":
+            if "url" not in args:
+                query = str(args.get("query") or args.get("q") or "").strip()
+                if query:
+                    args["url"] = f"https://duckduckgo.com/html/?q={quote_plus(query)}"
+
+            url = str(args.get("url", "")).strip()
+            if url and not url.startswith(("http://", "https://")):
+                args["url"] = f"https://{url.lstrip('/')}"
+
+        return ToolCall(id=tool_call.id, name=normalized, arguments=args)
 
     async def run_task(self, task: Task) -> TaskResult:
         budget = self._resolve_budget(task)
@@ -125,7 +151,8 @@ class ReactiveStateMachine:
             # LM Studio compatibility note: some model/server combos reject tool-role messages.
             # We therefore feed tool outputs back as plain user context for the next turn.
             tool_result_lines: list[str] = []
-            for tc in response.tool_calls:
+            for raw_tc in response.tool_calls:
+                tc = self._normalize_tool_call(raw_tc)
                 used_tools.append(tc.name)
                 try:
                     result = await self.tools.execute_tool(tc.name, tc.arguments)

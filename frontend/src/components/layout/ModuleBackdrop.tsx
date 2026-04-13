@@ -275,15 +275,6 @@ export function ModuleBackdrop() {
           key={ring.key}
           className={`${styles.ringShell} ${styles[`family-${ring.family}`]}`}
         >
-          <div
-            className={`${styles.ringTrace} ${isActive ? styles.ringTraceActive : ''}`}
-            style={{
-              width: `${ring.radiusX * 2}px`,
-              height: `${ring.radiusY * 2}px`,
-              transform: `translate(-50%, -50%) rotate(${ring.tilt}deg)`,
-            }}
-          />
-
           {ring.nodes.map((node, index) => {
             const baseAngle = (360 / ring.nodes.length) * index
             const progress = ((frameMs / 1000) * (360 / ring.speed) * ring.direction) % 360
