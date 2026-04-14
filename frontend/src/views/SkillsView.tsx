@@ -58,7 +58,7 @@ export function SkillsView() {
       {runtimeLoading && <p className={styles.hint}>Loading runtime skills…</p>}
       {runtimeError && <p className={`${styles.hint} text-error`}>{runtimeError}</p>}
 
-      <div className={styles.section}>
+      <div className={`${styles.section} ${styles.intakeSection}`}>
         <div className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>Add Skill/Tool Repo</h3>
           <p className={styles.sectionHint}>Paste a repository URL and TitanShift will classify and scaffold an install-ready integration skill.</p>
@@ -151,7 +151,7 @@ export function SkillsView() {
         </div>
       </div>
 
-      <div className={styles.section}>
+      <div className={`${styles.section} ${styles.skillsSection}`}>
         <div className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>Installed Skills</h3>
           <p className={styles.sectionHint}>Runtime-available skills in this workspace.</p>

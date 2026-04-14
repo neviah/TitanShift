@@ -2,6 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: var(--bg-surface);
   overflow: hidden;
 }
@@ -47,6 +48,18 @@
   flex-direction: column;
   min-height: 0;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.intakeSection {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.skillsSection {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: none;
 }
 
 .sectionHeader {
@@ -226,6 +239,9 @@
   padding: 10px;
   display: grid;
   gap: 8px;
+  max-height: 36vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .processHeader {
