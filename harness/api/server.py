@@ -135,6 +135,7 @@ from harness.scheduler.module import ScheduledJob
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.types import Task
 from harness.skills.registry import SkillDefinition
+from harness.tools.definitions import ToolDefinition
 
 T = TypeVar("T")
 
@@ -1275,6 +1276,14 @@ def create_app(workspace_root: Path) -> FastAPI:
     repo_intake_manifests = _load_repo_intake_manifests()
     for adapter_record in list(repo_tool_adapters.values()):
         _register_generated_repo_tool(adapter_record)
+        tool_name = str(adapter_record.get("tool_name", "")).strip()
+        if tool_name:
+            runtime.tools.policy.allowed_tool_names.add(tool_name)
+    for manifest in list(repo_intake_manifests.values()):
+        if not isinstance(manifest, dict):
+            continue
+        for tool_name in [str(v) for v in list(manifest.get("generated_tool_ids", [])) if str(v).strip()]:
+            runtime.tools.policy.allowed_tool_names.add(tool_name)
 
     market_registry = _load_market_registry()
     market_installed = _load_market_installed([s.skill_id for s in runtime.skills.list_skills()])
