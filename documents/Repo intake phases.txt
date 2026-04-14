@@ -1,0 +1,36 @@
+TitanShift Repo Intake Phases (Skill/Tool Auto-Onboarding)
+
+Phase 1 - Repo Intake Assistant (Implemented)
+- Add center-pane URL intake form for repo links.
+- Classify repo as skill/tool/both/unknown from metadata signals.
+- Return confidence + process log + notes to user.
+- Auto-install a runtime integration skill scaffold.
+- Persist generated skill entry in local market registry for continuity.
+
+Phase 2 - Adapter Generator (Next)
+- Build tool adapters from detected repo interfaces:
+  - HTTP API adapters
+  - CLI adapters
+  - Python/Node wrapper adapters
+- Generate required tool metadata and sandbox constraints.
+- Auto-link generated tools to the repo integration skill.
+
+Phase 3 - Verification Gate
+- Run install checks and smoke tests after generation.
+- Mark status: ready, degraded, blocked.
+- Surface failures and remediation steps in process log.
+
+Phase 4 - Capability Router
+- Add capability tags to tools (example: browser.dynamic, browser.antibot).
+- Route tasks by capability score instead of hardcoded tool IDs.
+- Implement automatic fallback to next tool candidate on failure.
+
+Phase 5 - Trust and Governance
+- Add allowlist and trust policies for auto-install.
+- Capture intake manifests and version lock files.
+- Add rollback and uninstall consistency checks.
+
+Definition Notes
+- Tool: executable primitive (CLI/API/library wrapper).
+- Skill: workflow wrapper that decides when/how to use tools.
+- If a repo can be both, generate tools first, then generate a skill that orchestrates them.

@@ -394,6 +394,23 @@ class SkillMarketRemoteStatusResponse(BaseModel):
     index_hash: str | None = None
 
 
+class SkillRepoIntakeRequest(BaseModel):
+    repo_url: str = Field(min_length=1)
+    auto_install: bool = True
+
+
+class SkillRepoIntakeResponse(BaseModel):
+    ok: bool
+    repo_url: str
+    repo_name: str
+    classification: str
+    recommended_artifact: str
+    confidence: float
+    installed_skill_id: str | None = None
+    process_log: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class UiMarketOverviewResponse(BaseModel):
     total_listed: int
     installed_count: int

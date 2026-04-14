@@ -112,6 +112,8 @@ from harness.api.schemas import (
     SkillMarketRemoteSyncResponse,
     SkillMarketUpdateRequest,
     SkillMarketUpdateResponse,
+    SkillRepoIntakeRequest,
+    SkillRepoIntakeResponse,
     SkillSummary,
     UiIngestionOverviewResponse,
     UiMarketOverviewResponse,
@@ -694,6 +696,111 @@ def create_app(workspace_root: Path) -> FastAPI:
             if runtime.tools.get_tool(tool_name) is None:
                 missing.append(tool_name)
         return missing
+
+    def _slugify_repo_token(value: str) -> str:
+        token = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower())
+        token = re.sub(r"-+", "-", token).strip("-")
+        return token or "external-repo"
+
+    def _parse_github_owner_repo(repo_url: str) -> tuple[str, str] | None:
+        normalized = repo_url.strip()
+        if normalized.endswith(".git"):
+            normalized = normalized[:-4]
+        match = re.match(r"https?://github\.com/([^/]+)/([^/]+)$", normalized, flags=re.IGNORECASE)
+        if not match:
+            return None
+        return match.group(1), match.group(2)
+
+    async def _fetch_repo_hints(repo_url: str) -> dict[str, Any]:
+        owner_repo = _parse_github_owner_repo(repo_url)
+        if owner_repo is None:
+            return {
+                "repo_name": _slugify_repo_token(repo_url.rsplit("/", 1)[-1]),
+                "description": "",
+                "topics": [],
+                "language": "",
+                "signals": repo_url.lower(),
+            }
+
+        owner, repo = owner_repo
+        api_url = f"https://api.github.com/repos/{owner}/{repo}"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "titanshift-repo-intake",
+        }
+        timeout_s = float(runtime.config.get("skills.repo_intake_timeout_s", 8.0))
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            response = await client.get(api_url, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+
+        topics = [str(v) for v in list(payload.get("topics", [])) if str(v).strip()]
+        description = str(payload.get("description") or "")
+        language = str(payload.get("language") or "")
+        full_name = str(payload.get("full_name") or f"{owner}/{repo}")
+        signals = " ".join(
+            [
+                repo.lower(),
+                description.lower(),
+                language.lower(),
+                " ".join(t.lower() for t in topics),
+            ]
+        )
+        return {
+            "repo_name": full_name,
+            "description": description,
+            "topics": topics,
+            "language": language,
+            "signals": signals,
+        }
+
+    def _classify_repo_artifact(signal_blob: str) -> tuple[str, str, float, list[str]]:
+        tool_terms = [
+            "api",
+            "server",
+            "cli",
+            "browser",
+            "playwright",
+            "selenium",
+            "puppeteer",
+            "crawler",
+            "automation",
+            "sdk",
+        ]
+        skill_terms = [
+            "skill",
+            "prompt",
+            "workflow",
+            "agent",
+            "template",
+            "chain",
+            "orchestrator",
+            "copilot",
+        ]
+
+        tool_hits = [term for term in tool_terms if term in signal_blob]
+        skill_hits = [term for term in skill_terms if term in signal_blob]
+
+        if tool_hits and skill_hits:
+            return "both", "tool+skill", 0.86, [
+                "Repository exposes executable primitives and workflow hints",
+                f"Tool signals: {', '.join(tool_hits[:5])}",
+                f"Skill signals: {', '.join(skill_hits[:5])}",
+            ]
+        if tool_hits:
+            return "tool", "tool", 0.82, [
+                "Repository appears to expose executable capabilities",
+                f"Tool signals: {', '.join(tool_hits[:5])}",
+            ]
+        if skill_hits:
+            return "skill", "skill", 0.74, [
+                "Repository appears workflow/prompt oriented",
+                f"Skill signals: {', '.join(skill_hits[:5])}",
+            ]
+        return "unknown", "skill", 0.51, [
+            "No strong type indicators found",
+            "Defaulting to skill wrapper scaffold for safe onboarding",
+        ]
 
     market_registry = _load_market_registry()
     market_installed = _load_market_installed([s.skill_id for s in runtime.skills.list_skills()])
@@ -2822,6 +2929,105 @@ def create_app(workspace_root: Path) -> FastAPI:
     )
     async def skills_market_remote_status() -> SkillMarketRemoteStatusResponse:
         return _current_market_remote_status()
+
+    @app.post(
+        "/skills/repo-intake",
+        response_model=SkillRepoIntakeResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def skills_repo_intake(body: SkillRepoIntakeRequest) -> SkillRepoIntakeResponse:
+        repo_url = body.repo_url.strip()
+        if not re.match(r"^https?://", repo_url, flags=re.IGNORECASE):
+            raise HTTPException(status_code=400, detail="repo_url must be an absolute http(s) URL")
+
+        process_log: list[str] = [
+            "Phase 1: Validate repository URL",
+            "Phase 2: Fetch repository metadata and classify artifact",
+            "Phase 3: Generate TitanShift integration record",
+        ]
+
+        try:
+            hints = await _fetch_repo_hints(repo_url)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to inspect repository metadata: {exc}") from exc
+
+        repo_name = str(hints.get("repo_name") or "external/repo")
+        signal_blob = str(hints.get("signals") or "").lower()
+        classification, recommended_artifact, confidence, notes = _classify_repo_artifact(signal_blob)
+
+        process_log.append(
+            f"Detected classification={classification}, recommended={recommended_artifact}, confidence={confidence:.2f}"
+        )
+
+        installed_skill_id: str | None = None
+        if body.auto_install:
+            raw_name = repo_name.rsplit("/", 1)[-1]
+            skill_id = f"repo-{_slugify_repo_token(raw_name)}"
+            _validate_skill_id(skill_id)
+
+            existing = market_registry.get(skill_id, {})
+            merged_tags = sorted(
+                {
+                    *[str(v) for v in list(existing.get("tags", []))],
+                    *[str(v) for v in list(hints.get("topics", []))],
+                    "repo-intake",
+                    f"classification:{classification}",
+                }
+            )
+
+            market_item = _normalize_market_item(
+                {
+                    "skill_id": skill_id,
+                    "name": _derive_market_name(skill_id),
+                    "description": (
+                        str(hints.get("description") or "").strip()
+                        or f"Auto-generated integration wrapper for {repo_name}"
+                    ),
+                    "mode": "prompt",
+                    "domain": "integration",
+                    "version": str(existing.get("version", "0.1.0")),
+                    "tags": merged_tags,
+                    "required_tools": [],
+                    "dependencies": [],
+                    "prompt_template": (
+                        "Use this integration for repository-specific tasks. "
+                        "If executable primitives are required, create or map tool adapters first."
+                    ),
+                }
+            )
+
+            market_registry[skill_id] = market_item
+            _save_market_registry(market_registry)
+            runtime.skills.register_skill(_market_to_skill_definition(market_item))
+            market_installed.add(skill_id)
+            _save_market_installed(market_installed)
+            installed_skill_id = skill_id
+            process_log.append(f"Installed runtime skill wrapper: {skill_id}")
+
+            runtime.logger.log(
+                "SKILL_REPO_INTAKE",
+                {
+                    "repo_url": repo_url,
+                    "repo_name": repo_name,
+                    "classification": classification,
+                    "recommended_artifact": recommended_artifact,
+                    "confidence": confidence,
+                    "installed_skill_id": installed_skill_id,
+                    "auto_install": True,
+                },
+            )
+
+        return SkillRepoIntakeResponse(
+            ok=True,
+            repo_url=repo_url,
+            repo_name=repo_name,
+            classification=classification,
+            recommended_artifact=recommended_artifact,
+            confidence=confidence,
+            installed_skill_id=installed_skill_id,
+            process_log=process_log,
+            notes=notes,
+        )
 
     @app.get("/ui/market/overview", response_model=UiMarketOverviewResponse, dependencies=[Depends(require_read_api_key)])
     async def ui_market_overview() -> UiMarketOverviewResponse:

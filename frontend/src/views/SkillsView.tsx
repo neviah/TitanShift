@@ -1,157 +1,161 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { usePolling } from '../hooks/usePolling'
-import { fetchMarketList, fetchRuntimeSkills, installSkill, uninstallSkill } from '../api/client'
-import type { SkillMarketItem } from '../api/types'
+import { fetchRuntimeSkills, intakeSkillRepo } from '../api/client'
+import type { RuntimeSkillSummary, SkillRepoIntakeResponse } from '../api/types'
 import styles from './SkillsView.module.css'
-import { Download, Trash2, Zap, AlertTriangle, Sparkles, Wrench } from 'lucide-react'
+import { Sparkles, Wrench, Link2, Send, Bot } from 'lucide-react'
 
 export function SkillsView() {
-  const { data, loading, error, refresh } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: runtimeData, loading: runtimeLoading, error: runtimeError, refresh: refreshRuntime } = usePolling(fetchRuntimeSkills, { interval: 30000 })
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const builtinSkills = (runtimeData ?? []).filter((skill) => skill.tags.includes('builtin'))
-  const runtimeSkills = (runtimeData ?? []).filter((skill) => !skill.tags.includes('builtin'))
+  const [repoUrl, setRepoUrl] = useState('')
+  const [autoInstall, setAutoInstall] = useState(true)
+  const [intakeBusy, setIntakeBusy] = useState(false)
+  const [intakeError, setIntakeError] = useState<string | null>(null)
+  const [intakeResult, setIntakeResult] = useState<SkillRepoIntakeResponse | null>(null)
 
-  async function handleInstall(skill: SkillMarketItem) {
-    setBusyId(skill.id)
-    try {
-      await installSkill(skill.id)
-      refresh()
-      refreshRuntime()
-    } finally {
-      setBusyId(null)
+  const builtinSkills = useMemo(
+    () => (runtimeData ?? []).filter((skill) => skill.tags.includes('builtin')),
+    [runtimeData],
+  )
+  const runtimeSkills = useMemo(
+    () => (runtimeData ?? []).filter((skill) => !skill.tags.includes('builtin')),
+    [runtimeData],
+  )
+  const allSkills: RuntimeSkillSummary[] = useMemo(
+    () => [...builtinSkills, ...runtimeSkills],
+    [builtinSkills, runtimeSkills],
+  )
+
+  async function handleIntakeSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const trimmed = repoUrl.trim()
+    if (!trimmed) {
+      setIntakeError('Paste a repository URL first.')
+      return
     }
-  }
-
-  async function handleUninstall(skill: SkillMarketItem) {
-    setBusyId(skill.id)
+    setIntakeBusy(true)
+    setIntakeError(null)
     try {
-      await uninstallSkill(skill.id)
-      refresh()
-      refreshRuntime()
+      const result = await intakeSkillRepo(trimmed, autoInstall)
+      setIntakeResult(result)
+      await refreshRuntime()
+    } catch (err) {
+      setIntakeError(err instanceof Error ? err.message : String(err))
+      setIntakeResult(null)
     } finally {
-      setBusyId(null)
+      setIntakeBusy(false)
     }
   }
 
   return (
     <div className={styles.root}>
       <div className={styles.header}>
-        <h2 className={styles.title}>Skills Market</h2>
-        <button className={styles.refreshBtn} onClick={() => { refresh(); refreshRuntime() }}>Refresh</button>
+        <h2 className={styles.title}>Skills Control Center</h2>
+        <button className={styles.refreshBtn} onClick={() => { void refreshRuntime() }}>Refresh</button>
       </div>
 
-      {loading && <p className={styles.hint}>Loading…</p>}
-      {error && <p className={`${styles.hint} text-error`}>{error}</p>}
       {runtimeLoading && <p className={styles.hint}>Loading runtime skills…</p>}
       {runtimeError && <p className={`${styles.hint} text-error`}>{runtimeError}</p>}
 
-      {builtinSkills.length > 0 && (
-        <div className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>Built-In Workflow Skills</h3>
-            <p className={styles.sectionHint}>These are the prompt-injected workflow skills the orchestrator uses internally.</p>
-          </div>
-          <ul className={styles.list}>
-            {builtinSkills.map((skill) => (
-              <li key={skill.skill_id} className={styles.item}>
-                <div className={styles.itemLeft}>
-                  <div className={styles.skillHeader}>
-                    <Sparkles size={14} className="text-accent" />
-                    <span className={styles.skillName}>{skill.skill_id}</span>
-                    <span className="badge badge-ok">builtin</span>
-                    <span className="badge badge-dim">{skill.mode}</span>
-                  </div>
-                  <p className={styles.desc}>{skill.description}</p>
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h3 className={styles.sectionTitle}>Installed Skills</h3>
+          <p className={styles.sectionHint}>Runtime-available skills in this workspace.</p>
+        </div>
+        <ul className={styles.list}>
+          {allSkills.map((skill) => (
+            <li key={skill.skill_id} className={styles.item}>
+              <div className={styles.itemLeft}>
+                <div className={styles.skillHeader}>
+                  {skill.tags.includes('builtin') ? <Sparkles size={14} className="text-accent" /> : <Wrench size={14} className="text-muted" />}
+                  <span className={styles.skillName}>{skill.skill_id}</span>
+                  {skill.tags.includes('builtin') && <span className="badge badge-ok">builtin</span>}
+                  <span className="badge badge-dim">{skill.mode}</span>
+                  <span className="badge badge-dim">{skill.domain}</span>
+                </div>
+                <p className={styles.desc}>{skill.description}</p>
+                {skill.required_tools.length > 0 && (
                   <div className={styles.metaRow}>
                     {skill.required_tools.map((tool) => (
                       <span key={`${skill.skill_id}-${tool}`} className="badge badge-dim">{tool}</span>
                     ))}
                   </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {runtimeSkills.length > 0 && (
-        <div className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>Runtime Skills</h3>
-            <p className={styles.sectionHint}>Registered skills currently available to the harness runtime.</p>
-          </div>
-          <ul className={styles.list}>
-            {runtimeSkills.map((skill) => (
-              <li key={skill.skill_id} className={styles.item}>
-                <div className={styles.itemLeft}>
-                  <div className={styles.skillHeader}>
-                    <Wrench size={14} className="text-muted" />
-                    <span className={styles.skillName}>{skill.skill_id}</span>
-                    <span className="badge badge-dim">{skill.mode}</span>
-                    <span className="badge badge-dim">{skill.domain}</span>
-                  </div>
-                  <p className={styles.desc}>{skill.description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {data && (
-        <div className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>Marketplace Skills</h3>
-            <p className={styles.sectionHint}>Installable skill packages and optional tool-backed extensions.</p>
-          </div>
-        <ul className={styles.list}>
-          {data.map((skill) => (
-            <li key={skill.id} className={styles.item}>
-              <div className={styles.itemLeft}>
-                <div className={styles.skillHeader}>
-                  <Zap size={14} className={skill.installed ? 'text-accent' : 'text-muted'} />
-                  <span className={styles.skillName}>{skill.name}</span>
-                  <span className={`badge badge-dim`}>{skill.version}</span>
-                  {skill.installed && <span className="badge badge-ok">installed</span>}
-                </div>
-                <p className={styles.desc}>{skill.description}</p>
-                {skill.missing_tools.length > 0 && (
-                  <div className={styles.missing}>
-                    <AlertTriangle size={12} />
-                    <span>Missing: {skill.missing_tools.join(', ')}</span>
-                  </div>
-                )}
-              </div>
-              <div className={styles.actions}>
-                {skill.installed ? (
-                  <button
-                    className={`${styles.btn} ${styles.btnDanger}`}
-                    onClick={() => handleUninstall(skill)}
-                    disabled={busyId === skill.id}
-                    title="Uninstall"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                ) : (
-                  <button
-                    className={`${styles.btn} ${styles.btnPrimary}`}
-                    onClick={() => handleInstall(skill)}
-                    disabled={!skill.installable || busyId === skill.id}
-                    title={skill.installable ? 'Install' : 'Missing required tools'}
-                  >
-                    <Download size={13} />
-                  </button>
                 )}
               </div>
             </li>
           ))}
-          {data.length === 0 && (
-            <p className={styles.hint}>No skills in market. Sync a remote source first.</p>
+          {allSkills.length === 0 && (
+            <p className={styles.hint}>No runtime skills found in this workspace.</p>
           )}
         </ul>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h3 className={styles.sectionTitle}>Add Skill/Tool Repo</h3>
+          <p className={styles.sectionHint}>Paste a repository URL and TitanShift will classify and scaffold an install-ready integration skill.</p>
         </div>
-      )}
+
+        <form className={styles.intakeForm} onSubmit={handleIntakeSubmit}>
+          <div className={styles.intakeRow}>
+            <div className={styles.inputWrap}>
+              <Link2 size={14} className="text-muted" />
+              <input
+                type="url"
+                placeholder="https://github.com/owner/repo"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+              />
+            </div>
+            <button className={`${styles.btn} ${styles.btnPrimary} ${styles.submitBtn}`} type="submit" disabled={intakeBusy}>
+              <Send size={13} />
+              {intakeBusy ? 'Processing…' : 'Submit'}
+            </button>
+          </div>
+          <label className={styles.autoInstallRow}>
+            <input
+              type="checkbox"
+              checked={autoInstall}
+              onChange={(e) => setAutoInstall(e.target.checked)}
+            />
+            Auto-install generated integration skill
+          </label>
+        </form>
+
+        {intakeError && <p className={`${styles.hint} text-error`}>{intakeError}</p>}
+
+        <div className={styles.processPanel}>
+          <div className={styles.processHeader}>
+            <Bot size={14} className="text-accent" />
+            <span>Repo Intake Process</span>
+          </div>
+
+          {intakeResult ? (
+            <>
+              <div className={styles.resultMeta}>
+                <span className="badge badge-dim">{intakeResult.classification}</span>
+                <span className="badge badge-dim">recommended: {intakeResult.recommended_artifact}</span>
+                <span className="badge badge-dim">confidence {(intakeResult.confidence * 100).toFixed(0)}%</span>
+                {intakeResult.installed_skill_id && <span className="badge badge-ok">installed: {intakeResult.installed_skill_id}</span>}
+              </div>
+              <ul className={styles.processList}>
+                {intakeResult.process_log.map((line, index) => (
+                  <li key={`line-${index}`}>{line}</li>
+                ))}
+              </ul>
+              {intakeResult.notes.length > 0 && (
+                <ul className={styles.notesList}>
+                  {intakeResult.notes.map((line, index) => (
+                    <li key={`note-${index}`}>{line}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : (
+            <p className={styles.hint}>Submit a repo URL to see classification and install results.</p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

@@ -24,6 +24,7 @@ import type {
   ArtifactApproveResponse,
   WorkflowMetrics,
   RuntimeSkillSummary,
+  SkillRepoIntakeResponse,
 } from './types'
 
 export const API_BASE = '/api'
@@ -176,6 +177,13 @@ export function syncRemoteMarket(source: string): Promise<unknown> {
   return request('/skills/market/remote/sync', {
     method: 'POST',
     body: JSON.stringify({ source, force: true }),
+  }, 'admin')
+}
+
+export function intakeSkillRepo(repo_url: string, auto_install = true): Promise<SkillRepoIntakeResponse> {
+  return request('/skills/repo-intake', {
+    method: 'POST',
+    body: JSON.stringify({ repo_url, auto_install }),
   }, 'admin')
 }
 

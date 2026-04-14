@@ -150,6 +150,7 @@ curl -X POST http://127.0.0.1:8000/skills/market/install -H "Content-Type: appli
 curl -X POST http://127.0.0.1:8000/skills/market/update -H "Content-Type: application/json" -d "{\"skill_id\":\"web-search-basic\"}"
 curl -X POST http://127.0.0.1:8000/skills/market/uninstall -H "Content-Type: application/json" -d "{\"skill_id\":\"web-search-basic\"}"
 curl -X POST http://127.0.0.1:8000/skills/market/remote/sync -H "Content-Type: application/json" -d "{\"source\":\"https://raw.githubusercontent.com/neviah/titanshift_marketplace_index/main/market/index.json\",\"force\":true}"
+curl -X POST http://127.0.0.1:8000/skills/repo-intake -H "Content-Type: application/json" -d "{\"repo_url\":\"https://github.com/jo-inc/camofox-browser\",\"auto_install\":true}"
 curl http://127.0.0.1:8000/skills/market/remote/status
 curl http://127.0.0.1:8000/ui/market/overview
 curl http://127.0.0.1:8000/ui/ingestion/overview
@@ -161,6 +162,7 @@ curl "http://127.0.0.1:8000/tools?query=shell"
 Ranking favors direct query hits, tag overlap, and graph-linked tool overlap from `related_node_id`.
 `/skills/market` returns installability flags and dependency/tool gaps for each listed skill.
 `/skills/market/remote/sync` validates remote index signatures and caches sync status.
+`/skills/repo-intake` classifies a repo link and can auto-install a local integration skill wrapper.
 `/ui/market/overview` and `/ui/ingestion/overview` are UI-oriented summary endpoints for dashboard cards.
 
 Read-only memory inspect API:

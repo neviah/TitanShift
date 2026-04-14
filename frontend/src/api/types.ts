@@ -197,6 +197,18 @@ export interface RuntimeSkillSummary {
   ranking_score?: number
 }
 
+export interface SkillRepoIntakeResponse {
+  ok: boolean
+  repo_url: string
+  repo_name: string
+  classification: string
+  recommended_artifact: string
+  confidence: number
+  installed_skill_id?: string | null
+  process_log: string[]
+  notes: string[]
+}
+
 export interface RoleTemplate {
   role_key: string
   role_name: string
