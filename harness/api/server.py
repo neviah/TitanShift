@@ -1359,17 +1359,18 @@ def create_app(workspace_root: Path) -> FastAPI:
         linked_agent_ids: list[str] = []
         task_detail: TaskDetail | None = None
         agent_summary: AgentSummary | None = None
+        matched_execution_rows: list[dict[str, Any]] = []
 
         if execution_id:
-            execution_rows = runtime.logger.query(
+            matched_execution_rows = runtime.logger.query(
                 event_type="AGENT_SKILL_EXECUTED",
                 execution_id=execution_id,
                 after=after,
                 before=before,
                 limit=1,
             )
-            if execution_rows:
-                execution_payload = dict(execution_rows[-1].get("payload", {}))
+            if matched_execution_rows:
+                execution_payload = dict(matched_execution_rows[-1].get("payload", {}))
                 inferred_agent_id = execution_payload.get("agent_id")
                 if inferred_agent_id and not agent_id:
                     agent_id = str(inferred_agent_id)
@@ -1425,6 +1426,38 @@ def create_app(workspace_root: Path) -> FastAPI:
         module_error_rows: list[dict[str, Any]] = []
         related_event_rows: list[dict[str, Any]] = []
 
+        if requested_execution_scope and execution_id:
+            executions_rows.extend(matched_execution_rows)
+            diagnosis_rows.extend(
+                runtime.logger.query(
+                    event_type="EMERGENCY_DIAGNOSIS",
+                    execution_id=execution_id,
+                    after=after,
+                    before=before,
+                    offset=offset,
+                    limit=clamped_limit,
+                )
+            )
+            module_error_rows.extend(
+                runtime.logger.query(
+                    event_type="MODULE_ERROR",
+                    execution_id=execution_id,
+                    after=after,
+                    before=before,
+                    offset=offset,
+                    limit=clamped_limit,
+                )
+            )
+            related_event_rows.extend(
+                runtime.logger.query(
+                    execution_id=execution_id,
+                    after=after,
+                    before=before,
+                    offset=offset,
+                    limit=clamped_limit,
+                )
+            )
+
         if task_id:
             related_event_rows.extend(
                 runtime.logger.query(task_id=task_id, after=after, before=before, offset=offset, limit=clamped_limit)
@@ -1440,37 +1473,38 @@ def create_app(workspace_root: Path) -> FastAPI:
                 )
             )
 
-        for linked_agent_id in linked_agent_ids:
-            executions_rows.extend(
-                runtime.logger.query(
-                    event_type="AGENT_SKILL_EXECUTED",
-                    agent_id=linked_agent_id,
-                    after=after,
-                    before=before,
-                    offset=offset,
-                    limit=clamped_limit,
+        if not requested_execution_scope:
+            for linked_agent_id in linked_agent_ids:
+                executions_rows.extend(
+                    runtime.logger.query(
+                        event_type="AGENT_SKILL_EXECUTED",
+                        agent_id=linked_agent_id,
+                        after=after,
+                        before=before,
+                        offset=offset,
+                        limit=clamped_limit,
+                    )
                 )
-            )
-            diagnosis_rows.extend(
-                runtime.logger.query(
-                    event_type="EMERGENCY_DIAGNOSIS",
-                    agent_id=linked_agent_id,
-                    after=after,
-                    before=before,
-                    offset=offset,
-                    limit=clamped_limit,
+                diagnosis_rows.extend(
+                    runtime.logger.query(
+                        event_type="EMERGENCY_DIAGNOSIS",
+                        agent_id=linked_agent_id,
+                        after=after,
+                        before=before,
+                        offset=offset,
+                        limit=clamped_limit,
+                    )
                 )
-            )
-            module_error_rows.extend(
-                runtime.logger.query(
-                    event_type="MODULE_ERROR",
-                    agent_id=linked_agent_id,
-                    after=after,
-                    before=before,
-                    offset=offset,
-                    limit=clamped_limit,
+                module_error_rows.extend(
+                    runtime.logger.query(
+                        event_type="MODULE_ERROR",
+                        agent_id=linked_agent_id,
+                        after=after,
+                        before=before,
+                        offset=offset,
+                        limit=clamped_limit,
+                    )
                 )
-            )
 
         if include_fix_executions and execution_id:
             fix_execution_rows.extend(

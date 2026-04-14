@@ -60,39 +60,6 @@ export function SkillsView() {
 
       <div className={styles.section}>
         <div className={styles.sectionHeader}>
-          <h3 className={styles.sectionTitle}>Installed Skills</h3>
-          <p className={styles.sectionHint}>Runtime-available skills in this workspace.</p>
-        </div>
-        <ul className={styles.list}>
-          {allSkills.map((skill) => (
-            <li key={skill.skill_id} className={styles.item}>
-              <div className={styles.itemLeft}>
-                <div className={styles.skillHeader}>
-                  {skill.tags.includes('builtin') ? <Sparkles size={14} className="text-accent" /> : <Wrench size={14} className="text-muted" />}
-                  <span className={styles.skillName}>{skill.skill_id}</span>
-                  {skill.tags.includes('builtin') && <span className="badge badge-ok">builtin</span>}
-                  <span className="badge badge-dim">{skill.mode}</span>
-                  <span className="badge badge-dim">{skill.domain}</span>
-                </div>
-                <p className={styles.desc}>{skill.description}</p>
-                {skill.required_tools.length > 0 && (
-                  <div className={styles.metaRow}>
-                    {skill.required_tools.map((tool) => (
-                      <span key={`${skill.skill_id}-${tool}`} className="badge badge-dim">{tool}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </li>
-          ))}
-          {allSkills.length === 0 && (
-            <p className={styles.hint}>No runtime skills found in this workspace.</p>
-          )}
-        </ul>
-      </div>
-
-      <div className={styles.section}>
-        <div className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>Add Skill/Tool Repo</h3>
           <p className={styles.sectionHint}>Paste a repository URL and TitanShift will classify and scaffold an install-ready integration skill.</p>
         </div>
@@ -182,6 +149,39 @@ export function SkillsView() {
             <p className={styles.hint}>Submit a repo URL to see classification and install results.</p>
           )}
         </div>
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h3 className={styles.sectionTitle}>Installed Skills</h3>
+          <p className={styles.sectionHint}>Runtime-available skills in this workspace.</p>
+        </div>
+        <ul className={styles.list}>
+          {allSkills.map((skill) => (
+            <li key={skill.skill_id} className={styles.item}>
+              <div className={styles.itemLeft}>
+                <div className={styles.skillHeader}>
+                  {skill.tags.includes('builtin') ? <Sparkles size={14} className="text-accent" /> : <Wrench size={14} className="text-muted" />}
+                  <span className={styles.skillName}>{skill.skill_id}</span>
+                  {skill.tags.includes('builtin') && <span className="badge badge-ok">builtin</span>}
+                  <span className="badge badge-dim">{skill.mode}</span>
+                  <span className="badge badge-dim">{skill.domain}</span>
+                </div>
+                <p className={styles.desc}>{skill.description}</p>
+                {skill.required_tools.length > 0 && (
+                  <div className={styles.metaRow}>
+                    {skill.required_tools.map((tool) => (
+                      <span key={`${skill.skill_id}-${tool}`} className="badge badge-dim">{tool}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+          {allSkills.length === 0 && (
+            <p className={styles.hint}>No runtime skills found in this workspace.</p>
+          )}
+        </ul>
       </div>
     </div>
   )
