@@ -137,12 +137,22 @@ export function SkillsView() {
                 <span className="badge badge-dim">recommended: {intakeResult.recommended_artifact}</span>
                 <span className="badge badge-dim">confidence {(intakeResult.confidence * 100).toFixed(0)}%</span>
                 {intakeResult.installed_skill_id && <span className="badge badge-ok">installed: {intakeResult.installed_skill_id}</span>}
+                {(intakeResult.generated_tool_ids ?? []).length > 0 && (
+                  <span className="badge badge-ok">tools: {(intakeResult.generated_tool_ids ?? []).length}</span>
+                )}
               </div>
               <ul className={styles.processList}>
                 {intakeResult.process_log.map((line, index) => (
                   <li key={`line-${index}`}>{line}</li>
                 ))}
               </ul>
+              {(intakeResult.generated_tool_ids ?? []).length > 0 && (
+                <ul className={styles.notesList}>
+                  {(intakeResult.generated_tool_ids ?? []).map((toolId, index) => (
+                    <li key={`tool-${index}`}>Generated tool: {toolId}</li>
+                  ))}
+                </ul>
+              )}
               {intakeResult.notes.length > 0 && (
                 <ul className={styles.notesList}>
                   {intakeResult.notes.map((line, index) => (

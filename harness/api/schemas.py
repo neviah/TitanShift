@@ -407,6 +407,8 @@ class SkillRepoIntakeResponse(BaseModel):
     recommended_artifact: str
     confidence: float
     installed_skill_id: str | None = None
+    generated_tool_ids: list[str] = Field(default_factory=list)
+    generated_adapters: list[dict[str, Any]] = Field(default_factory=list)
     process_log: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 

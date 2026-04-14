@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import os
 import re
+import shlex
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -801,6 +803,331 @@ def create_app(workspace_root: Path) -> FastAPI:
             "No strong type indicators found",
             "Defaulting to skill wrapper scaffold for safe onboarding",
         ]
+
+    def _repo_tool_adapters_path() -> Path:
+        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        return storage_root / str(runtime.config.get("skills.repo_tool_adapters_file", "repo_tool_adapters.json"))
+
+    def _load_repo_tool_adapters() -> dict[str, dict[str, Any]]:
+        path = _repo_tool_adapters_path()
+        if not path.exists():
+            return {}
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        if not isinstance(loaded, list):
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for row in loaded:
+            if not isinstance(row, dict):
+                continue
+            tool_name = str(row.get("tool_name", "")).strip()
+            if not tool_name:
+                continue
+            out[tool_name] = row
+        return out
+
+    def _save_repo_tool_adapters(registry: dict[str, dict[str, Any]]) -> None:
+        path = _repo_tool_adapters_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = [registry[k] for k in sorted(registry.keys())]
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    async def _fetch_github_file_text(owner: str, repo: str, rel_path: str) -> str:
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{rel_path}"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "titanshift-repo-intake",
+        }
+        timeout_s = float(runtime.config.get("skills.repo_intake_timeout_s", 8.0))
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            response = await client.get(api_url, headers=headers)
+            if response.status_code == 404:
+                return ""
+            response.raise_for_status()
+            payload = response.json()
+        encoded = str(payload.get("content") or "")
+        if not encoded:
+            return ""
+        try:
+            return base64.b64decode(encoded).decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    async def _fetch_github_readme_text(owner: str, repo: str) -> str:
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "titanshift-repo-intake",
+        }
+        timeout_s = float(runtime.config.get("skills.repo_intake_timeout_s", 8.0))
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            response = await client.get(api_url, headers=headers)
+            if response.status_code == 404:
+                return ""
+            response.raise_for_status()
+            payload = response.json()
+        encoded = str(payload.get("content") or "")
+        if not encoded:
+            return ""
+        try:
+            return base64.b64decode(encoded).decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    async def _detect_repo_adapters(repo_url: str) -> tuple[list[dict[str, Any]], list[str]]:
+        owner_repo = _parse_github_owner_repo(repo_url)
+        if owner_repo is None:
+            return [], ["Adapter detection currently supports GitHub repository URLs."]
+
+        owner, repo = owner_repo
+        readme_text = await _fetch_github_readme_text(owner, repo)
+        package_json_text = await _fetch_github_file_text(owner, repo, "package.json")
+        pyproject_text = await _fetch_github_file_text(owner, repo, "pyproject.toml")
+        setup_py_text = await _fetch_github_file_text(owner, repo, "setup.py")
+
+        notes: list[str] = []
+        adapters: list[dict[str, Any]] = []
+        repo_slug = _slugify_repo_token(repo)
+
+        package_json: dict[str, Any] = {}
+        if package_json_text.strip():
+            try:
+                parsed = json.loads(package_json_text)
+                if isinstance(parsed, dict):
+                    package_json = parsed
+            except json.JSONDecodeError:
+                notes.append("Could not parse package.json; continuing with README/text heuristics.")
+
+        readme_lower = readme_text.lower()
+        deps: dict[str, Any] = {}
+        if package_json:
+            raw_deps = dict(package_json.get("dependencies", {}))
+            raw_deps.update(dict(package_json.get("devDependencies", {})))
+            deps = {str(k).lower(): v for k, v in raw_deps.items()}
+
+        http_signals = [
+            "fastapi",
+            "flask",
+            "django",
+            "express",
+            "fastify",
+            "koa",
+            "hono",
+            "rest api",
+            "localhost:",
+            "/health",
+            "api server",
+        ]
+        has_http = any(sig in readme_lower for sig in http_signals) or any(
+            dep in deps for dep in ["express", "fastify", "koa", "hono", "axios", "fastapi", "flask"]
+        )
+
+        default_port = "9377"
+        port_match = re.search(r"localhost:(\d{2,5})", readme_lower)
+        if port_match:
+            default_port = port_match.group(1)
+        default_base_url = f"http://127.0.0.1:{default_port}"
+
+        if has_http:
+            adapters.append(
+                {
+                    "tool_name": f"repo_{repo_slug}_http_request",
+                    "adapter_type": "http",
+                    "repo_url": repo_url,
+                    "repo_name": f"{owner}/{repo}",
+                    "description": f"Generated HTTP adapter for {owner}/{repo}",
+                    "base_url": default_base_url,
+                    "default_path": "/health",
+                }
+            )
+
+        cli_signals = ["cli", "command", "terminal", "usage", "npm run", "python -m"]
+        has_cli = any(sig in readme_lower for sig in cli_signals)
+        package_bin = package_json.get("bin") if isinstance(package_json.get("bin"), (str, dict)) else None
+        py_scripts_match = "[project.scripts]" in pyproject_text.lower() or "console_scripts" in pyproject_text.lower()
+        has_cli = has_cli or bool(package_bin) or py_scripts_match
+
+        cli_hint = ""
+        if isinstance(package_bin, str):
+            cli_hint = str(package_bin)
+        elif isinstance(package_bin, dict) and package_bin:
+            cli_hint = str(next(iter(package_bin.keys())))
+        elif py_scripts_match:
+            py_match = re.search(r"\[project\.scripts\]\s*([\s\S]{0,400})", pyproject_text, flags=re.IGNORECASE)
+            if py_match:
+                first_line = next((ln.strip() for ln in py_match.group(1).splitlines() if "=" in ln), "")
+                cli_hint = first_line.split("=", 1)[0].strip()
+
+        if has_cli:
+            adapters.append(
+                {
+                    "tool_name": f"repo_{repo_slug}_cli_command",
+                    "adapter_type": "cli",
+                    "repo_url": repo_url,
+                    "repo_name": f"{owner}/{repo}",
+                    "description": f"Generated CLI adapter for {owner}/{repo}",
+                    "command_hint": cli_hint,
+                }
+            )
+            if not cli_hint:
+                notes.append("CLI adapter generated without a stable command hint; provide command at call time.")
+
+        has_library = False
+        if package_json:
+            has_library = bool(package_json.get("main") or package_json.get("exports") or package_json.get("module"))
+        if "[project]" in pyproject_text.lower() or "setup(" in setup_py_text.lower():
+            has_library = True
+
+        if has_library:
+            adapters.append(
+                {
+                    "tool_name": f"repo_{repo_slug}_library_info",
+                    "adapter_type": "library",
+                    "repo_url": repo_url,
+                    "repo_name": f"{owner}/{repo}",
+                    "description": f"Generated library metadata tool for {owner}/{repo}",
+                    "language_hint": "python" if pyproject_text.strip() else "node",
+                }
+            )
+
+        if not adapters:
+            notes.append("No concrete executable interface detected; generated skill wrapper only.")
+        return adapters, notes
+
+    def _register_generated_repo_tool(record: dict[str, Any]) -> None:
+        tool_name = str(record.get("tool_name", "")).strip()
+        adapter_type = str(record.get("adapter_type", "")).strip().lower()
+        if not tool_name or not adapter_type:
+            return
+
+        if adapter_type == "http":
+            base_url = str(record.get("base_url", "")).strip() or "http://127.0.0.1:8000"
+            default_path = str(record.get("default_path", "/health")).strip() or "/health"
+            description = str(record.get("description", "Generated HTTP adapter"))
+
+            async def _http_handler(args: dict[str, Any], *, _base_url: str = base_url, _default_path: str = default_path) -> dict[str, Any]:
+                method = str(args.get("method", "GET")).strip().upper()
+                if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+                    raise ValueError("method must be one of GET, POST, PUT, PATCH, DELETE")
+                path = str(args.get("path", _default_path)).strip() or _default_path
+                if not path.startswith("/"):
+                    path = f"/{path}"
+                endpoint = f"{str(args.get('base_url', _base_url)).rstrip('/')}{path}"
+                query = args.get("query") if isinstance(args.get("query"), dict) else None
+                headers = args.get("headers") if isinstance(args.get("headers"), dict) else None
+                body = args.get("body")
+                timeout_s = float(args.get("timeout_s", 20.0))
+                max_chars = int(args.get("max_chars", 4000))
+                async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
+                    response = await client.request(method, endpoint, params=query, headers=headers, json=body)
+                text = response.text
+                return {
+                    "ok": response.status_code < 400,
+                    "status_code": response.status_code,
+                    "url": str(response.url),
+                    "body": text[:max_chars],
+                    "truncated": len(text) > max_chars,
+                }
+
+            runtime.tools.register_tool(
+                ToolDefinition(
+                    name=tool_name,
+                    description=description,
+                    needs_network=True,
+                    handler=_http_handler,
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "method": {"type": "string", "description": "GET|POST|PUT|PATCH|DELETE"},
+                            "path": {"type": "string", "description": "Endpoint path such as /health or /tabs"},
+                            "base_url": {"type": "string", "description": f"Override base URL (default {base_url})"},
+                            "query": {"type": "object", "description": "Optional query parameters"},
+                            "headers": {"type": "object", "description": "Optional request headers"},
+                            "body": {"description": "Optional JSON body"},
+                            "timeout_s": {"type": "number"},
+                            "max_chars": {"type": "integer"},
+                        },
+                    },
+                )
+            )
+            return
+
+        if adapter_type == "cli":
+            command_hint = str(record.get("command_hint", "")).strip()
+            description = str(record.get("description", "Generated CLI adapter"))
+
+            async def _cli_handler(args: dict[str, Any], *, _command_hint: str = command_hint) -> dict[str, Any]:
+                raw = str(args.get("command", "")).strip() or _command_hint
+                if not raw:
+                    raise ValueError("command is required (no command hint stored for this adapter)")
+                parts = shlex.split(raw, posix=False)
+                command = parts[0]
+                cmd_args = [str(p) for p in parts[1:]]
+                timeout_s = int(args.get("timeout_s", 60))
+                cwd = str(args.get("cwd", "")).strip() or None
+                try:
+                    result = await runtime.execution.run_command(command, *cmd_args, timeout_s=timeout_s, cwd=cwd)
+                except Exception as exc:
+                    return {"ok": False, "error": str(exc)}
+                return {
+                    "ok": result.returncode == 0,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "truncated": result.truncated,
+                }
+
+            runtime.tools.register_tool(
+                ToolDefinition(
+                    name=tool_name,
+                    description=description,
+                    required_commands=[command_hint] if command_hint else [],
+                    handler=_cli_handler,
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string", "description": "CLI command string (defaults to detected command hint)"},
+                            "cwd": {"type": "string", "description": "Optional working directory"},
+                            "timeout_s": {"type": "integer"},
+                        },
+                    },
+                )
+            )
+            return
+
+        if adapter_type == "library":
+            description = str(record.get("description", "Generated library info adapter"))
+            language_hint = str(record.get("language_hint", "unknown"))
+
+            async def _library_handler(args: dict[str, Any], *, _language_hint: str = language_hint) -> dict[str, Any]:
+                return {
+                    "ok": True,
+                    "repo": str(record.get("repo_name", "")),
+                    "adapter_type": "library",
+                    "language_hint": _language_hint,
+                    "message": "Library adapter scaffold created. Generate concrete callable wrappers for specific functions next.",
+                    "requested": args,
+                }
+
+            runtime.tools.register_tool(
+                ToolDefinition(
+                    name=tool_name,
+                    description=description,
+                    handler=_library_handler,
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "description": "Optional action hint for future library wrapper steps"},
+                        },
+                    },
+                )
+            )
+
+    repo_tool_adapters = _load_repo_tool_adapters()
+    for adapter_record in list(repo_tool_adapters.values()):
+        _register_generated_repo_tool(adapter_record)
 
     market_registry = _load_market_registry()
     market_installed = _load_market_installed([s.skill_id for s in runtime.skills.list_skills()])
@@ -2943,7 +3270,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         process_log: list[str] = [
             "Phase 1: Validate repository URL",
             "Phase 2: Fetch repository metadata and classify artifact",
-            "Phase 3: Generate TitanShift integration record",
+            "Phase 3: Detect executable interfaces and scaffold adapters",
+            "Phase 4: Generate TitanShift integration record",
         ]
 
         try:
@@ -2958,6 +3286,17 @@ def create_app(workspace_root: Path) -> FastAPI:
         process_log.append(
             f"Detected classification={classification}, recommended={recommended_artifact}, confidence={confidence:.2f}"
         )
+
+        try:
+            detected_adapters, detection_notes = await _detect_repo_adapters(repo_url)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to inspect repository files for adapters: {exc}") from exc
+        notes = notes + detection_notes
+        generated_tool_ids = [str(a.get("tool_name", "")) for a in detected_adapters if str(a.get("tool_name", "")).strip()]
+        if generated_tool_ids:
+            process_log.append(f"Generated adapter scaffolds: {', '.join(generated_tool_ids)}")
+        else:
+            process_log.append("No concrete adapters generated for this repo.")
 
         installed_skill_id: str | None = None
         if body.auto_install:
@@ -2987,7 +3326,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                     "domain": "integration",
                     "version": str(existing.get("version", "0.1.0")),
                     "tags": merged_tags,
-                    "required_tools": [],
+                    "required_tools": generated_tool_ids,
                     "dependencies": [],
                     "prompt_template": (
                         "Use this integration for repository-specific tasks. "
@@ -3004,6 +3343,30 @@ def create_app(workspace_root: Path) -> FastAPI:
             installed_skill_id = skill_id
             process_log.append(f"Installed runtime skill wrapper: {skill_id}")
 
+            if generated_tool_ids:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                for adapter in detected_adapters:
+                    tool_name = str(adapter.get("tool_name", "")).strip()
+                    if not tool_name:
+                        continue
+                    adapter_record = dict(adapter)
+                    adapter_record["generated_at"] = now_iso
+                    repo_tool_adapters[tool_name] = adapter_record
+                    _register_generated_repo_tool(adapter_record)
+                    runtime.tools.policy.allowed_tool_names.add(tool_name)
+                _save_repo_tool_adapters(repo_tool_adapters)
+                process_log.append(f"Registered {len(generated_tool_ids)} generated tools in runtime and allowlist")
+                blocked_tools: list[str] = []
+                for tool_name in generated_tool_ids:
+                    tool = runtime.tools.get_tool(tool_name)
+                    if tool is None:
+                        continue
+                    allowed, reason = runtime.tools.preview_policy(tool)
+                    if not allowed:
+                        blocked_tools.append(f"{tool_name} ({reason})")
+                if blocked_tools:
+                    notes.append("Generated tools require policy updates before use: " + ", ".join(blocked_tools))
+
             runtime.logger.log(
                 "SKILL_REPO_INTAKE",
                 {
@@ -3013,6 +3376,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                     "recommended_artifact": recommended_artifact,
                     "confidence": confidence,
                     "installed_skill_id": installed_skill_id,
+                    "generated_tool_ids": generated_tool_ids,
                     "auto_install": True,
                 },
             )
@@ -3025,6 +3389,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             recommended_artifact=recommended_artifact,
             confidence=confidence,
             installed_skill_id=installed_skill_id,
+            generated_tool_ids=generated_tool_ids,
+            generated_adapters=detected_adapters,
             process_log=process_log,
             notes=notes,
         )

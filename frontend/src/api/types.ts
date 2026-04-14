@@ -205,6 +205,8 @@ export interface SkillRepoIntakeResponse {
   recommended_artifact: string
   confidence: number
   installed_skill_id?: string | null
+  generated_tool_ids?: string[]
+  generated_adapters?: Array<Record<string, unknown>>
   process_log: string[]
   notes: string[]
 }
