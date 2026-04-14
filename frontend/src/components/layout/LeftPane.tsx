@@ -33,7 +33,7 @@ import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
 import {
   approveArtifact,
-  deleteSchedulerTemplateJob,
+  deleteSchedulerTaskStack,
   fetchArtifacts,
   fetchConfig,
   fetchLogs,
@@ -41,7 +41,7 @@ import {
   fetchMemorySummary,
   fetchRoleTemplates,
   fetchSchedulerJobs,
-  fetchSchedulerTemplateJobs,
+  fetchSchedulerTaskStacks,
   fetchTaskDetail,
   fetchTasks,
   fetchTools,
@@ -55,7 +55,7 @@ import {
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
 import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
-import type { ArtifactFile, RoleTemplate, SchedulerJob, SchedulerTemplateJob, TaskDetail, WorkflowMetrics, WorkspaceTreeNode } from '../../api/types'
+import type { ArtifactFile, RoleTemplate, SchedulerJob, SchedulerTaskStackJob, TaskDetail, WorkflowMetrics, WorkspaceTreeNode } from '../../api/types'
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : []
@@ -125,7 +125,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
   const { data: roleTemplatesData } = usePolling(fetchRoleTemplates, { interval: 30000 })
   const { data: schedulerJobsData, refresh: refreshSchedulerJobs } = usePolling(fetchSchedulerJobs, { interval: 5000 })
-  const { data: schedulerTemplateJobsData, refresh: refreshSchedulerTemplateJobs } = usePolling(fetchSchedulerTemplateJobs, { interval: 5000 })
+  const { data: schedulerTaskStacksData, refresh: refreshSchedulerTaskStacks } = usePolling(fetchSchedulerTaskStacks, { interval: 5000 })
   const { data: artifactsData, refresh: refreshArtifacts } = usePolling(fetchArtifacts, { interval: 15000 })
   const { data: metricsData } = usePolling(fetchWorkflowMetrics, { interval: 15000 })
   const [artifactBusy, setArtifactBusy] = useState<string | null>(null)
@@ -178,8 +178,8 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const activeTools = activeToolsByWorkspace[currentWorkspaceId] ?? {}
   const roleTemplates: RoleTemplate[] = roleTemplatesData ?? []
   const schedulerJobs: SchedulerJob[] = schedulerJobsData ?? []
-  const schedulerTemplateJobs: SchedulerTemplateJob[] = schedulerTemplateJobsData ?? []
-  const schedulerTemplateJobIds = useMemo(() => new Set(schedulerTemplateJobs.map((j) => j.job_id)), [schedulerTemplateJobs])
+  const schedulerTaskStacks: SchedulerTaskStackJob[] = schedulerTaskStacksData ?? []
+  const schedulerTaskStackIds = useMemo(() => new Set(schedulerTaskStacks.map((j) => j.job_id)), [schedulerTaskStacks])
   const artifacts: ArtifactFile[] = artifactsData ?? []
   const workflowMetrics: WorkflowMetrics | null = metricsData ?? null
   const latestTask = tasks[0] ?? null
@@ -354,7 +354,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       await setSchedulerJobEnabled(job.job_id, !job.enabled)
       await triggerSchedulerTick().catch(() => undefined)
       await refreshSchedulerJobs()
-      await refreshSchedulerTemplateJobs()
+      await refreshSchedulerTaskStacks()
     } finally {
       setSchedulerBusyId(null)
     }
@@ -363,9 +363,9 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   async function deleteSchedulerBinding(jobId: string) {
     setSchedulerBusyId(jobId)
     try {
-      await deleteSchedulerTemplateJob(jobId)
+      await deleteSchedulerTaskStack(jobId)
       await refreshSchedulerJobs()
-      await refreshSchedulerTemplateJobs()
+      await refreshSchedulerTaskStacks()
     } finally {
       setSchedulerBusyId(null)
     }
@@ -807,7 +807,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                     >
                       {job.enabled ? <Pause size={13} /> : <Play size={13} />}
                     </button>
-                    {schedulerTemplateJobIds.has(job.job_id) && (
+                    {schedulerTaskStackIds.has(job.job_id) && (
                       <button
                         type="button"
                         className={styles.actionBtn}

@@ -9,6 +9,7 @@ import type {
   TaskDetail,
   TaskTemplate,
   SchedulerJob,
+  SchedulerTaskStackJob,
   SchedulerTemplateJob,
   WorkspaceTreeNode,
   WorkspaceFileResponse,
@@ -213,6 +214,40 @@ export function fetchSchedulerJobs(): Promise<SchedulerJob[]> {
 
 export function fetchSchedulerTemplateJobs(): Promise<SchedulerTemplateJob[]> {
   return request('/scheduler/template-jobs')
+}
+
+export function fetchSchedulerTaskStacks(): Promise<SchedulerTaskStackJob[]> {
+  return request('/scheduler/task-stacks')
+}
+
+export function createSchedulerTaskStack(body: {
+  task_ids: string[]
+  job_id?: string
+  description?: string
+  schedule_type: 'interval' | 'cron'
+  interval_seconds?: number
+  cron?: string
+  enabled?: boolean
+  timeout_s?: number
+  max_failures?: number
+  model_backend?: string
+  workflow_mode?: 'lightning' | 'superpowered'
+  budget?: {
+    max_steps?: number
+    max_tokens?: number
+    max_duration_ms?: number
+  }
+}): Promise<{ ok: boolean; job_id: string; task_count: number }> {
+  return request('/scheduler/task-stacks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, 'admin')
+}
+
+export function deleteSchedulerTaskStack(jobId: string): Promise<{ ok: boolean; job_id: string; deleted: boolean }> {
+  return request(`/scheduler/task-stacks/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  }, 'admin')
 }
 
 export function createSchedulerTemplateJob(body: {

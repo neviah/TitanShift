@@ -266,6 +266,29 @@ export interface SchedulerTemplateJob {
   max_failures: number
 }
 
+export interface SchedulerTaskStackJob {
+  job_id: string
+  description: string
+  schedule_type: 'interval' | 'cron' | string
+  interval_seconds: number
+  cron?: string | null
+  enabled: boolean
+  timeout_s?: number | null
+  max_failures: number
+  model_backend?: string | null
+  workflow_mode?: string | null
+  budget?: {
+    max_steps?: number
+    max_tokens?: number
+    max_duration_ms?: number
+    [key: string]: unknown
+  }
+  steps: Array<{
+    source_task_id: string
+    description: string
+  }>
+}
+
 // ---- Artifacts ----
 
 export interface ArtifactFile {

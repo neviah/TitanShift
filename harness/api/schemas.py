@@ -107,6 +107,47 @@ class SchedulerTemplateJob(BaseModel):
     max_failures: int
 
 
+class SchedulerTaskStackStep(BaseModel):
+    source_task_id: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+
+
+class SchedulerTaskStackJobCreateRequest(BaseModel):
+    task_ids: list[str] = Field(min_length=1)
+    job_id: str | None = None
+    description: str | None = None
+    schedule_type: str = "interval"
+    interval_seconds: int = Field(default=60, ge=1)
+    cron: str | None = None
+    enabled: bool = True
+    timeout_s: float | None = None
+    max_failures: int = Field(default=3, ge=1)
+    model_backend: str | None = None
+    workflow_mode: str | None = None
+    budget: BudgetOverride | None = None
+
+
+class SchedulerTaskStackJobCreateResponse(BaseModel):
+    ok: bool
+    job_id: str
+    task_count: int
+
+
+class SchedulerTaskStackJob(BaseModel):
+    job_id: str
+    description: str
+    schedule_type: str
+    interval_seconds: int
+    cron: str | None = None
+    enabled: bool
+    timeout_s: float | None = None
+    max_failures: int
+    model_backend: str | None = None
+    workflow_mode: str | None = None
+    budget: dict[str, object] = Field(default_factory=dict)
+    steps: list[SchedulerTaskStackStep] = Field(default_factory=list)
+
+
 class TaskSummary(BaseModel):
     task_id: str
     description: str

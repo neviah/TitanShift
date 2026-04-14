@@ -83,6 +83,9 @@ from harness.api.schemas import (
     RunHistoryVerifyResponse,
     SchedulerJobToggleRequest,
     SchedulerJobToggleResponse,
+    SchedulerTaskStackJob,
+    SchedulerTaskStackJobCreateRequest,
+    SchedulerTaskStackJobCreateResponse,
     SchedulerTemplateJob,
     SchedulerTemplateJobCreateRequest,
     SchedulerTemplateJobCreateResponse,
@@ -141,6 +144,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     _active_workspace: dict[str, Path] = {"root": workspace_root}
     _task_templates: dict[str, dict[str, Any]] = {}
     _scheduled_template_jobs: dict[str, dict[str, Any]] = {}
+    _scheduled_task_stack_jobs: dict[str, dict[str, Any]] = {}
     _scheduler_loop_task: asyncio.Task[None] | None = None
     _scheduler_loop_stop: asyncio.Event = asyncio.Event()
 
@@ -1345,6 +1349,9 @@ def create_app(workspace_root: Path) -> FastAPI:
     def _scheduled_template_jobs_path() -> Path:
         return _storage_root() / "scheduled_template_jobs.json"
 
+    def _scheduled_task_stack_jobs_path() -> Path:
+        return _storage_root() / "scheduled_task_stack_jobs.json"
+
     def _save_task_templates() -> None:
         path = _task_templates_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1401,6 +1408,35 @@ def create_app(workspace_root: Path) -> FastAPI:
             if not job_id or not template_id:
                 continue
             _scheduled_template_jobs[job_id] = row
+
+    def _save_scheduled_task_stack_jobs() -> None:
+        path = _scheduled_task_stack_jobs_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "jobs": sorted(_scheduled_task_stack_jobs.values(), key=lambda x: str(x.get("job_id", ""))),
+        }
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _load_scheduled_task_stack_jobs() -> None:
+        _scheduled_task_stack_jobs.clear()
+        path = _scheduled_task_stack_jobs_path()
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        rows = payload.get("jobs", []) if isinstance(payload, dict) else []
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            job_id = str(row.get("job_id", "")).strip()
+            steps = row.get("steps", [])
+            if not job_id or not isinstance(steps, list) or not steps:
+                continue
+            _scheduled_task_stack_jobs[job_id] = row
 
     def _normalize_required_tools(tools: list[str] | None) -> list[str]:
         if not tools:
@@ -1529,10 +1565,76 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
         )
 
+    def _register_task_stack_job_from_record(record: dict[str, Any]) -> None:
+        job_id = str(record.get("job_id", "")).strip()
+        steps = record.get("steps", [])
+        if not job_id or not isinstance(steps, list) or not steps:
+            raise ValueError("job_id and at least one step are required")
+
+        async def _execute_task_stack_job() -> None:
+            for index, step in enumerate(steps, start=1):
+                if not isinstance(step, dict):
+                    raise RuntimeError(f"invalid step payload at position {index}")
+                description = str(step.get("description", "")).strip()
+                source_task_id = str(step.get("source_task_id", "")).strip()
+                if not description:
+                    raise RuntimeError(f"step {index} has no description")
+
+                task_input: dict[str, Any] = {
+                    "model_backend": str(record.get("model_backend") or runtime.config.get("model.default_backend", "local_stub")),
+                    "workflow_mode": str(record.get("workflow_mode") or "lightning"),
+                    "workspace_root": str(_active_workspace["root"]).replace("\\", "/"),
+                }
+                budget = record.get("budget")
+                if isinstance(budget, dict) and budget:
+                    task_input["budget"] = budget
+
+                run_task = Task(
+                    id=f"{job_id}:step-{index}:{uuid.uuid4().hex[:8]}",
+                    description=description,
+                    input=task_input,
+                )
+                result = await runtime.orchestrator.run_reactive_task(run_task)
+                runtime.logger.log(
+                    "SCHEDULER_TASK_STACK_STEP",
+                    {
+                        "job_id": job_id,
+                        "step_index": index,
+                        "source_task_id": source_task_id,
+                        "description": description[:200],
+                        "success": result.success,
+                        "task_id": run_task.id,
+                        "error": result.error,
+                    },
+                )
+                if not result.success:
+                    raise RuntimeError(f"Task stack job failed at step {index}: {result.error or 'unknown error'}")
+
+        runtime.scheduler.register_job(
+            ScheduledJob(
+                job_id=job_id,
+                description=str(record.get("description", f"Run task stack {job_id}")),
+                schedule_type=str(record.get("schedule_type", "interval")),
+                interval_seconds=max(1, int(record.get("interval_seconds", 60))),
+                cron=str(record.get("cron")) if record.get("cron") else None,
+                enabled=bool(record.get("enabled", True)),
+                timeout_s=float(record["timeout_s"]) if record.get("timeout_s") is not None else None,
+                max_failures=max(1, int(record.get("max_failures", 3))),
+                callback=_execute_task_stack_job,
+            )
+        )
+
     def _rehydrate_template_scheduler_jobs() -> None:
         for record in _scheduled_template_jobs.values():
             try:
                 _register_template_job_from_record(record)
+            except Exception:
+                continue
+
+    def _rehydrate_task_stack_scheduler_jobs() -> None:
+        for record in _scheduled_task_stack_jobs.values():
+            try:
+                _register_task_stack_job_from_record(record)
             except Exception:
                 continue
 
@@ -1596,10 +1698,12 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     _load_task_templates()
     _load_scheduled_template_jobs()
+    _load_scheduled_task_stack_jobs()
 
     if bool(runtime.config.get("scheduler.enable_maintenance_jobs", False)):
         _register_maintenance_jobs()
     _rehydrate_template_scheduler_jobs()
+    _rehydrate_task_stack_scheduler_jobs()
 
     async def _resolve_model_connection() -> tuple[bool, str]:
         backend = str(runtime.config.get("model.default_backend", "local_stub"))
@@ -2281,6 +2385,66 @@ def create_app(workspace_root: Path) -> FastAPI:
         existed = _scheduled_template_jobs.pop(job_id, None)
         runtime.scheduler.remove_job(job_id)
         _save_scheduled_template_jobs()
+        return {"ok": True, "job_id": job_id, "deleted": existed is not None}
+
+    @app.get("/scheduler/task-stacks", response_model=list[SchedulerTaskStackJob], dependencies=[Depends(require_read_api_key)])
+    async def scheduler_task_stacks() -> list[SchedulerTaskStackJob]:
+        rows = sorted(_scheduled_task_stack_jobs.values(), key=lambda r: str(r.get("job_id", "")))
+        return [SchedulerTaskStackJob(**row) for row in rows]
+
+    @app.post(
+        "/scheduler/task-stacks",
+        response_model=SchedulerTaskStackJobCreateResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def scheduler_create_task_stack(body: SchedulerTaskStackJobCreateRequest) -> SchedulerTaskStackJobCreateResponse:
+        schedule_type = body.schedule_type.strip().lower()
+        if schedule_type not in {"interval", "cron"}:
+            raise HTTPException(status_code=400, detail="schedule_type must be interval or cron")
+        if schedule_type == "cron" and not (body.cron or "").strip():
+            raise HTTPException(status_code=400, detail="cron is required for cron schedule")
+
+        steps: list[dict[str, str]] = []
+        for task_id in body.task_ids:
+            lookup_id = str(task_id).strip()
+            if not lookup_id:
+                continue
+            task = runtime.orchestrator.get_task(lookup_id)
+            if task is None:
+                raise HTTPException(status_code=404, detail=f"Task not found: {lookup_id}")
+            description = str(task.get("description", "")).strip()
+            if not description:
+                raise HTTPException(status_code=400, detail=f"Task has empty description: {lookup_id}")
+            steps.append({"source_task_id": lookup_id, "description": description})
+        if not steps:
+            raise HTTPException(status_code=400, detail="At least one valid task_id is required")
+
+        job_id = (body.job_id or "").strip() or f"task-stack-{uuid.uuid4().hex[:8]}"
+        budget_payload = body.budget.model_dump(exclude_none=True) if body.budget else {}
+        record = {
+            "job_id": job_id,
+            "description": body.description or f"Run task stack {job_id}",
+            "schedule_type": schedule_type,
+            "interval_seconds": max(1, int(body.interval_seconds)),
+            "cron": body.cron,
+            "enabled": body.enabled,
+            "timeout_s": body.timeout_s,
+            "max_failures": max(1, int(body.max_failures)),
+            "model_backend": (body.model_backend or str(runtime.config.get("model.default_backend", "local_stub"))).strip(),
+            "workflow_mode": (body.workflow_mode or "lightning").strip().lower(),
+            "budget": budget_payload,
+            "steps": steps,
+        }
+        _scheduled_task_stack_jobs[job_id] = record
+        _register_task_stack_job_from_record(record)
+        _save_scheduled_task_stack_jobs()
+        return SchedulerTaskStackJobCreateResponse(ok=True, job_id=job_id, task_count=len(steps))
+
+    @app.delete("/scheduler/task-stacks/{job_id}", dependencies=[Depends(require_admin_api_key)])
+    async def scheduler_delete_task_stack(job_id: str) -> dict[str, Any]:
+        existed = _scheduled_task_stack_jobs.pop(job_id, None)
+        runtime.scheduler.remove_job(job_id)
+        _save_scheduled_task_stack_jobs()
         return {"ok": True, "job_id": job_id, "deleted": existed is not None}
 
     @app.get("/agents", response_model=list[AgentSummary], dependencies=[Depends(require_read_api_key)])
