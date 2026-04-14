@@ -65,7 +65,20 @@ export function SchedulerView() {
   const [feedback, setFeedback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const taskRows = tasks ?? []
+  const rawTaskRows = tasks ?? []
+  const taskRows = useMemo(() => {
+    const seen = new Set<string>()
+    const rows: TaskSummary[] = []
+    for (const task of rawTaskRows) {
+      // Hide scheduler-generated internal step tasks from the selection list.
+      if (task.task_id.includes(':step-')) continue
+      const key = task.description.trim().toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      rows.push(task)
+    }
+    return rows
+  }, [rawTaskRows])
   const taskById = useMemo(() => new Map(taskRows.map((t) => [t.task_id, t])), [taskRows])
   const schedulerById = useMemo(() => new Map((schedulerJobs ?? []).map((job) => [job.job_id, job])), [schedulerJobs])
 
@@ -193,7 +206,7 @@ export function SchedulerView() {
         <section className={styles.panel}>
           <header className={styles.panelHeader}>
             <h3>Build Scheduled Task Stack</h3>
-            <span className={styles.badge}>{taskRows.length} tasks</span>
+            <span className={styles.badge}>{taskRows.length} unique tasks</span>
           </header>
 
           {(tasksError || taskStacksError || jobsError || error) && (
