@@ -1334,6 +1334,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             synced_at=str(status.get("synced_at")) if status.get("synced_at") is not None else None,
             pulled_count=int(status.get("pulled_count", 0)),
             index_hash=str(status.get("index_hash")) if status.get("index_hash") is not None else None,
+            signing_version=str(status.get("signing_version")) if status.get("signing_version") is not None else None,
         )
 
     def _build_incident_report(
@@ -3451,6 +3452,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "synced_at": synced_at,
             "pulled_count": len(normalized_items),
             "index_hash": effective_index_hash,
+            "signing_version": signing_version,
         }
         _save_market_remote_status(status_payload)
         runtime.logger.log(

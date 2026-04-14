@@ -48,7 +48,13 @@ class PermissionPolicy:
             if not any(req.startswith(str(base.resolve())) for base in self.allowed_paths):
                 return False, "required_path_not_allowed"
 
-        for path_key in ["path", "target_path", "directory_path", "source_path", "destination_path"]:
+        capabilities = tool.capabilities or []
+        is_http_tool = any(cap.startswith("http.") or cap == "api.request" for cap in capabilities)
+        path_keys = ["path", "target_path", "directory_path", "source_path", "destination_path"]
+        if is_http_tool:
+            path_keys = [k for k in path_keys if k != "path"]
+
+        for path_key in path_keys:
             arg_path = args.get(path_key)
             if not arg_path:
                 continue

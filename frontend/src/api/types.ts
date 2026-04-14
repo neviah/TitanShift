@@ -72,11 +72,11 @@ export interface SkillMarketItem {
 }
 
 export interface MarketRemoteStatus {
-  last_synced_at: string | null
+  synced_at: string | null
   source: string | null
   pulled_count: number
   index_hash: string
-  signing_version: string
+  signing_version: string | null
 }
 
 export interface UiMarketOverviewResponse {

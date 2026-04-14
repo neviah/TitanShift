@@ -37,8 +37,8 @@ export function MarketOverview() {
             <div className={styles.remote}>
               <span className={styles.remoteLabel}>Last sync</span>
               <span className={`${styles.remoteValue} font-mono`}>
-                {data.remote_status.last_synced_at
-                  ? new Date(data.remote_status.last_synced_at).toLocaleTimeString()
+                {data.remote_status.synced_at
+                  ? new Date(data.remote_status.synced_at).toLocaleTimeString()
                   : 'never'}
               </span>
               <span className={`badge ${data.remote_status.signing_version === 'v2-ed25519' ? 'badge-ok' : 'badge-warn'}`}>

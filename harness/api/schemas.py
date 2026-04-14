@@ -394,6 +394,7 @@ class SkillMarketRemoteStatusResponse(BaseModel):
     synced_at: str | None = None
     pulled_count: int = 0
     index_hash: str | None = None
+    signing_version: str | None = None
 
 
 class SkillRepoIntakeRequest(BaseModel):
