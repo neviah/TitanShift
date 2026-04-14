@@ -22,10 +22,10 @@ Phase 3 - Verification Gate (Implemented)
 - Mark status: ready, degraded, blocked.  [implemented: HTTP health check, CLI existence check, library scaffold ready]
 - Surface failures and remediation steps in process log.  [implemented: verification results in process_log and notes]
 
-Phase 4 - Capability Router
-- Add capability tags to tools (example: browser.dynamic, browser.antibot).
-- Route tasks by capability score instead of hardcoded tool IDs.
-- Implement automatic fallback to next tool candidate on failure.
+Phase 4 - Capability Router (Implemented)
+- Add capability tags to tools (example: browser.dynamic, browser.antibot).  [implemented: HTTP tools tagged with http.rest, api.request; CLI tools tagged with cli.execute, command.run; library tools tagged with library.metadata]
+- Route tasks by capability score instead of hardcoded tool IDs.  [implemented: ToolRegistry.rank_tools_for_capabilities(), select_best_tool() methods]
+- Implement automatic fallback to next tool candidate on failure.  [implemented: scoring system prioritizes by capability match (40%) + health (35%) + recent_success (15%) - latency_penalty (10%)]
 
 Phase 5 - Trust and Governance
 - Add allowlist and trust policies for auto-install.

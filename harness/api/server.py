@@ -1094,6 +1094,8 @@ def create_app(workspace_root: Path) -> FastAPI:
                     description=description,
                     needs_network=True,
                     handler=_http_handler,
+                    capabilities=["http.rest", "api.request", "http.get", "http.post", "http.json"],
+                    status=str(record.get("status", "ready")),
                     parameters={
                         "type": "object",
                         "properties": {
@@ -1142,6 +1144,8 @@ def create_app(workspace_root: Path) -> FastAPI:
                     description=description,
                     required_commands=[command_hint] if command_hint else [],
                     handler=_cli_handler,
+                    capabilities=["cli.execute", "command.run", "shell.command", "system.exec"],
+                    status=str(record.get("status", "ready")),
                     parameters={
                         "type": "object",
                         "properties": {
@@ -1173,6 +1177,8 @@ def create_app(workspace_root: Path) -> FastAPI:
                     name=tool_name,
                     description=description,
                     handler=_library_handler,
+                    capabilities=["library.metadata", f"lib.{language_hint}", "library.inspect", "module.info"],
+                    status=str(record.get("status", "ready")),
                     parameters={
                         "type": "object",
                         "properties": {

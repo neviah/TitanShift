@@ -15,3 +15,8 @@ class ToolDefinition:
     needs_network: bool = False
     handler: ToolHandler | None = None
     parameters: dict | None = None  # JSON Schema for tool arguments
+    capabilities: list[str] = field(default_factory=list)  # e.g., ["http.rest", "api.query", "json.parse"]
+    status: str = "ready"  # ready, degraded, blocked
+    last_success: float | None = None  # timestamp of last successful execution
+    execution_count: int = 0  # total executions for this session
+    avg_latency_ms: float = 0.0  # average execution latency

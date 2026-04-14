@@ -126,6 +126,53 @@ class ToolRegistry:
         self._emit_audit(name=name, status="allowed", reason=reason, args=args)
         return await tool.handler(args)
 
+    def find_tools_by_capability(self, capability: str) -> list[ToolDefinition]:
+        """Find all tools that have a specific capability."""
+        return [
+            t for t in self._tools.values()
+            if capability in (t.capabilities or [])
+        ]
+
+    def rank_tools_for_capabilities(
+        self,
+        required_capabilities: list[str] | None = None,
+    ) -> list[tuple[ToolDefinition, float]]:
+        """
+        Rank all available tools by how well they match required capabilities.
+        Returns list of (tool, score) tuples sorted by score (highest first).
+        """
+        from harness.tools.scoring import score_tool_for_task
+
+        if not required_capabilities:
+            required_capabilities = []
+
+        scores = [
+            (tool, score_tool_for_task(tool, required_capabilities).total_score)
+            for tool in self._tools.values()
+        ]
+
+        # Filter out blocked tools (score 0)
+        viable = [(t, s) for t, s in scores if s > 0]
+
+        # If no viable tools, return all (for debugging/transparency)
+        if not viable:
+            return sorted(scores, key=lambda x: x[1], reverse=True)
+
+        return sorted(viable, key=lambda x: x[1], reverse=True)
+
+    def select_best_tool(
+        self,
+        required_capabilities: list[str] | None = None,
+    ) -> ToolDefinition | None:
+        """
+        Select the best-scoring tool that matches required capabilities.
+        Returns None if no viable tools available.
+        """
+        ranked = self.rank_tools_for_capabilities(required_capabilities)
+        if ranked:
+            return ranked[0][0]
+        return None
+
     def _emit_audit(self, name: str, status: str, reason: str, args: dict[str, Any]) -> None:
         if self._audit_sink is None:
             return
