@@ -283,6 +283,7 @@ class LMStudioAdapter:
         max_tokens: int = 2048,
         temperature: float = 0.2,
     ) -> None:
+        self.timeout_s = timeout_s
         self._delegate = CloudOpenAIAdapter(
             base_url=base_url,
             default_model=default_model,
