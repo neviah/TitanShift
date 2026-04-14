@@ -141,6 +141,21 @@ def create_app(workspace_root: Path) -> FastAPI:
     _task_templates: dict[str, dict[str, Any]] = {}
     _scheduled_template_jobs: dict[str, dict[str, Any]] = {}
 
+    def _sync_runtime_workspace_root(root: Path) -> None:
+        """Keep runtime file/tool execution rooted to the active workspace."""
+        resolved_root = root.resolve()
+        _active_workspace["root"] = resolved_root
+
+        tool_paths = runtime.config.get("tools.allowed_paths", ["."]) or ["."]
+        runtime.tools.policy.allowed_paths = [(resolved_root / str(p)).resolve() for p in tool_paths]
+
+        exec_roots = runtime.config.get("execution.allowed_cwd_roots", ["."]) or ["."]
+        runtime.execution.policy.allowed_cwd_roots = [(resolved_root / str(p)).resolve() for p in exec_roots]
+        runtime.execution.default_cwd = resolved_root
+
+    # Ensure startup runtime policies align with the initial active workspace root.
+    _sync_runtime_workspace_root(workspace_root)
+
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
         if not enabled:
             return
@@ -1593,6 +1608,9 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_read_api_key)])
     async def chat(body: ChatRequest) -> ChatResponse:
+        # Re-sync every chat request so tool path policy always follows workspace root.
+        _sync_runtime_workspace_root(_active_workspace["root"])
+
         if body.create_task_template:
             template = _draft_template_from_prompt(prompt=body.prompt, name=body.task_template_name)
             if body.workflow_mode:
@@ -1792,7 +1810,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Path does not exist: {candidate}")
         if not candidate.is_dir():
             raise HTTPException(status_code=400, detail=f"Path is not a directory: {candidate}")
-        _active_workspace["root"] = candidate
+        _sync_runtime_workspace_root(candidate)
         return {"root": str(candidate).replace("\\", "/")}
 
     @app.get("/workspace/file", response_model=WorkspaceFileResponse, dependencies=[Depends(require_read_api_key)])
