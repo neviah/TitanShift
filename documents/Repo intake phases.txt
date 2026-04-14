@@ -7,7 +7,7 @@ Phase 1 - Repo Intake Assistant (Implemented)
 - Auto-install a runtime integration skill scaffold.
 - Persist generated skill entry in local market registry for continuity.
 
-Phase 2 - Adapter Generator (In Progress)
+Phase 2 - Adapter Generator (Implemented)
 - Build tool adapters from detected repo interfaces:
   - HTTP API adapters
   - CLI adapters
@@ -17,10 +17,10 @@ Phase 2 - Adapter Generator (In Progress)
 - Persist generated adapters to .harness/repo_tool_adapters.json and rehydrate on startup.  [implemented]
 - Add generated tools to runtime allowlist and return generated_tool_ids in intake response.  [implemented]
 
-Phase 3 - Verification Gate
+Phase 3 - Verification Gate (Implemented)
 - Run install checks and smoke tests after generation.
-- Mark status: ready, degraded, blocked.
-- Surface failures and remediation steps in process log.
+- Mark status: ready, degraded, blocked.  [implemented: HTTP health check, CLI existence check, library scaffold ready]
+- Surface failures and remediation steps in process log.  [implemented: verification results in process_log and notes]
 
 Phase 4 - Capability Router
 - Add capability tags to tools (example: browser.dynamic, browser.antibot).

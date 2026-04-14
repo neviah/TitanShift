@@ -996,6 +996,63 @@ def create_app(workspace_root: Path) -> FastAPI:
             notes.append("No concrete executable interface detected; generated skill wrapper only.")
         return adapters, notes
 
+    async def _verify_http_adapter(record: dict[str, Any]) -> tuple[str, str | None]:
+        """Verify HTTP adapter by attempting a health check request. Returns (status, error_detail|None)."""
+        base_url = str(record.get("base_url", "")).strip() or "http://127.0.0.1:8000"
+        default_path = str(record.get("default_path", "/health")).strip() or "/health"
+        endpoint = f"{base_url.rstrip('/')}{default_path}"
+        timeout_s = float(runtime.config.get("skills.repo_intake_timeout_s", 5.0))
+        try:
+            async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
+                response = await client.get(endpoint)
+                if response.status_code < 400:
+                    return "ready", None
+                else:
+                    return "degraded", f"HTTP {response.status_code}"
+        except asyncio.TimeoutError:
+            return "blocked", "Request timeout"
+        except Exception as exc:
+            return "blocked", str(exc)
+
+    async def _verify_cli_adapter(record: dict[str, Any]) -> tuple[str, str | None]:
+        """Verify CLI adapter by checking command availability. Returns (status, error_detail|None)."""
+        command_hint = str(record.get("command_hint", "")).strip()
+        if not command_hint:
+            return "ready", None  # No command hint to verify
+        try:
+            parts = shlex.split(command_hint, posix=False)
+            command = parts[0] if parts else ""
+            if not command:
+                return "blocked", "Could not parse command hint"
+            result = await runtime.execution.run_command("where" if os.name == "nt" else "which", command, timeout_s=5)
+            if result.returncode == 0:
+                return "ready", None
+            else:
+                return "blocked", f"Command not found: {command}"
+        except asyncio.TimeoutError:
+            return "degraded", "Command check timeout"
+        except Exception as exc:
+            return "degraded", str(exc)
+
+    async def _verify_library_adapter(record: dict[str, Any]) -> tuple[str, str | None]:
+        """Verify library adapter. Always ready since library adapters are metadata scaffolds. Returns (status, error_detail|None)."""
+        language_hint = str(record.get("language_hint", "")).strip().lower()
+        if not language_hint or language_hint == "unknown":
+            return "degraded", "Language hint not detected"
+        return "ready", None
+
+    async def _verify_generated_adapter(record: dict[str, Any]) -> tuple[str, str | None]:
+        """Run verification on a generated adapter record. Returns (status, error_detail|None)."""
+        adapter_type = str(record.get("adapter_type", "")).strip().lower()
+        if adapter_type == "http":
+            return await _verify_http_adapter(record)
+        elif adapter_type == "cli":
+            return await _verify_cli_adapter(record)
+        elif adapter_type == "library":
+            return await _verify_library_adapter(record)
+        else:
+            return "blocked", f"Unknown adapter type: {adapter_type}"
+
     def _register_generated_repo_tool(record: dict[str, Any]) -> None:
         tool_name = str(record.get("tool_name", "")).strip()
         adapter_type = str(record.get("adapter_type", "")).strip().lower()
@@ -3293,6 +3350,38 @@ def create_app(workspace_root: Path) -> FastAPI:
             raise HTTPException(status_code=502, detail=f"Failed to inspect repository files for adapters: {exc}") from exc
         notes = notes + detection_notes
         generated_tool_ids = [str(a.get("tool_name", "")) for a in detected_adapters if str(a.get("tool_name", "")).strip()]
+        
+        # Run verification on all detected adapters
+        if detected_adapters:
+            verification_tasks = [_verify_generated_adapter(adapter) for adapter in detected_adapters]
+            verification_results = await asyncio.gather(*verification_tasks, return_exceptions=True)
+            for adapter, result in zip(detected_adapters, verification_results):
+                if isinstance(result, Exception):
+                    adapter["status"] = "blocked"
+                    adapter["verification_detail"] = str(result)
+                else:
+                    status, detail = result
+                    adapter["status"] = status
+                    adapter["verification_detail"] = detail
+            
+            # Summarize verification results
+            status_counts = {}
+            for adapter in detected_adapters:
+                status = adapter.get("status", "unknown")
+                status_counts[status] = status_counts.get(status, 0) + 1
+            
+            status_summary = ", ".join(f"{count} {status}" for status, count in sorted(status_counts.items()))
+            process_log.append(f"Verification results: {status_summary}")
+            
+            # Log any degraded or blocked adapters
+            degraded_or_blocked = [a for a in detected_adapters if a.get("status", "").lower() in ["degraded", "blocked"]]
+            for adapter in degraded_or_blocked:
+                tool_name = adapter.get("tool_name", "unknown")
+                status = adapter.get("status", "unknown")
+                detail = adapter.get("verification_detail", "")
+                detail_msg = f" ({detail})" if detail else ""
+                notes.append(f"Adapter {tool_name} is {status}{detail_msg}")
+        
         if generated_tool_ids:
             process_log.append(f"Generated adapter scaffolds: {', '.join(generated_tool_ids)}")
         else:
