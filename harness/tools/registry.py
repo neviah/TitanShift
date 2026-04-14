@@ -90,6 +90,9 @@ class ToolRegistry:
     def register_tool(self, tool: ToolDefinition) -> None:
         self._tools[tool.name] = tool
 
+    def unregister_tool(self, name: str) -> bool:
+        return self._tools.pop(name, None) is not None
+
     def get_tool(self, name: str) -> ToolDefinition | None:
         return self._tools.get(name)
 

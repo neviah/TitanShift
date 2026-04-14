@@ -9,6 +9,7 @@ export function SkillsView() {
   const { data: runtimeData, loading: runtimeLoading, error: runtimeError, refresh: refreshRuntime } = usePolling(fetchRuntimeSkills, { interval: 30000 })
   const [repoUrl, setRepoUrl] = useState('')
   const [autoInstall, setAutoInstall] = useState(true)
+  const [trustPolicy, setTrustPolicy] = useState('github_only')
   const [intakeBusy, setIntakeBusy] = useState(false)
   const [intakeError, setIntakeError] = useState<string | null>(null)
   const [intakeResult, setIntakeResult] = useState<SkillRepoIntakeResponse | null>(null)
@@ -36,7 +37,7 @@ export function SkillsView() {
     setIntakeBusy(true)
     setIntakeError(null)
     try {
-      const result = await intakeSkillRepo(trimmed, autoInstall)
+      const result = await intakeSkillRepo(trimmed, autoInstall, trustPolicy)
       setIntakeResult(result)
       await refreshRuntime()
     } catch (err) {
@@ -120,6 +121,16 @@ export function SkillsView() {
             />
             Auto-install generated integration skill
           </label>
+          <label className={styles.autoInstallRow}>
+            <span>Trust policy:</span>
+            <select value={trustPolicy} onChange={(e) => setTrustPolicy(e.target.value)}>
+              <option value="github_only">GitHub only</option>
+              <option value="public_github_only">Public GitHub only</option>
+              <option value="org_only">Organization-owned only</option>
+              <option value="trusted_owner">Trusted owner allowlist</option>
+              <option value="allow_all">Allow all</option>
+            </select>
+          </label>
         </form>
 
         {intakeError && <p className={`${styles.hint} text-error`}>{intakeError}</p>}
@@ -136,6 +147,12 @@ export function SkillsView() {
                 <span className="badge badge-dim">{intakeResult.classification}</span>
                 <span className="badge badge-dim">recommended: {intakeResult.recommended_artifact}</span>
                 <span className="badge badge-dim">confidence {(intakeResult.confidence * 100).toFixed(0)}%</span>
+                {intakeResult.trust_policy && <span className="badge badge-dim">trust: {intakeResult.trust_policy}</span>}
+                {typeof intakeResult.trust_passed === 'boolean' && (
+                  <span className={intakeResult.trust_passed ? 'badge badge-ok' : 'badge badge-warn'}>
+                    trust {intakeResult.trust_passed ? 'passed' : 'failed'}
+                  </span>
+                )}
                 {intakeResult.installed_skill_id && <span className="badge badge-ok">installed: {intakeResult.installed_skill_id}</span>}
                 {(intakeResult.generated_tool_ids ?? []).length > 0 && (
                   <span className="badge badge-ok">tools: {(intakeResult.generated_tool_ids ?? []).length}</span>

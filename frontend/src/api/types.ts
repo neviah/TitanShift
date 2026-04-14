@@ -204,9 +204,13 @@ export interface SkillRepoIntakeResponse {
   classification: string
   recommended_artifact: string
   confidence: number
+  trust_policy?: string
+  trust_passed?: boolean
+  trust_reason?: string | null
   installed_skill_id?: string | null
   generated_tool_ids?: string[]
   generated_adapters?: Array<Record<string, unknown>>
+  intake_manifest?: Record<string, unknown>
   process_log: string[]
   notes: string[]
 }

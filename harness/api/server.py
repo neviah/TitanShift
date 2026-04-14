@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TypeVar
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -722,6 +723,10 @@ def create_app(workspace_root: Path) -> FastAPI:
                 "topics": [],
                 "language": "",
                 "signals": repo_url.lower(),
+                "owner": "",
+                "owner_type": "",
+                "is_private": False,
+                "is_archived": False,
             }
 
         owner, repo = owner_repo
@@ -740,6 +745,10 @@ def create_app(workspace_root: Path) -> FastAPI:
         description = str(payload.get("description") or "")
         language = str(payload.get("language") or "")
         full_name = str(payload.get("full_name") or f"{owner}/{repo}")
+        owner_login = str((payload.get("owner") or {}).get("login") or owner)
+        owner_type = str((payload.get("owner") or {}).get("type") or "")
+        is_private = bool(payload.get("private", False))
+        is_archived = bool(payload.get("archived", False))
         signals = " ".join(
             [
                 repo.lower(),
@@ -754,6 +763,10 @@ def create_app(workspace_root: Path) -> FastAPI:
             "topics": topics,
             "language": language,
             "signals": signals,
+            "owner": owner_login,
+            "owner_type": owner_type,
+            "is_private": is_private,
+            "is_archived": is_archived,
         }
 
     def _classify_repo_artifact(signal_blob: str) -> tuple[str, str, float, list[str]]:
@@ -808,6 +821,10 @@ def create_app(workspace_root: Path) -> FastAPI:
         storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
         return storage_root / str(runtime.config.get("skills.repo_tool_adapters_file", "repo_tool_adapters.json"))
 
+    def _repo_intake_manifests_path() -> Path:
+        storage_root = workspace_root / str(runtime.config.get("memory.storage_dir", ".harness"))
+        return storage_root / str(runtime.config.get("skills.repo_intake_manifests_file", "repo_intake_manifests.json"))
+
     def _load_repo_tool_adapters() -> dict[str, dict[str, Any]]:
         path = _repo_tool_adapters_path()
         if not path.exists():
@@ -833,6 +850,72 @@ def create_app(workspace_root: Path) -> FastAPI:
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = [registry[k] for k in sorted(registry.keys())]
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _load_repo_intake_manifests() -> dict[str, dict[str, Any]]:
+        path = _repo_intake_manifests_path()
+        if not path.exists():
+            return {}
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        if not isinstance(loaded, list):
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for row in loaded:
+            if not isinstance(row, dict):
+                continue
+            skill_id = str(row.get("skill_id", "")).strip()
+            if not skill_id:
+                continue
+            out[skill_id] = row
+        return out
+
+    def _save_repo_intake_manifests(registry: dict[str, dict[str, Any]]) -> None:
+        path = _repo_intake_manifests_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = [registry[k] for k in sorted(registry.keys())]
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _evaluate_repo_trust(repo_url: str, trust_policy: str, hints: dict[str, Any]) -> tuple[bool, str]:
+        policy = trust_policy.strip().lower() or "github_only"
+        parsed = urlparse(repo_url)
+        host = (parsed.hostname or "").lower()
+        owner = str(hints.get("owner") or "").strip().lower()
+        owner_type = str(hints.get("owner_type") or "").strip().lower()
+        is_private = bool(hints.get("is_private", False))
+        is_archived = bool(hints.get("is_archived", False))
+
+        if is_archived:
+            return False, "Repository is archived"
+
+        if policy == "allow_all":
+            return True, "allow_all policy accepted"
+        if policy == "github_only":
+            return (host == "github.com"), ("github host accepted" if host == "github.com" else "Only github.com is allowed")
+        if policy == "org_only":
+            if host != "github.com":
+                return False, "Only github.com is allowed"
+            if owner_type != "organization":
+                return False, "Repository owner is not an organization"
+            return True, "Organization-owned GitHub repository accepted"
+        if policy == "trusted_owner":
+            if host != "github.com":
+                return False, "Only github.com is allowed"
+            configured = [str(v).strip().lower() for v in list(runtime.config.get("skills.repo_intake_trusted_owners", [])) if str(v).strip()]
+            if not configured:
+                return False, "No trusted owners configured (skills.repo_intake_trusted_owners)"
+            if owner not in configured:
+                return False, f"Owner '{owner or 'unknown'}' is not in trusted owners"
+            return True, f"Trusted owner accepted: {owner}"
+        if policy == "public_github_only":
+            if host != "github.com":
+                return False, "Only github.com is allowed"
+            if is_private:
+                return False, "Private repositories are not allowed by policy"
+            return True, "Public GitHub repository accepted"
+
+        return False, f"Unknown trust policy: {trust_policy}"
 
     async def _fetch_github_file_text(owner: str, repo: str, rel_path: str) -> str:
         api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{rel_path}"
@@ -1189,6 +1272,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
 
     repo_tool_adapters = _load_repo_tool_adapters()
+    repo_intake_manifests = _load_repo_intake_manifests()
     for adapter_record in list(repo_tool_adapters.values()):
         _register_generated_repo_tool(adapter_record)
 
@@ -3145,6 +3229,29 @@ def create_app(workspace_root: Path) -> FastAPI:
                 detail=f"Cannot uninstall; depended on by: {', '.join(dependents)}",
             )
 
+        removed_tool_ids: list[str] = []
+        removed_manifest = False
+        manifest = repo_intake_manifests.get(skill_id)
+        if isinstance(manifest, dict):
+            for tool_name in [str(v) for v in list(manifest.get("generated_tool_ids", [])) if str(v).strip()]:
+                if runtime.tools.unregister_tool(tool_name):
+                    removed_tool_ids.append(tool_name)
+                runtime.tools.policy.allowed_tool_names.discard(tool_name)
+                repo_tool_adapters.pop(tool_name, None)
+            if removed_tool_ids:
+                _save_repo_tool_adapters(repo_tool_adapters)
+            repo_intake_manifests.pop(skill_id, None)
+            _save_repo_intake_manifests(repo_intake_manifests)
+            removed_manifest = True
+            runtime.logger.log(
+                "SKILL_REPO_UNINSTALL_CASCADE",
+                {
+                    "skill_id": skill_id,
+                    "removed_tool_ids": removed_tool_ids,
+                    "removed_manifest": True,
+                },
+            )
+
         runtime.skills.unregister_skill(skill_id)
         market_installed.discard(skill_id)
         _save_market_installed(market_installed)
@@ -3152,9 +3259,17 @@ def create_app(workspace_root: Path) -> FastAPI:
             "SKILL_MARKET_UNINSTALL",
             {
                 "skill_id": skill_id,
+                "removed_tool_ids": removed_tool_ids,
+                "removed_manifest": removed_manifest,
             },
         )
-        return SkillMarketUninstallResponse(ok=True, skill_id=skill_id, uninstalled=True)
+        return SkillMarketUninstallResponse(
+            ok=True,
+            skill_id=skill_id,
+            uninstalled=True,
+            removed_tool_ids=removed_tool_ids,
+            removed_manifest=removed_manifest,
+        )
 
     @app.post(
         "/skills/market/update",
@@ -3327,6 +3442,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     )
     async def skills_repo_intake(body: SkillRepoIntakeRequest) -> SkillRepoIntakeResponse:
         repo_url = body.repo_url.strip()
+        trust_policy = body.trust_policy.strip().lower() or "github_only"
         if not re.match(r"^https?://", repo_url, flags=re.IGNORECASE):
             raise HTTPException(status_code=400, detail="repo_url must be an absolute http(s) URL")
 
@@ -3335,6 +3451,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "Phase 2: Fetch repository metadata and classify artifact",
             "Phase 3: Detect executable interfaces and scaffold adapters",
             "Phase 4: Generate TitanShift integration record",
+            "Phase 5: Enforce trust policy and persist intake manifest",
         ]
 
         try:
@@ -3345,6 +3462,10 @@ def create_app(workspace_root: Path) -> FastAPI:
         repo_name = str(hints.get("repo_name") or "external/repo")
         signal_blob = str(hints.get("signals") or "").lower()
         classification, recommended_artifact, confidence, notes = _classify_repo_artifact(signal_blob)
+        trust_passed, trust_reason = _evaluate_repo_trust(repo_url, trust_policy, hints)
+        process_log.append(f"Trust policy={trust_policy}, passed={trust_passed}, reason={trust_reason}")
+        if not trust_passed:
+            raise HTTPException(status_code=403, detail=f"Repo trust policy check failed: {trust_reason}")
 
         process_log.append(
             f"Detected classification={classification}, recommended={recommended_artifact}, confidence={confidence:.2f}"
@@ -3394,10 +3515,28 @@ def create_app(workspace_root: Path) -> FastAPI:
             process_log.append("No concrete adapters generated for this repo.")
 
         installed_skill_id: str | None = None
+        intake_manifest: dict[str, Any] = {
+            "skill_id": "",
+            "repo_url": repo_url,
+            "repo_name": repo_name,
+            "trust_policy": trust_policy,
+            "trust_passed": trust_passed,
+            "trust_reason": trust_reason,
+            "classification": classification,
+            "recommended_artifact": recommended_artifact,
+            "confidence": confidence,
+            "generated_tool_ids": generated_tool_ids,
+            "generated_adapters": detected_adapters,
+            "manifest_version": "1.0",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "owner": str(hints.get("owner") or ""),
+            "owner_type": str(hints.get("owner_type") or ""),
+        }
         if body.auto_install:
             raw_name = repo_name.rsplit("/", 1)[-1]
             skill_id = f"repo-{_slugify_repo_token(raw_name)}"
             _validate_skill_id(skill_id)
+            intake_manifest["skill_id"] = skill_id
 
             existing = market_registry.get(skill_id, {})
             merged_tags = sorted(
@@ -3462,6 +3601,10 @@ def create_app(workspace_root: Path) -> FastAPI:
                 if blocked_tools:
                     notes.append("Generated tools require policy updates before use: " + ", ".join(blocked_tools))
 
+            repo_intake_manifests[skill_id] = dict(intake_manifest)
+            _save_repo_intake_manifests(repo_intake_manifests)
+            process_log.append("Persisted repo intake manifest for uninstall rollback and governance")
+
             runtime.logger.log(
                 "SKILL_REPO_INTAKE",
                 {
@@ -3470,6 +3613,9 @@ def create_app(workspace_root: Path) -> FastAPI:
                     "classification": classification,
                     "recommended_artifact": recommended_artifact,
                     "confidence": confidence,
+                    "trust_policy": trust_policy,
+                    "trust_passed": trust_passed,
+                    "trust_reason": trust_reason,
                     "installed_skill_id": installed_skill_id,
                     "generated_tool_ids": generated_tool_ids,
                     "auto_install": True,
@@ -3483,9 +3629,13 @@ def create_app(workspace_root: Path) -> FastAPI:
             classification=classification,
             recommended_artifact=recommended_artifact,
             confidence=confidence,
+            trust_policy=trust_policy,
+            trust_passed=trust_passed,
+            trust_reason=trust_reason,
             installed_skill_id=installed_skill_id,
             generated_tool_ids=generated_tool_ids,
             generated_adapters=detected_adapters,
+            intake_manifest=intake_manifest,
             process_log=process_log,
             notes=notes,
         )

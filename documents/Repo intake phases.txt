@@ -27,10 +27,10 @@ Phase 4 - Capability Router (Implemented)
 - Route tasks by capability score instead of hardcoded tool IDs.  [implemented: ToolRegistry.rank_tools_for_capabilities(), select_best_tool() methods]
 - Implement automatic fallback to next tool candidate on failure.  [implemented: scoring system prioritizes by capability match (40%) + health (35%) + recent_success (15%) - latency_penalty (10%)]
 
-Phase 5 - Trust and Governance
-- Add allowlist and trust policies for auto-install.
-- Capture intake manifests and version lock files.
-- Add rollback and uninstall consistency checks.
+Phase 5 - Trust and Governance (Implemented)
+- Add allowlist and trust policies for auto-install.  [implemented: trust_policy field with github_only, allow_all, org_only, trusted_owner, public_github_only]
+- Capture intake manifests and version lock files.  [implemented: persisted intake manifests in .harness/repo_intake_manifests.json with repo metadata, trust decision, and generated tools]
+- Add rollback and uninstall consistency checks.  [implemented: uninstall cascade removes generated tools, allowlist entries, adapter records, and intake manifest]
 
 Definition Notes
 - Tool: executable primitive (CLI/API/library wrapper).

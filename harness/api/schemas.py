@@ -360,6 +360,8 @@ class SkillMarketUninstallResponse(BaseModel):
     ok: bool
     skill_id: str
     uninstalled: bool
+    removed_tool_ids: list[str] = Field(default_factory=list)
+    removed_manifest: bool = False
 
 
 class SkillMarketUpdateRequest(BaseModel):
@@ -397,6 +399,7 @@ class SkillMarketRemoteStatusResponse(BaseModel):
 class SkillRepoIntakeRequest(BaseModel):
     repo_url: str = Field(min_length=1)
     auto_install: bool = True
+    trust_policy: str = "github_only"
 
 
 class SkillRepoIntakeResponse(BaseModel):
@@ -406,9 +409,13 @@ class SkillRepoIntakeResponse(BaseModel):
     classification: str
     recommended_artifact: str
     confidence: float
+    trust_policy: str = "github_only"
+    trust_passed: bool = False
+    trust_reason: str | None = None
     installed_skill_id: str | None = None
     generated_tool_ids: list[str] = Field(default_factory=list)
     generated_adapters: list[dict[str, Any]] = Field(default_factory=list)
+    intake_manifest: dict[str, Any] = Field(default_factory=dict)
     process_log: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 

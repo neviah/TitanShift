@@ -180,10 +180,14 @@ export function syncRemoteMarket(source: string): Promise<unknown> {
   }, 'admin')
 }
 
-export function intakeSkillRepo(repo_url: string, auto_install = true): Promise<SkillRepoIntakeResponse> {
+export function intakeSkillRepo(
+  repo_url: string,
+  auto_install = true,
+  trust_policy = 'github_only',
+): Promise<SkillRepoIntakeResponse> {
   return request('/skills/repo-intake', {
     method: 'POST',
-    body: JSON.stringify({ repo_url, auto_install }),
+    body: JSON.stringify({ repo_url, auto_install, trust_policy }),
   }, 'admin')
 }
 
