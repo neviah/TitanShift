@@ -3696,6 +3696,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             "SKILL_MARKET_INSTALL",
             "SKILL_MARKET_UNINSTALL",
             "SKILL_MARKET_UPDATE",
+            "SKILL_REPO_INTAKE",
+            "SKILL_REPO_UNINSTALL_CASCADE",
         ]:
             market_events.extend(runtime.logger.query(event_type=event_type, limit=20))
         market_events.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
