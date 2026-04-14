@@ -215,19 +215,18 @@ export function SchedulerView() {
           {feedback && <p className={`${styles.hint} text-ok`}>{feedback}</p>}
 
           <div className={styles.formGrid}>
-            <label className={styles.field}>
-              <span>Select Existing Task</span>
-              <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(e.target.value)}>
-                <option value="">Select task</option>
-                {taskRows.map((task) => (
-                  <option key={task.task_id} value={task.task_id}>
-                    {compactTaskLabel(task)} ({task.task_id.slice(0, 8)})
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className={styles.actions}>
+            <div className={styles.taskPickerRow}>
+              <label className={styles.field}>
+                <span>Select Existing Task</span>
+                <select value={selectedTaskId} onChange={(e) => setSelectedTaskId(e.target.value)}>
+                  <option value="">Select task</option>
+                  {taskRows.map((task) => (
+                    <option key={task.task_id} value={task.task_id}>
+                      {compactTaskLabel(task)} ({task.task_id.slice(0, 8)})
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button className={styles.primaryBtn} onClick={addTaskToStack} disabled={!selectedTaskId}>
                 <Plus size={14} />
                 Add To Stack
