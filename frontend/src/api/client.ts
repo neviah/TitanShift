@@ -238,6 +238,25 @@ export function deleteSchedulerTemplateJob(jobId: string): Promise<{ ok: boolean
   }, 'admin')
 }
 
+export function triggerSchedulerTick(): Promise<{
+  ran_jobs: string[]
+  failed_jobs: string[]
+  timed_out_jobs: string[]
+  auto_disabled_jobs: string[]
+  job_count: number
+}> {
+  return request('/scheduler/tick', {
+    method: 'POST',
+  }, 'admin')
+}
+
+export function setSchedulerJobEnabled(jobId: string, enabled: boolean): Promise<{ job_id: string; enabled: boolean }> {
+  return request(`/scheduler/jobs/${encodeURIComponent(jobId)}/enabled`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  }, 'admin')
+}
+
 export function fetchWorkspaceTree(): Promise<WorkspaceTreeNode[]> {
   return request('/workspace/tree')
 }

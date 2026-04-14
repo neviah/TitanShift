@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -140,6 +141,8 @@ def create_app(workspace_root: Path) -> FastAPI:
     _active_workspace: dict[str, Path] = {"root": workspace_root}
     _task_templates: dict[str, dict[str, Any]] = {}
     _scheduled_template_jobs: dict[str, dict[str, Any]] = {}
+    _scheduler_loop_task: asyncio.Task[None] | None = None
+    _scheduler_loop_stop: asyncio.Event = asyncio.Event()
 
     def _sync_runtime_workspace_root(root: Path) -> None:
         """Keep runtime file/tool execution rooted to the active workspace."""
@@ -155,6 +158,55 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     # Ensure startup runtime policies align with the initial active workspace root.
     _sync_runtime_workspace_root(workspace_root)
+
+    async def _scheduler_background_loop() -> None:
+        interval_s = max(1.0, float(runtime.config.get("scheduler.auto_tick_interval_s", 1.0)))
+        while not _scheduler_loop_stop.is_set():
+            try:
+                runtime.scheduler.heartbeat()
+                result = await runtime.scheduler.tick()
+                if result.get("ran_jobs") or result.get("failed_jobs"):
+                    runtime.logger.log("SCHEDULER_TICK", result)
+                if bool(result.get("newly_missed_heartbeat", False)):
+                    await runtime.event_bus.publish(
+                        "MODULE_ERROR",
+                        {
+                            "source": "scheduler.heartbeat",
+                            "error": (
+                                "Missed heartbeat threshold exceeded "
+                                f"({result.get('heartbeat_lag_s')}s > {result.get('heartbeat_timeout_s')}s)"
+                            ),
+                        },
+                    )
+            except Exception as exc:
+                runtime.logger.log("SCHEDULER_LOOP_ERROR", {"error": str(exc), "source": "scheduler.loop"})
+
+            try:
+                await asyncio.wait_for(_scheduler_loop_stop.wait(), timeout=interval_s)
+            except TimeoutError:
+                continue
+
+    @app.on_event("startup")
+    async def _startup_scheduler_loop() -> None:
+        nonlocal _scheduler_loop_task
+        auto_tick_enabled = bool(runtime.config.get("scheduler.auto_tick_enabled", True))
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            auto_tick_enabled = False
+        if not auto_tick_enabled:
+            return
+        _scheduler_loop_stop.clear()
+        _scheduler_loop_task = asyncio.create_task(_scheduler_background_loop())
+
+    @app.on_event("shutdown")
+    async def _shutdown_scheduler_loop() -> None:
+        nonlocal _scheduler_loop_task
+        _scheduler_loop_stop.set()
+        if _scheduler_loop_task is None:
+            return
+        try:
+            await _scheduler_loop_task
+        finally:
+            _scheduler_loop_task = None
 
     def _validate_api_key(*, supplied: str | None, expected: str, enabled: bool, missing_detail: str) -> None:
         if not enabled:
@@ -1356,6 +1408,25 @@ def create_app(workspace_root: Path) -> FastAPI:
         names = {str(t).strip() for t in tools if str(t).strip()}
         return sorted(names)
 
+    def _find_existing_template(
+        *,
+        name: str,
+        prompt: str,
+        workflow_mode: str,
+        model_backend: str,
+    ) -> dict[str, Any] | None:
+        for row in _task_templates.values():
+            if str(row.get("name", "")).strip() != name.strip():
+                continue
+            if str(row.get("prompt", "")).strip() != prompt.strip():
+                continue
+            if str(row.get("workflow_mode", "")).strip().lower() != workflow_mode.strip().lower():
+                continue
+            if str(row.get("model_backend", "")).strip().lower() != model_backend.strip().lower():
+                continue
+            return row
+        return None
+
     def _draft_template_from_prompt(*, prompt: str, name: str | None = None) -> dict[str, Any]:
         lowered = prompt.lower()
         required_tools: set[str] = set()
@@ -1619,6 +1690,22 @@ def create_app(workspace_root: Path) -> FastAPI:
                 template["model_backend"] = body.model_backend
             if body.budget:
                 template["budget"] = body.budget.model_dump(exclude_none=True)
+            existing = _find_existing_template(
+                name=str(template.get("name", "")),
+                prompt=str(template.get("prompt", "")),
+                workflow_mode=str(template.get("workflow_mode", "lightning")),
+                model_backend=str(template.get("model_backend", runtime.config.get("model.default_backend", "local_stub"))),
+            )
+            if existing is not None:
+                template_id = str(existing["template_id"])
+                return ChatResponse(
+                    success=True,
+                    response=f"Task template already exists: {template_id}",
+                    model="system",
+                    mode="task-template",
+                    workflow_mode=str(existing.get("workflow_mode", "lightning")),
+                    task_template_id=template_id,
+                )
             template_id = str(template["template_id"])
             _task_templates[template_id] = template
             _save_task_templates()
@@ -1699,17 +1786,28 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.post("/tasks/templates", response_model=TaskTemplateCreateResponse, dependencies=[Depends(require_admin_api_key)])
     async def create_task_template(body: TaskTemplateCreateRequest) -> TaskTemplateCreateResponse:
         now_iso = datetime.now(timezone.utc).isoformat()
-        template_id = f"tmpl-{uuid.uuid4().hex[:10]}"
         workflow_mode = (body.workflow_mode or "lightning").strip().lower()
         if workflow_mode not in {"lightning", "superpowered"}:
             raise HTTPException(status_code=400, detail="workflow_mode must be lightning or superpowered")
+
+        model_backend = (body.model_backend or str(runtime.config.get("model.default_backend", "local_stub"))).strip()
+        existing = _find_existing_template(
+            name=body.name.strip(),
+            prompt=body.prompt,
+            workflow_mode=workflow_mode,
+            model_backend=model_backend,
+        )
+        if existing is not None:
+            return TaskTemplateCreateResponse(ok=True, template=TaskTemplate(**existing))
+
+        template_id = f"tmpl-{uuid.uuid4().hex[:10]}"
 
         template = {
             "template_id": template_id,
             "name": body.name.strip(),
             "prompt": body.prompt,
             "workflow_mode": workflow_mode,
-            "model_backend": (body.model_backend or str(runtime.config.get("model.default_backend", "local_stub"))).strip(),
+            "model_backend": model_backend,
             "required_tools": _normalize_required_tools(body.required_tools),
             "budget": body.budget.model_dump(exclude_none=True) if body.budget else {
                 "max_steps": int(runtime.config.get("state_machine.default_budget.max_steps", 16)),

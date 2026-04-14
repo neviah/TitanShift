@@ -18,6 +18,7 @@ import {
   Trash2,
   Briefcase,
   Play,
+  Pause,
   Plus,
   ArrowUp,
   ArrowDown,
@@ -30,11 +31,31 @@ import type { MouseEvent } from 'react'
 import styles from './LeftPane.module.css'
 import type { NavTab } from '../../types/nav'
 import { usePolling } from '../../hooks/usePolling'
-import { approveArtifact, fetchArtifacts, fetchConfig, fetchLogs, fetchMarketList, fetchMemorySummary, fetchRoleTemplates, fetchTaskDetail, fetchTasks, fetchTools, fetchWorkflowMetrics, fetchWorkspaceTree, revokeArtifactApproval, sendChat } from '../../api/client'
+import {
+  approveArtifact,
+  deleteSchedulerTemplateJob,
+  fetchArtifacts,
+  fetchConfig,
+  fetchLogs,
+  fetchMarketList,
+  fetchMemorySummary,
+  fetchRoleTemplates,
+  fetchSchedulerJobs,
+  fetchSchedulerTemplateJobs,
+  fetchTaskDetail,
+  fetchTasks,
+  fetchTools,
+  fetchWorkflowMetrics,
+  fetchWorkspaceTree,
+  revokeArtifactApproval,
+  sendChat,
+  setSchedulerJobEnabled,
+  triggerSchedulerTick,
+} from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
 import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
-import type { ArtifactFile, RoleTemplate, TaskDetail, WorkflowMetrics, WorkspaceTreeNode } from '../../api/types'
+import type { ArtifactFile, RoleTemplate, SchedulerJob, SchedulerTemplateJob, TaskDetail, WorkflowMetrics, WorkspaceTreeNode } from '../../api/types'
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : []
@@ -60,6 +81,16 @@ function applyEdgeGlow(event: MouseEvent<HTMLElement>) {
   const rect = target.getBoundingClientRect()
   target.style.setProperty('--mx', `${event.clientX - rect.left}px`)
   target.style.setProperty('--my', `${event.clientY - rect.top}px`)
+}
+
+function countdownLabel(nextRunAt?: string | null): string {
+  if (!nextRunAt) return 'n/a'
+  const ts = Date.parse(nextRunAt)
+  if (!Number.isFinite(ts)) return 'n/a'
+  const remain = Math.max(0, Math.round((ts - Date.now()) / 1000))
+  const mm = Math.floor(remain / 60)
+  const ss = remain % 60
+  return `${mm}m ${ss}s`
 }
 
 const ACTIVE_SKILLS_KEY = 'titanshift-active-skills-by-workspace-v1'
@@ -93,6 +124,8 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
   const { data: logsData } = usePolling(() => fetchLogs(12), { interval: 10000 })
   const { data: roleTemplatesData } = usePolling(fetchRoleTemplates, { interval: 30000 })
+  const { data: schedulerJobsData, refresh: refreshSchedulerJobs } = usePolling(fetchSchedulerJobs, { interval: 5000 })
+  const { data: schedulerTemplateJobsData, refresh: refreshSchedulerTemplateJobs } = usePolling(fetchSchedulerTemplateJobs, { interval: 5000 })
   const { data: artifactsData, refresh: refreshArtifacts } = usePolling(fetchArtifacts, { interval: 15000 })
   const { data: metricsData } = usePolling(fetchWorkflowMetrics, { interval: 15000 })
   const [artifactBusy, setArtifactBusy] = useState<string | null>(null)
@@ -115,6 +148,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
   const [executingDraftId, setExecutingDraftId] = useState<string | null>(null)
+  const [schedulerBusyId, setSchedulerBusyId] = useState<string | null>(null)
   const [activeSkillsByWorkspace, setActiveSkillsByWorkspace] = useState<Record<string, Record<string, boolean>>>(() => {
     try {
       return JSON.parse(localStorage.getItem(ACTIVE_SKILLS_KEY) ?? '{}') as Record<string, Record<string, boolean>>
@@ -143,6 +177,9 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const activeSkills = activeSkillsByWorkspace[currentWorkspaceId] ?? {}
   const activeTools = activeToolsByWorkspace[currentWorkspaceId] ?? {}
   const roleTemplates: RoleTemplate[] = roleTemplatesData ?? []
+  const schedulerJobs: SchedulerJob[] = schedulerJobsData ?? []
+  const schedulerTemplateJobs: SchedulerTemplateJob[] = schedulerTemplateJobsData ?? []
+  const schedulerTemplateJobIds = useMemo(() => new Set(schedulerTemplateJobs.map((j) => j.job_id)), [schedulerTemplateJobs])
   const artifacts: ArtifactFile[] = artifactsData ?? []
   const workflowMetrics: WorkflowMetrics | null = metricsData ?? null
   const latestTask = tasks[0] ?? null
@@ -309,6 +346,29 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
   function skipExecutionStep(draftId: string, index: number, instruction: string) {
     updateExecutionStep(draftId, index, 'skipped', `Skipped: ${instruction}`)
+  }
+
+  async function toggleSchedulerJob(job: SchedulerJob) {
+    setSchedulerBusyId(job.job_id)
+    try {
+      await setSchedulerJobEnabled(job.job_id, !job.enabled)
+      await triggerSchedulerTick().catch(() => undefined)
+      await refreshSchedulerJobs()
+      await refreshSchedulerTemplateJobs()
+    } finally {
+      setSchedulerBusyId(null)
+    }
+  }
+
+  async function deleteSchedulerBinding(jobId: string) {
+    setSchedulerBusyId(jobId)
+    try {
+      await deleteSchedulerTemplateJob(jobId)
+      await refreshSchedulerJobs()
+      await refreshSchedulerTemplateJobs()
+    } finally {
+      setSchedulerBusyId(null)
+    }
   }
 
   return (
@@ -725,8 +785,43 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
         {activeTab === 'scheduler' && (
           <div className={styles.list}>
-            <p className={styles.hint}>Scheduler panel</p>
-            <p className={styles.empty}>Scheduler detail can be added next; chat remains available in the center.</p>
+            <p className={styles.hint}>Scheduler runtime jobs</p>
+            {schedulerJobs.length === 0 ? (
+              <p className={styles.empty}>No scheduler jobs yet.</p>
+            ) : (
+              schedulerJobs.slice(0, 20).map((job) => (
+                <div key={job.job_id} className={`${styles.row} ${job.is_running ? styles.rowHot : ''}`}>
+                  <button type="button" className={styles.rowMain}>
+                    <span className={styles.rowTitle}>{job.job_id}</span>
+                    <span className={styles.rowMeta}>
+                      {job.is_running ? 'running now' : `next in ${countdownLabel(job.next_run_at)}`} • {job.enabled ? 'enabled' : 'disabled'}
+                    </span>
+                  </button>
+                  <div className={styles.rowActions}>
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      data-tooltip={job.enabled ? 'Disable job' : 'Enable job'}
+                      onClick={() => { void toggleSchedulerJob(job) }}
+                      disabled={schedulerBusyId === job.job_id}
+                    >
+                      {job.enabled ? <Pause size={13} /> : <Play size={13} />}
+                    </button>
+                    {schedulerTemplateJobIds.has(job.job_id) && (
+                      <button
+                        type="button"
+                        className={styles.actionBtn}
+                        data-tooltip="Delete binding"
+                        onClick={() => { void deleteSchedulerBinding(job.job_id) }}
+                        disabled={schedulerBusyId === job.job_id}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         )}
 

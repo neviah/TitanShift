@@ -199,6 +199,8 @@ class SchedulerJob(BaseModel):
     failure_count: int
     last_run_at: str | None = None
     last_error: str | None = None
+    is_running: bool = False
+    next_run_at: str | None = None
 
 
 class SchedulerHeartbeatResponse(BaseModel):

@@ -250,6 +250,8 @@ export interface SchedulerJob {
   failure_count: number
   last_run_at?: string | null
   last_error?: string | null
+  is_running?: boolean
+  next_run_at?: string | null
 }
 
 export interface SchedulerTemplateJob {

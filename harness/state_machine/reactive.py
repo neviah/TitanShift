@@ -97,6 +97,8 @@ class ReactiveStateMachine:
             "just call the tool with the appropriate URL.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file. "
             "Do not merely describe the files when you can create them.",
+            "After completing file operations, summarize what was created and where. Do not paste full file contents "
+            "unless the user explicitly asks to see the code.",
             "Only emit tool calls for actual tools from the provided tool schema. Never emit tool calls for skills "
             "such as brainstorming, writing-plans, or subagent-driven-development.",
         ]

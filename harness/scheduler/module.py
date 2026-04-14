@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from typing import Callable
 
@@ -23,6 +23,7 @@ class ScheduledJob:
     failure_count: int = 0
     last_run_at: str | None = None
     last_error: str | None = None
+    is_running: bool = False
 
 
 class Scheduler:
@@ -130,6 +131,30 @@ class Scheduler:
         elapsed = (now - last).total_seconds()
         return elapsed >= max(1, int(job.interval_seconds))
 
+    def _compute_next_run_at(self, job: ScheduledJob, now: datetime) -> str | None:
+        if not job.enabled:
+            return None
+
+        if job.schedule_type == "cron":
+            if not job.cron:
+                return None
+            probe = now.replace(second=0, microsecond=0)
+            for _ in range(0, 8 * 24 * 60):
+                probe = probe + timedelta(minutes=1)
+                if self._cron_due(job, probe):
+                    return probe.isoformat()
+            return None
+
+        if job.last_run_at is None:
+            return now.isoformat()
+        last = self._parse_timestamp(job.last_run_at)
+        if last is None:
+            return now.isoformat()
+        next_at = last + timedelta(seconds=max(1, int(job.interval_seconds)))
+        if next_at < now:
+            next_at = now
+        return next_at.isoformat()
+
     def _job_due(self, job: ScheduledJob, now: datetime) -> bool:
         if job.schedule_type == "cron":
             return self._cron_due(job, now)
@@ -184,6 +209,7 @@ class Scheduler:
             if not self._job_due(job, now):
                 continue
             try:
+                job.is_running = True
                 result = job.callback()
                 if inspect.isawaitable(result):
                     execution = result
@@ -216,6 +242,8 @@ class Scheduler:
                 if job.failure_count >= max(1, job.max_failures):
                     job.enabled = False
                     auto_disabled.append(job.job_id)
+            finally:
+                job.is_running = False
         return {
             "ran_jobs": ran,
             "failed_jobs": failed,
@@ -230,6 +258,7 @@ class Scheduler:
         }
 
     def list_jobs(self) -> list[dict[str, Any]]:
+        now = datetime.now(timezone.utc)
         rows: list[dict[str, Any]] = []
         for job in sorted(self.jobs.values(), key=lambda j: j.job_id):
             rows.append(
@@ -246,6 +275,8 @@ class Scheduler:
                     "failure_count": job.failure_count,
                     "last_run_at": job.last_run_at,
                     "last_error": job.last_error,
+                    "is_running": job.is_running,
+                    "next_run_at": self._compute_next_run_at(job, now),
                 }
             )
         return rows
