@@ -62,6 +62,7 @@
       "web_fetch",
       "create_directory",
       "write_file",
+      "append_file",
       "read_file",
       "list_directory",
       "rename_or_move",
