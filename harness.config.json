@@ -52,7 +52,7 @@
     "graph_backend": "networkx"
   },
   "tools": {
-    "deny_all_by_default": true,
+    "deny_all_by_default": false,
     "allow_network": true,
     "allowed_paths": [
       "."
@@ -61,27 +61,16 @@
       "shell_command",
       "web_fetch",
       "create_directory",
-      "init_project",
-      "generate_component",
-      "generate_route",
       "write_file",
       "append_file",
       "replace_in_file",
       "json_edit",
-      "insert_at_line",
-      "delete_range",
-      "yaml_edit",
       "read_file",
       "list_directory",
       "rename_or_move",
       "delete_file",
       "search_workspace",
-      "run_project_check",
-      "run_tests",
-      "lint_and_fix",
-      "version_bump",
-      "generate_release_notes",
-      "tag_and_publish_release"
+      "run_project_check"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [

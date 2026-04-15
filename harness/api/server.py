@@ -1245,206 +1245,11 @@ def create_app(workspace_root: Path) -> FastAPI:
             default_path = str(record.get("default_path", "/health")).strip() or "/health"
             description = str(record.get("description", "Generated HTTP adapter"))
             lifecycle = record.get("lifecycle", {})
-            is_camofox_browser = "camofox-browser" in repo_name
 
             _register_http_service_from_adapter(record)
 
-            camofox_fallback_tabs: dict[str, dict[str, Any]] = {}
-
-            def _expand_camofox_macro(macro: str, query: str | None = None) -> str:
-                cleaned_query = (query or "").strip()
-                mapping = {
-                    "@reddit_search": f"https://old.reddit.com/search?q={quote_plus(cleaned_query)}",
-                    "@reddit_subreddit": f"https://old.reddit.com/r/{quote_plus(cleaned_query or 'popular')}/",
-                    "@google_search": f"https://www.google.com/search?q={quote_plus(cleaned_query)}",
-                }
-                return mapping.get(macro, cleaned_query)
-
-            async def _fetch_camofox_fallback_page(target_url: str, timeout_s: float) -> dict[str, Any]:
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-                    "Accept-Language": "en-US,en;q=0.9",
-                }
-                normalized_url = target_url.strip()
-                if normalized_url.rstrip("/") in {"https://reddit.com", "https://www.reddit.com"}:
-                    normalized_url = "https://old.reddit.com/r/popular/"
-
-                async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True, headers=headers) as client:
-                    response = await client.get(normalized_url)
-                response.raise_for_status()
-
-                content_type = response.headers.get("content-type", "")
-                if normalized_url.endswith(".json") or "application/json" in content_type:
-                    payload = response.json()
-                    posts = []
-                    children = list((((payload or {}).get("data") or {}).get("children") or []))
-                    for child in children:
-                        data = child.get("data", {}) if isinstance(child, dict) else {}
-                        permalink = str(data.get("permalink", "")).strip()
-                        title = str(data.get("title", "")).strip()
-                        if permalink:
-                            posts.append(
-                                {
-                                    "url": f"https://www.reddit.com{permalink}",
-                                    "text": title or permalink,
-                                }
-                            )
-                    snapshot_lines = [f"[link e{idx + 1}] {post['text']}" for idx, post in enumerate(posts[:25])]
-                    return {
-                        "url": normalized_url,
-                        "snapshot": "\n".join(snapshot_lines),
-                        "links": posts,
-                    }
-
-                text = response.text
-                links: list[dict[str, str]] = []
-                if "old.reddit.com" in str(response.url.host or "") or "reddit.com" in str(response.url.host or ""):
-                    title_matches = re.findall(
-                        r'<a[^>]+class="[^"]*title[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-                        text,
-                        flags=re.IGNORECASE | re.DOTALL,
-                    )
-                    for href, raw_text in title_matches:
-                        value = href.strip()
-                        if value.startswith("/"):
-                            value = f"https://www.reddit.com{value}"
-                        link_text = re.sub(r"<[^>]+>", " ", raw_text)
-                        link_text = re.sub(r"\s+", " ", link_text).strip()
-                        links.append({"url": value, "text": link_text or value})
-                else:
-                    hrefs = re.findall(r'href=["\']([^"\']+)["\']', text, flags=re.IGNORECASE)
-                    for href in hrefs:
-                        value = href.strip()
-                        if not value or value.startswith("#"):
-                            continue
-                        if value.startswith("/"):
-                            value = f"{response.url.scheme}://{response.url.host}{value}"
-                        links.append({"url": value, "text": value})
-                snapshot = re.sub(r"<[^>]+>", " ", text)
-                snapshot = re.sub(r"\s+", " ", snapshot).strip()
-                return {
-                    "url": str(response.url),
-                    "snapshot": snapshot[:2000],
-                    "links": links[:100],
-                }
-
-            async def _call_camofox_api(args: dict[str, Any], *, _base_url: str, _tool_name: str, _lifecycle: dict[str, Any] | None) -> dict[str, Any]:
-                action = str(args.get("action", "create_tab")).strip().lower()
-                user_id = str(args.get("user_id", "titanshift-agent")).strip() or "titanshift-agent"
-                session_key = str(args.get("session_key", "current-task")).strip() or "current-task"
-                tab_id = str(args.get("tab_id", "")).strip()
-                url = str(args.get("url", "")).strip()
-                macro = str(args.get("macro", "")).strip()
-                raw_query = args.get("query")
-                query = str(args.get("search_query") or (raw_query if not isinstance(raw_query, dict) else "")).strip()
-                timeout_s = float(args.get("timeout_s", 20.0))
-                limit = int(args.get("limit", 50))
-                offset = int(args.get("offset", 0))
-                include_screenshot = bool(args.get("include_screenshot", False))
-
-                service_healthy = False
-                if _lifecycle:
-                    service_healthy, _ = await runtime.service_manager.check_health(_tool_name)
-                    if not service_healthy:
-                        await runtime.service_manager.start_service(_tool_name)
-                        service_healthy, _ = await runtime.service_manager.check_health(_tool_name)
-
-                if service_healthy:
-                    async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
-                        if action == "create_tab":
-                            response = await client.post(
-                                f"{_base_url.rstrip('/')}/tabs",
-                                json={"userId": user_id, "sessionKey": session_key, "url": url or None},
-                            )
-                        elif action == "navigate":
-                            if not tab_id:
-                                raise ValueError("tab_id is required for navigate")
-                            response = await client.post(
-                                f"{_base_url.rstrip('/')}/tabs/{quote_plus(tab_id)}/navigate",
-                                json={"userId": user_id, "url": url or None, "macro": macro or None, "query": query or None},
-                            )
-                        elif action == "snapshot":
-                            if not tab_id:
-                                raise ValueError("tab_id is required for snapshot")
-                            response = await client.get(
-                                f"{_base_url.rstrip('/')}/tabs/{quote_plus(tab_id)}/snapshot",
-                                params={"userId": user_id, "includeScreenshot": str(include_screenshot).lower(), "offset": offset},
-                            )
-                        elif action == "get_links":
-                            if not tab_id:
-                                raise ValueError("tab_id is required for get_links")
-                            response = await client.get(
-                                f"{_base_url.rstrip('/')}/tabs/{quote_plus(tab_id)}/links",
-                                params={"userId": user_id, "limit": limit, "offset": offset},
-                            )
-                        else:
-                            raise ValueError("action must be one of: create_tab, navigate, snapshot, get_links")
-                    body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {"body": response.text}
-                    return {"ok": response.status_code < 400, "degraded_mode": False, **body}
-
-                resolved_url = url or _expand_camofox_macro(macro, query)
-                if action == "create_tab":
-                    if not resolved_url:
-                        raise ValueError("url or macro/query is required for create_tab")
-                    tab_id = f"fallback-tab-{uuid.uuid4().hex[:8]}"
-                    page = await _fetch_camofox_fallback_page(resolved_url, timeout_s)
-                    camofox_fallback_tabs[tab_id] = page
-                    return {
-                        "ok": True,
-                        "degraded_mode": True,
-                        "tabId": tab_id,
-                        "url": page["url"],
-                        "snapshot": page["snapshot"],
-                        "links": page["links"][:limit],
-                    }
-                if action == "navigate":
-                    if not tab_id:
-                        raise ValueError("tab_id is required for navigate")
-                    if not resolved_url:
-                        raise ValueError("url or macro/query is required for navigate")
-                    page = await _fetch_camofox_fallback_page(resolved_url, timeout_s)
-                    camofox_fallback_tabs[tab_id] = page
-                    return {
-                        "ok": True,
-                        "degraded_mode": True,
-                        "tabId": tab_id,
-                        "url": page["url"],
-                        "snapshot": page["snapshot"],
-                    }
-                if action == "snapshot":
-                    page = camofox_fallback_tabs.get(tab_id)
-                    if page is None:
-                        raise ValueError("Unknown fallback tab_id; call create_tab first")
-                    return {
-                        "ok": True,
-                        "degraded_mode": True,
-                        "tabId": tab_id,
-                        "url": page["url"],
-                        "snapshot": page["snapshot"],
-                        "evidence_snippet": page["snapshot"][:600],
-                    }
-                if action == "get_links":
-                    if tab_id and tab_id in camofox_fallback_tabs:
-                        page = camofox_fallback_tabs[tab_id]
-                    elif resolved_url:
-                        page = await _fetch_camofox_fallback_page(resolved_url, timeout_s)
-                    else:
-                        raise ValueError("tab_id or url/macro/query is required for get_links")
-                    links = page["links"][offset : offset + limit]
-                    return {
-                        "ok": True,
-                        "degraded_mode": True,
-                        "tabId": tab_id or None,
-                        "url": page["url"],
-                        "links": links,
-                        "evidence_snippet": "\n".join(link.get("url", "") for link in links[:5]),
-                    }
-                raise ValueError("action must be one of: create_tab, navigate, snapshot, get_links")
 
             async def _http_handler(args: dict[str, Any], *, _base_url: str = base_url, _default_path: str = default_path, _tool_name: str = tool_name, _lifecycle: dict[str, Any] | None = lifecycle) -> dict[str, Any]:
-                if is_camofox_browser:
-                    return await _call_camofox_api(args, _base_url=_base_url, _tool_name=_tool_name, _lifecycle=_lifecycle)
-
                 # Check and auto-start service if needed
                 if _lifecycle:
                     service_id = _tool_name
@@ -1481,19 +1286,10 @@ def create_app(workspace_root: Path) -> FastAPI:
             runtime.tools.register_tool(
                 ToolDefinition(
                     name=tool_name,
-                    description=(
-                        "Camoufox browser automation adapter for browsing anti-bot sites. "
-                        "Use action=create_tab, navigate, snapshot, or get_links. Preferred for browsing requests."
-                        if is_camofox_browser
-                        else description
-                    ),
+                    description=description,
                     needs_network=True,
                     handler=_http_handler,
-                    capabilities=(
-                        ["browser.automation", "browser.navigate", "browser.snapshot", "browser.links", "http.rest", "api.request"]
-                        if is_camofox_browser
-                        else ["http.rest", "api.request", "http.get", "http.post", "http.json"]
-                    ),
+                    capabilities=["http.rest", "api.request", "http.get", "http.post", "http.json"],
                     status=str(record.get("status", "ready")),
                     parameters={
                         "type": "object",
@@ -1525,7 +1321,6 @@ def create_app(workspace_root: Path) -> FastAPI:
         if adapter_type == "cli":
             command_hint = str(record.get("command_hint", "")).strip()
             description = str(record.get("description", "Generated CLI adapter"))
-            is_camofox_browser = "camofox-browser" in repo_name
 
             async def _cli_handler(args: dict[str, Any], *, _command_hint: str = command_hint) -> dict[str, Any]:
                 raw = str(args.get("command", "")).strip() or _command_hint
@@ -1551,11 +1346,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             runtime.tools.register_tool(
                 ToolDefinition(
                     name=tool_name,
-                    description=(
-                        "Camoufox server control/helper command. Use for status/start/stop style commands, not page JavaScript."
-                        if is_camofox_browser
-                        else description
-                    ),
+                    description=description,
                     required_commands=[command_hint] if command_hint else [],
                     handler=_cli_handler,
                     capabilities=["cli.execute", "command.run", "shell.command", "system.exec"],
@@ -1575,7 +1366,6 @@ def create_app(workspace_root: Path) -> FastAPI:
         if adapter_type == "library":
             description = str(record.get("description", "Generated library info adapter"))
             language_hint = str(record.get("language_hint", "unknown"))
-            is_camofox_browser = "camofox-browser" in repo_name
 
             async def _library_handler(args: dict[str, Any], *, _language_hint: str = language_hint) -> dict[str, Any]:
                 return {
@@ -1590,11 +1380,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             runtime.tools.register_tool(
                 ToolDefinition(
                     name=tool_name,
-                    description=(
-                        "Camoufox metadata helper. This does not browse pages; use the HTTP browser adapter for browsing actions."
-                        if is_camofox_browser
-                        else description
-                    ),
+                    description=description,
                     handler=_library_handler,
                     capabilities=["library.metadata", f"lib.{language_hint}", "library.inspect", "module.info"],
                     status=str(record.get("status", "ready")),

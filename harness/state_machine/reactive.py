@@ -270,10 +270,11 @@ class ReactiveStateMachine:
             try:
                 used_requested_tools = [name for name in used_tools if self._canonical_tool_name(name) in requested_canonical]
                 active_tool_defs = None
-                if not used_tools:
+                # If there are explicitly requested repo/browser tools, narrow the tool set until they are used.
+                if requested_repo_tools and not used_requested_tools:
                     active_tool_defs = self._build_active_tool_definitions(
                         requested_tools,
-                        allow_support_tools=not bool(requested_repo_tools),
+                        allow_support_tools=False,
                     )
                 response = await asyncio.wait_for(
                     model.generate(ModelRequest(
