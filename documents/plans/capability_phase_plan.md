@@ -27,9 +27,8 @@
 ## Phase 3 (Started)
 
 - Implemented `init_project` scaffold tool for `fastapi`, `vite-react`, and `static-site`.
-- Remaining project scaffold tools:
-  - `generate_component`
-  - `generate_route`
+- Implemented `generate_component` for `vite-react`/`react` and `static-site`.
+- Implemented `generate_route` for `vite-react`/`react`, `fastapi`, and `static-site`.
 - Add service lifecycle controls in run panel (start/stop/restart + health badge).
 - Add release automation helpers:
   - `version_bump`

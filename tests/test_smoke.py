@@ -599,6 +599,92 @@ def test_init_project_tool_creates_vite_react_scaffold() -> None:
         shutil.rmtree(target_dir, ignore_errors=True)
 
 
+def test_generate_component_tool_creates_react_component() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-generate-component-tool")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "vite-react",
+                    "name": "Component Playground",
+                    "target_path": ".harness/test-generate-component-tool",
+                },
+            )
+        )
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_component",
+                {
+                    "framework": "vite-react",
+                    "name": "hero banner",
+                    "target_path": ".harness/test-generate-component-tool",
+                    "props_schema": {"title": "string", "subtitle": "string"},
+                },
+            )
+        )
+        component_path = target_dir.joinpath("src", "components", "HeroBanner.jsx")
+        assert result["ok"] is True
+        assert component_path.exists()
+        content = component_path.read_text(encoding="utf-8")
+        assert "export function HeroBanner" in content
+        assert "title" in content
+        assert "subtitle" in content
+        assert any(path.endswith("src/components/HeroBanner.jsx") for path in result["created_paths"])
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_generate_route_tool_creates_react_route_and_test() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-generate-route-tool")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "vite-react",
+                    "name": "Route Playground",
+                    "target_path": ".harness/test-generate-route-tool",
+                },
+            )
+        )
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_route",
+                {
+                    "framework": "vite-react",
+                    "route_path": "/dashboard/overview",
+                    "target_path": ".harness/test-generate-route-tool",
+                    "with_loader": True,
+                    "with_tests": True,
+                },
+            )
+        )
+        route_path = target_dir.joinpath("src", "routes", "DashboardOverviewRoute.jsx")
+        test_path = target_dir.joinpath("src", "routes", "DashboardOverviewRoute.test.jsx")
+        assert result["ok"] is True
+        assert route_path.exists()
+        assert test_path.exists()
+        route_content = route_path.read_text(encoding="utf-8")
+        assert "export async function loader()" in route_content
+        assert "Route path: /dashboard/overview" in route_content
+        assert any(path.endswith("src/routes/DashboardOverviewRoute.jsx") for path in result["created_paths"])
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
 def test_lightning_skill_prompt_hides_builtin_workflow_skills() -> None:
     app = create_app(Path(".").resolve())
     skills_section = app.state.runtime.skills.format_for_system_prompt("lightning")

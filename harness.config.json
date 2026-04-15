@@ -62,6 +62,8 @@
       "web_fetch",
       "create_directory",
       "init_project",
+      "generate_component",
+      "generate_route",
       "write_file",
       "append_file",
       "replace_in_file",

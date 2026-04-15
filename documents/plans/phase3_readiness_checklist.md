@@ -18,6 +18,9 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
   - `run_tests`, `lint_and_fix`, `run_project_check`
 - Initial scaffold tool implemented:
   - `init_project` for `fastapi`, `vite-react`, and `static-site`
+- Additional generators implemented:
+  - `generate_component`
+  - `generate_route`
 - Run output includes scaffold artifact visibility:
   - `created_paths`
   - `updated_paths`
@@ -36,7 +39,6 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
 
 ## Remaining Phase 3 Pre-Work
 
-- Expand scaffold coverage beyond `init_project` into component and route generators.
 - Decide policy for command execution during scaffolding (`npm install`, `pip install`, optional).
 - Define idempotency behavior for generators when targets already exist.
 - Define rollback strategy for partial scaffold failures.

@@ -195,6 +195,137 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
 
         raise ValueError("project_type must be one of: fastapi, vite-react, static-site")
 
+    def _normalize_component_name(raw_name: str) -> tuple[str, str]:
+        words = [part for part in re.split(r"[^A-Za-z0-9]+", raw_name.strip()) if part]
+        if not words:
+            raise ValueError("name must contain at least one alphanumeric character")
+        pascal_name = "".join(word[:1].upper() + word[1:] for word in words)
+        kebab_name = "-".join(word.lower() for word in words)
+        return pascal_name, kebab_name
+
+    def _build_component_scaffold(
+        framework: str,
+        component_name: str,
+        props_schema: dict[str, Any] | None,
+    ) -> tuple[dict[str, str], list[str]]:
+        normalized_framework = framework.strip().lower()
+        pascal_name, kebab_name = _normalize_component_name(component_name)
+        prop_names = list(props_schema.keys()) if isinstance(props_schema, dict) else []
+
+        if normalized_framework in {"react", "vite-react", "react-vite"}:
+            destructured_props = ", ".join(prop_names)
+            prop_signature = f"{{ {destructured_props} }}" if destructured_props else "{}"
+            details = "\n".join(
+                f"      <p>{prop}: {{{prop}}}</p>" for prop in prop_names
+            ) or "      <p>Replace this placeholder content with your UI.</p>"
+            files = {
+                f"src/components/{pascal_name}.jsx": (
+                    f"export function {pascal_name}({prop_signature}) {{\n"
+                    "  return (\n"
+                    f"    <section className=\"component component-{kebab_name}\">\n"
+                    f"      <h2>{pascal_name}</h2>\n"
+                    f"{details}\n"
+                    "    </section>\n"
+                    "  )\n"
+                    "}\n"
+                ),
+            }
+            return files, [f"Generated React component {pascal_name} in src/components."]
+
+        if normalized_framework in {"static", "static-site", "html"}:
+            files = {
+                f"components/{kebab_name}.html": (
+                    f"<section class=\"component component-{kebab_name}\">\n"
+                    f"  <h2>{pascal_name}</h2>\n"
+                    "  <p>Replace this placeholder content with your markup.</p>\n"
+                    "</section>\n"
+                ),
+            }
+            return files, [f"Generated static HTML component snippet {kebab_name}.html."]
+
+        raise ValueError("framework must be one of: vite-react, react, static-site")
+
+    def _build_route_scaffold(
+        framework: str,
+        route_path: str,
+        with_loader: bool,
+        with_tests: bool,
+    ) -> tuple[dict[str, str], list[str]]:
+        normalized_framework = framework.strip().lower()
+        cleaned_route = route_path.strip() or "/"
+        cleaned_route = cleaned_route if cleaned_route.startswith("/") else f"/{cleaned_route}"
+        route_parts = [part for part in cleaned_route.strip("/").split("/") if part]
+        if not route_parts:
+            route_parts = ["home"]
+        pascal_name = "".join(part[:1].upper() + part[1:] for part in route_parts) + "Route"
+        kebab_name = "-".join(route_parts)
+
+        if normalized_framework in {"react", "vite-react", "react-vite"}:
+            loader_block = (
+                "export async function loader() {\n"
+                f"  return {{ route: '{cleaned_route}' }}\n"
+                "}\n\n"
+            ) if with_loader else ""
+            files = {
+                f"src/routes/{pascal_name}.jsx": (
+                    f"{loader_block}export function {pascal_name}() {{\n"
+                    "  return (\n"
+                    f"    <section className=\"route route-{kebab_name}\">\n"
+                    f"      <h1>{pascal_name}</h1>\n"
+                    f"      <p>Route path: {cleaned_route}</p>\n"
+                    "    </section>\n"
+                    "  )\n"
+                    "}\n"
+                ),
+            }
+            if with_tests:
+                files[f"src/routes/{pascal_name}.test.jsx"] = (
+                    f"import {{ {pascal_name} }} from './{pascal_name}'\n\n"
+                    f"describe('{pascal_name}', () => {{\n"
+                    "  it('is defined', () => {\n"
+                    f"    expect({pascal_name}).toBeDefined()\n"
+                    "  })\n"
+                    "})\n"
+                )
+            return files, [f"Generated React route {pascal_name} for path {cleaned_route}."]
+
+        if normalized_framework == "fastapi":
+            module_name = "_".join(route_parts)
+            files = {
+                f"app/routes/{module_name}.py": (
+                    "from fastapi import APIRouter\n\n"
+                    f"router = APIRouter(prefix='{cleaned_route}', tags=['{module_name}'])\n\n"
+                    "@router.get('/')\n"
+                    "def read_route() -> dict[str, str]:\n"
+                    f"    return {{'route': '{cleaned_route}'}}\n"
+                ),
+            }
+            if with_tests:
+                files[f"tests/test_{module_name}_route.py"] = (
+                    "from app.routes import " + module_name + "\n\n"
+                    "def test_router_exists() -> None:\n"
+                    f"    assert {module_name}.router is not None\n"
+                )
+            return files, [f"Generated FastAPI route module for path {cleaned_route}."]
+
+        if normalized_framework in {"static", "static-site", "html"}:
+            files = {
+                f"routes/{kebab_name}.html": (
+                    "<!doctype html>\n"
+                    "<html lang=\"en\">\n"
+                    "  <head><meta charset=\"UTF-8\" /><title>"
+                    + pascal_name
+                    + "</title></head>\n"
+                    "  <body>\n"
+                    f"    <main><h1>{pascal_name}</h1><p>Route path: {cleaned_route}</p></main>\n"
+                    "  </body>\n"
+                    "</html>\n"
+                ),
+            }
+            return files, [f"Generated static route page for path {cleaned_route}."]
+
+        raise ValueError("framework must be one of: vite-react, react, fastapi, static-site")
+
     async def shell_command_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw = str(args.get("command", "")).strip()
         if not raw:
@@ -303,6 +434,108 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "overwrite": {"type": "boolean", "description": "Whether existing scaffold files may be replaced; defaults to false"},
                 },
                 "required": ["project_type", "name", "target_path"],
+            },
+        )
+    )
+
+    async def generate_component_handler(args: dict[str, Any]) -> dict[str, Any]:
+        framework = str(args.get("framework") or "").strip()
+        component_name = str(args.get("name") or "").strip()
+        raw_target_path = str(args.get("target_path") or args.get("path") or "").strip()
+        overwrite = bool(args.get("overwrite", False))
+        props_schema = args.get("props_schema")
+
+        if not framework:
+            raise ValueError("framework is required")
+        if not component_name:
+            raise ValueError("name is required")
+        if not raw_target_path:
+            raise ValueError("target_path is required")
+        if props_schema is not None and not isinstance(props_schema, dict):
+            raise ValueError("props_schema must be an object when provided")
+
+        target = _resolve_workspace_path(raw_target_path)
+        target.mkdir(parents=True, exist_ok=True)
+
+        files, notes = _build_component_scaffold(framework, component_name, props_schema)
+        created_paths, updated_paths = _write_scaffold_files(target, files, overwrite)
+
+        return {
+            "ok": True,
+            "framework": framework,
+            "name": component_name,
+            "target_path": str(target).replace("\\", "/"),
+            "created_paths": created_paths,
+            "updated_paths": updated_paths,
+            "notes": notes,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_component",
+            description="Generate a starter UI component for vite-react/react or a snippet for static-site projects.",
+            handler=generate_component_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "framework": {"type": "string", "description": "vite-react | react | static-site"},
+                    "name": {"type": "string", "description": "Component name to generate"},
+                    "target_path": {"type": "string", "description": "Project root directory containing the app"},
+                    "props_schema": {"type": "object", "description": "Optional prop-name map used to shape the starter component"},
+                    "overwrite": {"type": "boolean", "description": "Whether existing component files may be replaced; defaults to false"},
+                },
+                "required": ["framework", "name", "target_path"],
+            },
+        )
+    )
+
+    async def generate_route_handler(args: dict[str, Any]) -> dict[str, Any]:
+        framework = str(args.get("framework") or "").strip()
+        route_path = str(args.get("route_path") or "").strip()
+        raw_target_path = str(args.get("target_path") or args.get("path") or "").strip()
+        with_loader = bool(args.get("with_loader", False))
+        with_tests = bool(args.get("with_tests", False))
+        overwrite = bool(args.get("overwrite", False))
+
+        if not framework:
+            raise ValueError("framework is required")
+        if not route_path:
+            raise ValueError("route_path is required")
+        if not raw_target_path:
+            raise ValueError("target_path is required")
+
+        target = _resolve_workspace_path(raw_target_path)
+        target.mkdir(parents=True, exist_ok=True)
+
+        files, notes = _build_route_scaffold(framework, route_path, with_loader, with_tests)
+        created_paths, updated_paths = _write_scaffold_files(target, files, overwrite)
+
+        return {
+            "ok": True,
+            "framework": framework,
+            "route_path": route_path,
+            "target_path": str(target).replace("\\", "/"),
+            "created_paths": created_paths,
+            "updated_paths": updated_paths,
+            "notes": notes,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_route",
+            description="Generate a starter route for vite-react/react, fastapi, or static-site projects.",
+            handler=generate_route_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "framework": {"type": "string", "description": "vite-react | react | fastapi | static-site"},
+                    "route_path": {"type": "string", "description": "Route path to generate, like /dashboard"},
+                    "target_path": {"type": "string", "description": "Project root directory containing the app"},
+                    "with_loader": {"type": "boolean", "description": "Whether to emit a basic loader function for React routes"},
+                    "with_tests": {"type": "boolean", "description": "Whether to generate a basic test file for the route"},
+                    "overwrite": {"type": "boolean", "description": "Whether existing route files may be replaced; defaults to false"},
+                },
+                "required": ["framework", "route_path", "target_path"],
             },
         )
     )
