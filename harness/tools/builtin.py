@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -127,6 +128,64 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "returncode": result.returncode,
             "truncated": result.truncated,
         }
+
+    def _build_app_service_manifest(project_type: str, project_name: str, target: Path) -> dict[str, Any]:
+        normalized_type = project_type.strip().lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", project_name.lower()).strip("-") or "app"
+        path_hash = abs(hash(str(target))) % 10000
+
+        if normalized_type == "fastapi":
+            port = 8100 + (path_hash % 500)
+            start_command = f"python -m uvicorn app.main:app --reload --host 127.0.0.1 --port {port}"
+            return {
+                "service_id": f"app-{slug}-{path_hash}",
+                "start_strategy": "subprocess",
+                "start_command": start_command,
+                "start_args": [],
+                "working_dir": str(target).replace("\\", "/"),
+                "healthcheck_url": f"http://127.0.0.1:{port}/",
+            }
+
+        if normalized_type in {"vite", "react", "vite-react", "react-vite"}:
+            port = 5200 + (path_hash % 500)
+            start_command = f"npm run dev -- --host 127.0.0.1 --port {port}"
+            return {
+                "service_id": f"app-{slug}-{path_hash}",
+                "start_strategy": "subprocess",
+                "start_command": start_command,
+                "start_args": [],
+                "working_dir": str(target).replace("\\", "/"),
+                "healthcheck_url": f"http://127.0.0.1:{port}/",
+            }
+
+        port = 8200 + (path_hash % 500)
+        start_command = f"python -m http.server {port}"
+        return {
+            "service_id": f"app-{slug}-{path_hash}",
+            "start_strategy": "subprocess",
+            "start_command": start_command,
+            "start_args": [],
+            "working_dir": str(target).replace("\\", "/"),
+            "healthcheck_url": f"http://127.0.0.1:{port}/",
+        }
+
+    def _parse_version_from_text(text: str) -> str | None:
+        match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", text)
+        return match.group(0) if match else None
+
+    def _bump_semver(current: str, bump: str, set_version: str | None = None) -> str:
+        if bump == "set":
+            if not set_version or not re.fullmatch(r"\d+\.\d+\.\d+", set_version):
+                raise ValueError("set_version must match semantic version format X.Y.Z")
+            return set_version
+        major, minor, patch = [int(v) for v in current.split(".")]
+        if bump == "major":
+            return f"{major + 1}.0.0"
+        if bump == "minor":
+            return f"{major}.{minor + 1}.0"
+        if bump == "patch":
+            return f"{major}.{minor}.{patch + 1}"
+        raise ValueError("bump must be one of: patch, minor, major, set")
 
     def _build_project_scaffold(project_type: str, project_name: str) -> tuple[dict[str, str], list[str], list[str]]:
         normalized_type = project_type.strip().lower()
@@ -502,6 +561,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         transaction = _write_scaffold_files(target, files, overwrite)
         install_result = None
         rolled_back = False
+        app_service_manifest = _build_app_service_manifest(project_type, project_name, target)
 
         if install_dependencies:
             install_result = await _run_project_install(project_type, target)
@@ -518,6 +578,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "commands_to_run": commands_to_run,
                     "install_result": install_result,
                     "rolled_back": True,
+                    "app_service_manifest": app_service_manifest,
                     "notes": notes + ["Rolled back scaffold because dependency installation failed."],
                 }
 
@@ -531,6 +592,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "commands_to_run": commands_to_run,
             "install_result": install_result,
             "rolled_back": rolled_back,
+            "app_service_manifest": app_service_manifest,
             "notes": notes,
         }
 
@@ -559,6 +621,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         raw_target_path = str(args.get("target_path") or args.get("path") or "").strip()
         overwrite = bool(args.get("overwrite", False))
         props_schema = args.get("props_schema")
+        auto_wire = bool(args.get("auto_wire", False))
 
         if not framework:
             raise ValueError("framework is required")
@@ -574,6 +637,11 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
 
         files, notes = _build_component_scaffold(framework, component_name, props_schema)
         transaction = _write_scaffold_files(target, files, overwrite)
+        auto_wire_note = (
+            "Auto-wiring is deferred in this release; generated files are intentionally isolated."
+            if auto_wire
+            else "Auto-wiring disabled by default; generated files remain isolated."
+        )
 
         return {
             "ok": True,
@@ -582,7 +650,9 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "target_path": str(target).replace("\\", "/"),
             "created_paths": transaction["created_paths"],
             "updated_paths": transaction["updated_paths"],
-            "notes": notes,
+            "auto_wire_requested": auto_wire,
+            "auto_wire_applied": False,
+            "notes": notes + [auto_wire_note],
         }
 
     tools.register_tool(
@@ -597,6 +667,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "name": {"type": "string", "description": "Component name to generate"},
                     "target_path": {"type": "string", "description": "Project root directory containing the app"},
                     "props_schema": {"type": "object", "description": "Optional prop-name map used to shape the starter component"},
+                    "auto_wire": {"type": "boolean", "description": "Request automatic wiring into app entrypoints (deferred; currently not applied)"},
                     "overwrite": {"type": "boolean", "description": "Whether existing component files may be replaced; defaults to false"},
                 },
                 "required": ["framework", "name", "target_path"],
@@ -610,6 +681,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         raw_target_path = str(args.get("target_path") or args.get("path") or "").strip()
         with_loader = bool(args.get("with_loader", False))
         with_tests = bool(args.get("with_tests", False))
+        auto_wire = bool(args.get("auto_wire", False))
         overwrite = bool(args.get("overwrite", False))
 
         if not framework:
@@ -624,6 +696,11 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
 
         files, notes = _build_route_scaffold(framework, route_path, with_loader, with_tests)
         transaction = _write_scaffold_files(target, files, overwrite)
+        auto_wire_note = (
+            "Auto-wiring is deferred in this release; generated routes are intentionally isolated."
+            if auto_wire
+            else "Auto-wiring disabled by default; generated routes remain isolated."
+        )
 
         return {
             "ok": True,
@@ -632,7 +709,9 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "target_path": str(target).replace("\\", "/"),
             "created_paths": transaction["created_paths"],
             "updated_paths": transaction["updated_paths"],
-            "notes": notes,
+            "auto_wire_requested": auto_wire,
+            "auto_wire_applied": False,
+            "notes": notes + [auto_wire_note],
         }
 
     tools.register_tool(
@@ -648,9 +727,194 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "target_path": {"type": "string", "description": "Project root directory containing the app"},
                     "with_loader": {"type": "boolean", "description": "Whether to emit a basic loader function for React routes"},
                     "with_tests": {"type": "boolean", "description": "Whether to generate a basic test file for the route"},
+                    "auto_wire": {"type": "boolean", "description": "Request automatic wiring into app routing entrypoints (deferred; currently not applied)"},
                     "overwrite": {"type": "boolean", "description": "Whether existing route files may be replaced; defaults to false"},
                 },
                 "required": ["framework", "route_path", "target_path"],
+            },
+        )
+    )
+
+    async def version_bump_handler(args: dict[str, Any]) -> dict[str, Any]:
+        bump = str(args.get("bump", "patch")).strip().lower()
+        set_version = str(args.get("set_version", "")).strip() or None
+        raw_files = args.get("files")
+        target_files = [
+            "pyproject.toml",
+            "harness/__init__.py",
+            "harness/api/server.py",
+        ]
+        if isinstance(raw_files, list) and raw_files:
+            target_files = [str(v) for v in raw_files]
+
+        pyproject = _resolve_workspace_path("pyproject.toml")
+        if not pyproject.exists():
+            raise ValueError("pyproject.toml not found; cannot determine current version")
+        py_text = pyproject.read_text(encoding="utf-8", errors="replace")
+        current_version = _parse_version_from_text(py_text)
+        if not current_version:
+            raise ValueError("Could not parse current semantic version from pyproject.toml")
+
+        next_version = _bump_semver(current_version, bump, set_version)
+        updated_files: list[str] = []
+        for raw_path in target_files:
+            target = _resolve_workspace_path(raw_path)
+            if not target.exists() or not target.is_file():
+                continue
+            content = target.read_text(encoding="utf-8", errors="replace")
+            replaced = content.replace(current_version, next_version)
+            if replaced != content:
+                target.write_text(replaced, encoding="utf-8")
+                updated_files.append(str(target).replace("\\", "/"))
+
+        return {
+            "ok": True,
+            "current_version": current_version,
+            "next_version": next_version,
+            "updated_files": updated_files,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="version_bump",
+            description="Bump semantic version across version-bearing files using patch/minor/major or explicit set mode.",
+            handler=version_bump_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "bump": {"type": "string", "description": "patch | minor | major | set"},
+                    "set_version": {"type": "string", "description": "Explicit semantic version when bump=set"},
+                    "files": {"type": "array", "items": {"type": "string"}, "description": "Optional list of files to update"},
+                },
+            },
+        )
+    )
+
+    async def generate_release_notes_handler(args: dict[str, Any]) -> dict[str, Any]:
+        version = str(args.get("version", "")).strip()
+        if not version:
+            raise ValueError("version is required")
+        output_path = str(args.get("output_path", f"RELEASE_NOTES_{version}.md")).strip()
+        max_commits = int(args.get("max_commits", 25))
+
+        git_log_lines: list[str] = []
+        git_error = None
+        try:
+            result = await execution.run_command("git", "log", "--oneline", "-n", str(max_commits))
+            if result.returncode == 0:
+                git_log_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            else:
+                git_error = result.stderr.strip() or "git log failed"
+        except Exception as exc:
+            git_error = str(exc)
+
+        body_lines = [
+            f"# Release Notes {version}",
+            "",
+            f"Generated at {datetime.now(timezone.utc).isoformat()}",
+            "",
+            "## Highlights",
+            "",
+            "- Placeholder summary: update with user-facing highlights.",
+            "",
+            "## Notable Changes",
+            "",
+        ]
+        if git_log_lines:
+            body_lines.extend([f"- {line}" for line in git_log_lines])
+        else:
+            body_lines.append("- No git log entries available.")
+        if git_error:
+            body_lines.extend(["", f"_Git log warning: {git_error}_"])
+
+        target = _resolve_workspace_path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = "\n".join(body_lines) + "\n"
+        target.write_text(content, encoding="utf-8")
+        return {
+            "ok": True,
+            "version": version,
+            "path": str(target).replace("\\", "/"),
+            "bytes_written": len(content.encode("utf-8")),
+            "included_commits": len(git_log_lines),
+            "git_warning": git_error,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_release_notes",
+            description="Generate a release notes markdown file for a target version with recent git commits.",
+            handler=generate_release_notes_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "version": {"type": "string", "description": "Version label used in release notes filename/content"},
+                    "output_path": {"type": "string", "description": "Optional output markdown path"},
+                    "max_commits": {"type": "integer", "description": "Max number of recent commits to include"},
+                },
+                "required": ["version"],
+            },
+        )
+    )
+
+    async def tag_and_publish_release_handler(args: dict[str, Any]) -> dict[str, Any]:
+        version = str(args.get("version", "")).strip()
+        if not version:
+            raise ValueError("version is required")
+        tag = str(args.get("tag", f"v{version}")).strip()
+        push_main = bool(args.get("push_main", False))
+
+        tag_result = await execution.run_command("git", "tag", tag)
+        if tag_result.returncode != 0:
+            return {
+                "ok": False,
+                "tag": tag,
+                "step": "tag",
+                "stdout": tag_result.stdout,
+                "stderr": tag_result.stderr,
+                "returncode": tag_result.returncode,
+            }
+
+        push_tag_result = await execution.run_command("git", "push", "origin", tag)
+        if push_tag_result.returncode != 0:
+            return {
+                "ok": False,
+                "tag": tag,
+                "step": "push_tag",
+                "stdout": push_tag_result.stdout,
+                "stderr": push_tag_result.stderr,
+                "returncode": push_tag_result.returncode,
+            }
+
+        push_main_result: dict[str, Any] | None = None
+        if push_main:
+            push_main_raw = await execution.run_command("git", "push", "origin", "main")
+            push_main_result = {
+                "returncode": push_main_raw.returncode,
+                "stdout": push_main_raw.stdout,
+                "stderr": push_main_raw.stderr,
+            }
+
+        return {
+            "ok": True,
+            "tag": tag,
+            "push_main": push_main,
+            "push_main_result": push_main_result,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="tag_and_publish_release",
+            description="Create a git tag and push it to origin, with optional main branch push.",
+            handler=tag_and_publish_release_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "version": {"type": "string", "description": "Release version used to derive default tag"},
+                    "tag": {"type": "string", "description": "Optional explicit tag name"},
+                    "push_main": {"type": "boolean", "description": "Whether to push origin/main after pushing the tag"},
+                },
+                "required": ["version"],
             },
         )
     )

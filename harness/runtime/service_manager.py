@@ -78,7 +78,16 @@ class ServiceManager:
         Returns (is_healthy, error_reason).
         """
         config = self.services.get(service_id)
-        if not config or not config.healthcheck_url:
+        if not config:
+            return False, "Service not registered"
+        if not config.healthcheck_url:
+            # No explicit health endpoint: rely on process liveness.
+            proc = self._service_processes.get(service_id)
+            if proc is None:
+                return False, "Service process not found"
+            if proc.poll() is None:
+                self.service_statuses[service_id].last_checked = datetime.now(timezone.utc).isoformat()
+                return True, None
             return False, "No healthcheck configured"
 
         try:

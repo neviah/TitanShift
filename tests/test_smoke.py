@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
 
@@ -685,6 +686,44 @@ def test_generate_route_tool_creates_react_route_and_test() -> None:
         shutil.rmtree(target_dir, ignore_errors=True)
 
 
+def test_generate_route_auto_wire_is_deferred() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-generate-route-autowire")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "vite-react",
+                    "name": "Auto Wire Playground",
+                    "target_path": ".harness/test-generate-route-autowire",
+                },
+            )
+        )
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_route",
+                {
+                    "framework": "vite-react",
+                    "route_path": "/auto-wire",
+                    "target_path": ".harness/test-generate-route-autowire",
+                    "auto_wire": True,
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert result["auto_wire_requested"] is True
+        assert result["auto_wire_applied"] is False
+        assert any("deferred" in str(note).lower() for note in result["notes"])
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
 def test_init_project_tool_can_run_dependency_install() -> None:
     app = create_app(Path(".").resolve())
     runtime = app.state.runtime
@@ -809,6 +848,89 @@ def test_init_project_rolls_back_when_dependency_install_fails() -> None:
     finally:
         runtime.execution.run_command = original_run_command  # type: ignore[assignment]
         shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_version_bump_tool_updates_specified_files_only() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r"\b(\d+\.\d+\.\d+)\b", pyproject)
+    assert match is not None
+    current_version = match.group(1)
+    temp_file = Path(".harness/test-version-bump.txt")
+    temp_file.parent.mkdir(parents=True, exist_ok=True)
+    temp_file.write_text(f"version={current_version}\n", encoding="utf-8")
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "version_bump",
+                {
+                    "bump": "patch",
+                    "files": [".harness/test-version-bump.txt"],
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert result["current_version"] == current_version
+        assert temp_file.read_text(encoding="utf-8").strip() == f"version={result['next_version']}"
+    finally:
+        temp_file.unlink(missing_ok=True)
+
+
+def test_generate_release_notes_tool_creates_file() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target = Path(".harness/RELEASE_NOTES_TEST.md")
+    target.unlink(missing_ok=True)
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_release_notes",
+                {
+                    "version": "9.9.9",
+                    "output_path": ".harness/RELEASE_NOTES_TEST.md",
+                    "max_commits": 5,
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert target.exists()
+        content = target.read_text(encoding="utf-8")
+        assert "Release Notes 9.9.9" in content
+    finally:
+        target.unlink(missing_ok=True)
+
+
+def test_tag_and_publish_release_tool_uses_git_commands() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    called: list[tuple[str, tuple[str, ...]]] = []
+
+    async def fake_git(command: str, *args: str, timeout_s: int | None = None, cwd: str | None = None) -> ExecutionResult:
+        called.append((command, args))
+        return ExecutionResult(stdout="ok", stderr="", returncode=0, truncated=False)
+
+    original_run_command = runtime.execution.run_command
+    runtime.execution.run_command = fake_git  # type: ignore[assignment]
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "tag_and_publish_release",
+                {
+                    "version": "1.2.3",
+                    "push_main": True,
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert called[0] == ("git", ("tag", "v1.2.3"))
+        assert called[1] == ("git", ("push", "origin", "v1.2.3"))
+        assert called[2] == ("git", ("push", "origin", "main"))
+    finally:
+        runtime.execution.run_command = original_run_command  # type: ignore[assignment]
 
 
 def test_lightning_skill_prompt_hides_builtin_workflow_skills() -> None:

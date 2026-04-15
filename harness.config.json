@@ -78,7 +78,10 @@
       "search_workspace",
       "run_project_check",
       "run_tests",
-      "lint_and_fix"
+      "lint_and_fix",
+      "version_bump",
+      "generate_release_notes",
+      "tag_and_publish_release"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [

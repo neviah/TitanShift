@@ -45,6 +45,27 @@
   flex-wrap: wrap;
 }
 
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.buttonRow button {
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in oklab, var(--bg-elevated) 70%, transparent);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.buttonRow button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .toolsBlock {
   display: flex;
   flex-direction: column;
