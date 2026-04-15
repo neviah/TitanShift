@@ -118,6 +118,9 @@ from harness.api.schemas import (
     SkillRepoIntakeRequest,
     SkillRepoIntakeResponse,
     SkillSummary,
+    RunTelemetrySummary,
+    ServiceControlRequest,
+    ServiceStatusResponse,
     UiIngestionOverviewResponse,
     UiMarketOverviewResponse,
     TaskDetail,
@@ -1015,6 +1018,19 @@ def create_app(workspace_root: Path) -> FastAPI:
         default_base_url = f"http://127.0.0.1:{default_port}"
 
         if has_http:
+            # Infer start strategy from patterns
+            start_strategy = "subprocess"
+            start_command = ""
+            if package_json and package_json.get("scripts") and package_json["scripts"].get("dev"):
+                start_strategy = "npm"
+                start_command = "npm run dev"
+            elif package_json and package_json.get("scripts") and package_json["scripts"].get("start"):
+                start_strategy = "npm"
+                start_command = "npm start"
+            elif "python" in readme_lower or pyproject_text.strip():
+                start_strategy = "python"
+                start_command = "python -m" if package_json_text else "python"
+            
             adapters.append(
                 {
                     "tool_name": f"repo_{repo_slug}_http_request",
@@ -1024,6 +1040,12 @@ def create_app(workspace_root: Path) -> FastAPI:
                     "description": f"Generated HTTP adapter for {owner}/{repo}",
                     "base_url": default_base_url,
                     "default_path": "/health",
+                    "lifecycle": {
+                        "start_strategy": start_strategy,
+                        "start_command": start_command,
+                        "healthcheck_url": f"{default_base_url}/health",
+                        "startup_timeout_s": 30.0,
+                    },
                 }
             )
 
@@ -1147,8 +1169,26 @@ def create_app(workspace_root: Path) -> FastAPI:
             base_url = str(record.get("base_url", "")).strip() or "http://127.0.0.1:8000"
             default_path = str(record.get("default_path", "/health")).strip() or "/health"
             description = str(record.get("description", "Generated HTTP adapter"))
+            lifecycle = record.get("lifecycle", {})
 
-            async def _http_handler(args: dict[str, Any], *, _base_url: str = base_url, _default_path: str = default_path) -> dict[str, Any]:
+            async def _http_handler(args: dict[str, Any], *, _base_url: str = base_url, _default_path: str = default_path, _tool_name: str = tool_name, _lifecycle: dict[str, Any] | None = lifecycle) -> dict[str, Any]:
+                # Check and auto-start service if needed
+                if _lifecycle:
+                    service_id = _tool_name
+                    is_healthy, health_error = await runtime.service_manager.check_health(service_id)
+                    if not is_healthy:
+                        try:
+                            await runtime.service_manager.start_service(
+                                service_id=service_id,
+                                start_strategy=_lifecycle.get("start_strategy", "subprocess"),
+                                start_command=_lifecycle.get("start_command", ""),
+                                healthcheck_url=_lifecycle.get("healthcheck_url", f"{_base_url}/health"),
+                                startup_timeout_s=_lifecycle.get("startup_timeout_s", 30.0),
+                            )
+                        except Exception as e:
+                            error_msg = f"Service startup failed: {str(e)}"
+                            raise RuntimeError(f"{error_msg}. Requested tool: {_tool_name}") from e
+                
                 method = str(args.get("method", "GET")).strip().upper()
                 if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
                     raise ValueError("method must be one of GET, POST, PUT, PATCH, DELETE")
@@ -3810,6 +3850,65 @@ def create_app(workspace_root: Path) -> FastAPI:
                 )
             )
         return out
+
+    @app.get("/telemetry/runs", response_model=list[RunTelemetrySummary], dependencies=[Depends(require_read_api_key)])
+    async def telemetry_runs(limit: int = 50) -> list[RunTelemetrySummary]:
+        """Get recent run telemetry (requested tools, fallbacks, failures)."""
+        runs = runtime.telemetry.list_recent_runs(limit)
+        return [
+            RunTelemetrySummary(
+                run_id=r.run_id,
+                task_id=r.task_id,
+                agent_id=r.agent_id,
+                requested_tool=r.requested_tool,
+                attempted_tools=r.attempted_tools,
+                primary_tool=r.primary_tool,
+                primary_failure_reason=r.primary_failure_reason,
+                fallback_used=r.fallback_used,
+                succeeded_tool=r.succeeded_tool,
+                duration_ms=r.duration_ms,
+                started_at=r.started_at,
+                completed_at=r.completed_at,
+            )
+            for r in runs
+        ]
+
+    @app.get("/skills/repo-adapters/{tool_name}/status", response_model=ServiceStatusResponse, dependencies=[Depends(require_read_api_key)])
+    async def adapter_status(tool_name: str) -> ServiceStatusResponse:
+        """Get the current status of a generated repo adapter service."""
+        status = runtime.service_manager.get_status(tool_name)
+        return ServiceStatusResponse(
+            service_id=status.service_id,
+            status=status.status,
+            uptime_s=status.uptime_s,
+            last_error=status.last_error,
+            last_checked=status.last_checked,
+        )
+
+    @app.post("/skills/repo-adapters/{tool_name}/control", response_model=ServiceStatusResponse, dependencies=[Depends(require_write_api_key)])
+    async def adapter_control(tool_name: str, req: ServiceControlRequest) -> ServiceStatusResponse:
+        """Start, stop, or restart a generated repo adapter service."""
+        action = req.action.lower()
+        
+        if action == "start":
+            await runtime.service_manager.start_service(tool_name)
+        elif action == "stop":
+            await runtime.service_manager.stop_service(tool_name)
+        elif action == "restart":
+            await runtime.service_manager.stop_service(tool_name)
+            await asyncio.sleep(0.5)
+            await runtime.service_manager.start_service(tool_name)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+        
+        status = runtime.service_manager.get_status(tool_name)
+        return ServiceStatusResponse(
+            service_id=status.service_id,
+            status=status.status,
+            uptime_s=status.uptime_s,
+            last_error=status.last_error,
+            last_checked=status.last_checked,
+        )
 
     @app.post("/scheduler/heartbeat", response_model=SchedulerHeartbeatResponse, dependencies=[Depends(require_admin_api_key)])
     async def scheduler_heartbeat() -> SchedulerHeartbeatResponse:

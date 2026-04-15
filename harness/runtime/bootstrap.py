@@ -16,6 +16,8 @@ from harness.runtime.config import ConfigManager
 from harness.runtime.event_bus import EventBus
 from harness.runtime.health import HealthRegistry
 from harness.runtime.module_loader import ModuleLoader
+from harness.runtime.service_manager import ServiceManager
+from harness.runtime.telemetry import TelemetryCollector
 from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.skills.registry import SkillDefinition, SkillRegistry
 from harness.tools.builtin import register_builtin_tools
@@ -38,6 +40,8 @@ class RuntimeContext:
     health: HealthRegistry
     scheduler: Scheduler
     skills: SkillRegistry
+    service_manager: ServiceManager
+    telemetry: TelemetryCollector
 
 
 def build_runtime(workspace_root: Path) -> RuntimeContext:
@@ -225,6 +229,12 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     logger.log("MODULES_LOADED", {"modules": module_loader.list_modules()})
     health.set("module_loader", "healthy", {"modules": module_loader.list_modules()})
 
+    service_manager = ServiceManager()
+    health.set("service_manager", "healthy")
+
+    telemetry_collector = TelemetryCollector()
+    health.set("telemetry", "healthy")
+
     return RuntimeContext(
         config=cfg,
         event_bus=bus,
@@ -240,4 +250,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         health=health,
         scheduler=scheduler,
         skills=skills,
+        service_manager=service_manager,
+        telemetry=telemetry_collector,
     )

@@ -468,6 +468,39 @@ class ToolSummary(BaseModel):
     policy_reason: str
 
 
+class RunTelemetrySummary(BaseModel):
+    """Summary of tool execution telemetry for a single run."""
+
+    run_id: str
+    task_id: str | None = None
+    agent_id: str = "main-agent"
+    requested_tool: str | None = None
+    attempted_tools: list[str] = []
+    primary_tool: str | None = None
+    primary_failure_reason: str | None = None
+    fallback_used: bool = False
+    succeeded_tool: str | None = None
+    duration_ms: int = 0
+    started_at: str = ""
+    completed_at: str | None = None
+
+
+class ServiceControlRequest(BaseModel):
+    """Request to control a repo adapter service."""
+
+    action: str  # start, stop, restart
+
+
+class ServiceStatusResponse(BaseModel):
+    """Current status of a service."""
+
+    service_id: str
+    status: str  # starting, running, stopped, failed
+    uptime_s: float | None = None
+    last_error: str | None = None
+    last_checked: str | None = None
+
+
 class MemorySummary(BaseModel):
     working_agents: int
     working_entries: int
