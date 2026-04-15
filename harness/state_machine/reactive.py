@@ -190,6 +190,89 @@ class ReactiveStateMachine:
             proof["screenshot_metadata"] = screenshot_metadata
         return proof
 
+    def _narrow_tools_by_skill_recommendation(
+        self,
+        all_tool_defs: list[dict[str, Any]],
+        task_description: str,
+    ) -> list[dict[str, Any]] | None:
+        """Apply 3-stage filter to narrow tools based on skill recommendations.
+        
+        Returns narrowed tool list if successful filtering occurred, None if no narrowing applied.
+        
+        The filter stages are:
+        1. Exact Skill Match: Use skill.required_tools directly
+        2. Keyword Surface Match: Match tool capabilities and names semantically
+        3. Semantic Description Match: Use LLM to match descriptions (future enhancement)
+        """
+        if not self.skills:
+            return None
+
+        task_lower = task_description.lower()
+        narrowed_tools: set[str] = set()
+        
+        # Stage 1: Exact skill match from required_tools
+        for skill in self.skills.list_skills():
+            if skill.required_tools:
+                skill_matches_task = (
+                    skill.skill_id.lower() in task_lower
+                    or skill.description.lower() in task_lower
+                    or any(tag.lower() in task_lower for tag in skill.tags)
+                )
+                if skill_matches_task:
+                    narrowed_tools.update(skill.required_tools)
+        
+        # Stage 2: Keyword surface match on tool capabilities and metadata
+        task_keywords = set(task_lower.split())
+        for tool_def in all_tool_defs:
+            tool_name = str(tool_def.get("function", {}).get("name", "")).lower()
+            tool_desc = str(tool_def.get("function", {}).get("description", "")).lower()
+            capabilities = tool_def.get("capabilities", []) if isinstance(tool_def, dict) else []
+            
+            # Convert capabilities to a searchable string
+            caps_str = " ".join([str(c).lower() for c in (capabilities or [])])
+            
+            # Match domain/domain keywords
+            matches_intent = False
+            
+            # Direct capability matches
+            for keyword in task_keywords:
+                if len(keyword) > 3:  # Skip common words
+                    if keyword in tool_name or keyword in tool_desc or keyword in caps_str:
+                        matches_intent = True
+                        break
+            
+            # Common intent patterns
+            if not matches_intent:
+                intent_patterns = {
+                    "search": {"web_fetch", "repo_", "http"},
+                    "browse": {"web_fetch", "browser"},
+                    "api": {"http", "repo_"},
+                    "data": {"read_file", "search_workspace"},
+                    "file": {"write_file", "create_directory", "read_file"},
+                    "code": {"write_file", "shell_command"},
+            }
+                for intent, tool_hints in intent_patterns.items():
+                    if intent in task_lower:
+                        if any(hint in tool_name or hint in caps_str for hint in tool_hints):
+                            matches_intent = True
+                            break
+            
+            if matches_intent:
+                narrowed_tools.add(tool_name)
+        
+        # If we found narrowed tools, return only those
+        if narrowed_tools:
+            filtered = [
+                td for td in all_tool_defs
+                if str(td.get("function", {}).get("name", "")).lower() in narrowed_tools
+            ]
+            if filtered:
+                return filtered
+        
+        # Stage 3: Fallback - return all tools if narrowing didn't reduce the set meaningfully
+        # (This is where semantic LLM matching would go in future)
+        return None
+
     async def run_task(self, task: Task) -> TaskResult:
         budget = self._resolve_budget(task)
         if budget["max_steps"] < 1:
@@ -238,6 +321,12 @@ class ReactiveStateMachine:
 
         # Build OpenAI-format tool definitions from the registry
         tool_defs = self._build_active_tool_definitions(requested_tools)
+        
+        # Apply 3-stage tool narrowing filter based on skill recommendations
+        # This helps the model select relevant tools even when skill recommendations don't exactly match tool names
+        narrowed_tools = self._narrow_tools_by_skill_recommendation(tool_defs, task.description)
+        if narrowed_tools:
+            tool_defs = narrowed_tools
 
         # Multi-turn message history
         messages: list[dict[str, Any]] = [
