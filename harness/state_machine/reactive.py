@@ -232,6 +232,8 @@ class ReactiveStateMachine:
         browser_proofs: list[dict[str, Any]] = []
         test_failure_summary: list[str] = []
         test_failed_count: int | None = None
+        created_paths: list[str] = []
+        updated_paths: list[str] = []
         final_text = ""
         last_model_id = model.model_id
         total_tokens = model.estimate_tokens(task.description)
@@ -360,6 +362,14 @@ class ReactiveStateMachine:
                 if proof:
                     browser_proofs.append(proof)
 
+                if isinstance(tool_result, dict):
+                    created = tool_result.get("created_paths")
+                    if isinstance(created, list):
+                        created_paths.extend(str(path) for path in created if str(path).strip())
+                    updated = tool_result.get("updated_paths")
+                    if isinstance(updated, list):
+                        updated_paths.extend(str(path) for path in updated if str(path).strip())
+
                 if tc.name == "run_tests" and isinstance(tool_result, dict):
                     failure_rows = tool_result.get("failure_summary")
                     if isinstance(failure_rows, list):
@@ -407,6 +417,8 @@ class ReactiveStateMachine:
                 deduped_test_summary.append(row)
 
         latest_browser_proof = browser_proofs[-1] if browser_proofs else None
+        deduped_created_paths = list(dict.fromkeys(created_paths))
+        deduped_updated_paths = list(dict.fromkeys(updated_paths))
 
         return TaskResult(
             task_id=task.id,
@@ -424,6 +436,8 @@ class ReactiveStateMachine:
                 "browser_proofs": browser_proofs,
                 "test_failure_summary": deduped_test_summary[:20],
                 "test_failed_count": test_failed_count,
+                "created_paths": deduped_created_paths,
+                "updated_paths": deduped_updated_paths,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
         )

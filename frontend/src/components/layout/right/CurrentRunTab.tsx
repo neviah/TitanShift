@@ -72,6 +72,26 @@ export function CurrentRunTab() {
                 </div>
               </div>
             )}
+            {readStringArray(taskDetail?.output?.created_paths).length > 0 && (
+              <div className={styles.toolsBlock}>
+                <span className={styles.rowLabel}>Created Paths</span>
+                <div className={styles.list}>
+                  {readStringArray(taskDetail?.output?.created_paths).map((pathValue, index) => (
+                    <p key={`${pathValue}-${index}`} className={styles.hint}>{pathValue}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+            {readStringArray(taskDetail?.output?.updated_paths).length > 0 && (
+              <div className={styles.toolsBlock}>
+                <span className={styles.rowLabel}>Updated Paths</span>
+                <div className={styles.list}>
+                  {readStringArray(taskDetail?.output?.updated_paths).map((pathValue, index) => (
+                    <p key={`${pathValue}-${index}`} className={styles.hint}>{pathValue}</p>
+                  ))}
+                </div>
+              </div>
+            )}
             {readStringArray(taskDetail?.output?.requested_tools).length > 0 && (
               <div className={styles.toolsBlock}>
                 <span className={styles.rowLabel}>Requested Tools</span>

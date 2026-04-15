@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import time
 
 from nacl.encoding import Base64Encoder
@@ -565,6 +566,37 @@ def test_write_file_tool_writes_relative_workspace_path() -> None:
         assert target.read_text(encoding="utf-8") == "hello from tool\n"
     finally:
         target.unlink(missing_ok=True)
+
+
+def test_init_project_tool_creates_vite_react_scaffold() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-init-project-tool")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "vite-react",
+                    "name": "Test Scaffold",
+                    "target_path": ".harness/test-init-project-tool",
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert result["project_type"] == "vite-react"
+        assert len(result["created_paths"]) >= 4
+        assert target_dir.joinpath("package.json").exists()
+        assert target_dir.joinpath("src", "App.jsx").exists()
+        package_json = json.loads(target_dir.joinpath("package.json").read_text(encoding="utf-8"))
+        assert package_json["name"] == "test-scaffold"
+        assert "npm install" in result["commands_to_run"]
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
 
 
 def test_lightning_skill_prompt_hides_builtin_workflow_skills() -> None:

@@ -20,6 +20,181 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         candidate = Path(raw_path)
         return candidate.resolve() if candidate.is_absolute() else (execution.default_cwd / candidate).resolve()
 
+    def _write_scaffold_files(base_path: Path, files: dict[str, str], overwrite: bool) -> tuple[list[str], list[str]]:
+        created_paths: list[str] = []
+        updated_paths: list[str] = []
+        for relative_path, content in files.items():
+            target = (base_path / relative_path).resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            existed_before = target.exists()
+            if existed_before and not overwrite:
+                raise ValueError(f"target file already exists and overwrite=false: {target}")
+            target.write_text(content, encoding="utf-8")
+            normalized = str(target).replace("\\", "/")
+            if existed_before:
+                updated_paths.append(normalized)
+            else:
+                created_paths.append(normalized)
+        return created_paths, updated_paths
+
+    def _build_project_scaffold(project_type: str, project_name: str) -> tuple[dict[str, str], list[str], list[str]]:
+        normalized_type = project_type.strip().lower()
+        package_name = re.sub(r"[^a-z0-9]+", "-", project_name.lower()).strip("-") or "app"
+        module_name = re.sub(r"[^a-z0-9]+", "_", project_name.lower()).strip("_") or "app"
+
+        if normalized_type == "fastapi":
+            files = {
+                "app/__init__.py": "",
+                "app/main.py": (
+                    "from fastapi import FastAPI\n\n"
+                    f"app = FastAPI(title=\"{project_name}\")\n\n"
+                    "@app.get(\"/\")\n"
+                    "def read_root() -> dict[str, str]:\n"
+                    f"    return {{\"message\": \"{project_name} is running\"}}\n"
+                ),
+                "requirements.txt": "fastapi>=0.116\nuvicorn>=0.35\n",
+                "README.md": (
+                    f"# {project_name}\n\n"
+                    "## Run\n\n"
+                    "```bash\n"
+                    "python -m uvicorn app.main:app --reload\n"
+                    "```\n"
+                ),
+            }
+            commands = [
+                "python -m pip install -r requirements.txt",
+                "python -m uvicorn app.main:app --reload",
+            ]
+            notes = ["Generated a minimal FastAPI app scaffold."]
+            return files, commands, notes
+
+        if normalized_type in {"vite", "react", "vite-react", "react-vite"}:
+            files = {
+                "package.json": json.dumps(
+                    {
+                        "name": package_name,
+                        "private": True,
+                        "version": "0.1.0",
+                        "type": "module",
+                        "scripts": {
+                            "dev": "vite",
+                            "build": "vite build",
+                            "preview": "vite preview",
+                        },
+                        "dependencies": {
+                            "react": "^18.3.1",
+                            "react-dom": "^18.3.1",
+                        },
+                        "devDependencies": {
+                            "@vitejs/plugin-react": "^4.3.1",
+                            "vite": "^5.4.10",
+                        },
+                    },
+                    indent=2,
+                )
+                + "\n",
+                "index.html": (
+                    "<!doctype html>\n"
+                    "<html lang=\"en\">\n"
+                    "  <head>\n"
+                    "    <meta charset=\"UTF-8\" />\n"
+                    "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+                    f"    <title>{project_name}</title>\n"
+                    "    <script type=\"module\" src=\"/src/main.jsx\"></script>\n"
+                    "  </head>\n"
+                    "  <body>\n"
+                    "    <div id=\"root\"></div>\n"
+                    "  </body>\n"
+                    "</html>\n"
+                ),
+                "src/main.jsx": (
+                    "import React from 'react'\n"
+                    "import ReactDOM from 'react-dom/client'\n"
+                    "import './styles.css'\n"
+                    "import { App } from './App'\n\n"
+                    "ReactDOM.createRoot(document.getElementById('root')).render(\n"
+                    "  <React.StrictMode>\n"
+                    "    <App />\n"
+                    "  </React.StrictMode>,\n"
+                    ")\n"
+                ),
+                "src/App.jsx": (
+                    "export function App() {\n"
+                    "  return (\n"
+                    "    <main className=\"app-shell\">\n"
+                    f"      <h1>{project_name}</h1>\n"
+                    "      <p>Edit src/App.jsx to start building.</p>\n"
+                    "    </main>\n"
+                    "  )\n"
+                    "}\n"
+                ),
+                "src/styles.css": (
+                    ":root {\n"
+                    "  font-family: Georgia, 'Times New Roman', serif;\n"
+                    "  color: #1b1b1b;\n"
+                    "  background: linear-gradient(135deg, #f5efe0 0%, #d8e2dc 100%);\n"
+                    "}\n\n"
+                    "body {\n"
+                    "  margin: 0;\n"
+                    "  min-height: 100vh;\n"
+                    "}\n\n"
+                    "#root {\n"
+                    "  min-height: 100vh;\n"
+                    "}\n\n"
+                    ".app-shell {\n"
+                    "  min-height: 100vh;\n"
+                    "  display: grid;\n"
+                    "  place-items: center;\n"
+                    "  text-align: center;\n"
+                    "  padding: 2rem;\n"
+                    "}\n"
+                ),
+            }
+            commands = ["npm install", "npm run dev"]
+            notes = ["Generated a minimal Vite React scaffold."]
+            return files, commands, notes
+
+        if normalized_type in {"static", "static-site", "html"}:
+            files = {
+                "index.html": (
+                    "<!doctype html>\n"
+                    "<html lang=\"en\">\n"
+                    "  <head>\n"
+                    "    <meta charset=\"UTF-8\" />\n"
+                    "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+                    f"    <title>{project_name}</title>\n"
+                    "    <link rel=\"stylesheet\" href=\"styles.css\" />\n"
+                    "  </head>\n"
+                    "  <body>\n"
+                    "    <main class=\"page\">\n"
+                    f"      <h1>{project_name}</h1>\n"
+                    "      <p>Your static site scaffold is ready.</p>\n"
+                    "    </main>\n"
+                    "  </body>\n"
+                    "</html>\n"
+                ),
+                "styles.css": (
+                    "body {\n"
+                    "  margin: 0;\n"
+                    "  min-height: 100vh;\n"
+                    "  display: grid;\n"
+                    "  place-items: center;\n"
+                    "  background: linear-gradient(160deg, #e7ecef 0%, #d9cfc1 100%);\n"
+                    "  color: #202124;\n"
+                    "  font-family: 'Trebuchet MS', sans-serif;\n"
+                    "}\n\n"
+                    ".page {\n"
+                    "  text-align: center;\n"
+                    "  padding: 2rem;\n"
+                    "}\n"
+                ),
+            }
+            commands = ["python -m http.server 8000"]
+            notes = ["Generated a minimal static site scaffold."]
+            return files, commands, notes
+
+        raise ValueError("project_type must be one of: fastapi, vite-react, static-site")
+
     async def shell_command_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw = str(args.get("command", "")).strip()
         if not raw:
@@ -80,6 +255,54 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "directory_path": {"type": "string", "description": "Directory path relative to workspace root or absolute allowed path"},
                 },
                 "required": ["directory_path"],
+            },
+        )
+    )
+
+    async def init_project_handler(args: dict[str, Any]) -> dict[str, Any]:
+        project_type = str(args.get("project_type") or "").strip()
+        project_name = str(args.get("name") or "").strip()
+        raw_target_path = str(args.get("target_path") or args.get("path") or "").strip()
+        overwrite = bool(args.get("overwrite", False))
+
+        if not project_type:
+            raise ValueError("project_type is required")
+        if not project_name:
+            raise ValueError("name is required")
+        if not raw_target_path:
+            raise ValueError("target_path is required")
+
+        target = _resolve_workspace_path(raw_target_path)
+        target.mkdir(parents=True, exist_ok=True)
+
+        files, commands_to_run, notes = _build_project_scaffold(project_type, project_name)
+        created_paths, updated_paths = _write_scaffold_files(target, files, overwrite)
+
+        return {
+            "ok": True,
+            "project_type": project_type,
+            "name": project_name,
+            "target_path": str(target).replace("\\", "/"),
+            "created_paths": created_paths,
+            "updated_paths": updated_paths,
+            "commands_to_run": commands_to_run,
+            "notes": notes,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="init_project",
+            description="Scaffold a minimal starter project for fastapi, vite-react, or static-site projects.",
+            handler=init_project_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "project_type": {"type": "string", "description": "fastapi | vite-react | static-site"},
+                    "name": {"type": "string", "description": "Display name for the generated project"},
+                    "target_path": {"type": "string", "description": "Directory to scaffold into, relative to workspace root or absolute allowed path"},
+                    "overwrite": {"type": "boolean", "description": "Whether existing scaffold files may be replaced; defaults to false"},
+                },
+                "required": ["project_type", "name", "target_path"],
             },
         )
     )

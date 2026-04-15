@@ -24,10 +24,10 @@
 - Implemented browser proof artifacts in task output (`final_url`, `evidence_snippet`, optional `screenshot_metadata`).
 - Surfaced browser proof and parsed test-failure summary in Current Run panel.
 
-## Phase 3 (Ready)
+## Phase 3 (Started)
 
-- Add project scaffold tools:
-  - `init_project` (FastAPI/React/Vite/static)
+- Implemented `init_project` scaffold tool for `fastapi`, `vite-react`, and `static-site`.
+- Remaining project scaffold tools:
   - `generate_component`
   - `generate_route`
 - Add service lifecycle controls in run panel (start/stop/restart + health badge).
@@ -43,3 +43,4 @@
 - Run panel exposes enough telemetry to debug tool routing failures without opening raw logs.
 - Run panel shows browser proof artifact fields for browser-capable tool runs.
 - Test runs expose parsed failure summaries and failed-count signals.
+- Scaffold runs expose `created_paths` and `updated_paths` in task output.

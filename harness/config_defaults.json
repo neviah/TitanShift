@@ -70,6 +70,7 @@
       "shell_command",
       "web_fetch",
       "create_directory",
+      "init_project",
       "write_file",
       "append_file",
       "replace_in_file",

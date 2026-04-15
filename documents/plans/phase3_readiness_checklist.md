@@ -16,6 +16,11 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
 - Built-in editing and validation tools available for scaffolding workflows:
   - `write_file`, `append_file`, `replace_in_file`, `insert_at_line`, `delete_range`, `json_edit`, `yaml_edit`
   - `run_tests`, `lint_and_fix`, `run_project_check`
+- Initial scaffold tool implemented:
+  - `init_project` for `fastapi`, `vite-react`, and `static-site`
+- Run output includes scaffold artifact visibility:
+  - `created_paths`
+  - `updated_paths`
 
 ## Phase 3 API Contracts (Proposed)
 
@@ -29,9 +34,9 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
   - Inputs: `framework`, `route_path`, `target_path`, `with_loader`, `with_tests`
   - Outputs: `created_paths`, `updated_paths`
 
-## Required Pre-Work Before Coding Phase 3
+## Remaining Phase 3 Pre-Work
 
-- Finalize scaffold templates per project type (FastAPI, React, Vite, static site).
+- Expand scaffold coverage beyond `init_project` into component and route generators.
 - Decide policy for command execution during scaffolding (`npm install`, `pip install`, optional).
 - Define idempotency behavior for generators when targets already exist.
 - Define rollback strategy for partial scaffold failures.
