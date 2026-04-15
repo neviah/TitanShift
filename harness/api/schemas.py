@@ -515,28 +515,6 @@ class ServiceStatusResponse(BaseModel):
     last_checked: str | None = None
 
 
-class AppServiceRegisterRequest(BaseModel):
-    service_id: str = Field(min_length=1)
-    start_strategy: str = "subprocess"
-    start_command: str = Field(min_length=1)
-    start_args: list[str] = Field(default_factory=list)
-    working_dir: str | None = None
-    healthcheck_url: str | None = None
-    startup_timeout_s: float = 30.0
-    healthcheck_timeout_s: float = 5.0
-    retry_interval_s: float = 1.0
-    max_retries: int = 5
-
-
-class AppServiceRegisterResponse(BaseModel):
-    ok: bool
-    service: ServiceStatusResponse
-
-
-class AppServiceListResponse(BaseModel):
-    items: list[ServiceStatusResponse] = Field(default_factory=list)
-
-
 class MemorySummary(BaseModel):
     working_agents: int
     working_entries: int

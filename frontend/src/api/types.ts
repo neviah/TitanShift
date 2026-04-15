@@ -396,29 +396,3 @@ export interface MemorySummary {
   long_term_scopes: number
   long_term_entries: number
 }
-
-export interface ServiceStatusResponse {
-  service_id: string
-  status: string
-  uptime_s?: number | null
-  last_error?: string | null
-  last_checked?: string | null
-}
-
-export interface AppServiceRegisterRequest {
-  service_id: string
-  start_strategy?: string
-  start_command: string
-  start_args?: string[]
-  working_dir?: string | null
-  healthcheck_url?: string | null
-  startup_timeout_s?: number
-  healthcheck_timeout_s?: number
-  retry_interval_s?: number
-  max_retries?: number
-}
-
-export interface AppServiceRegisterResponse {
-  ok: boolean
-  service: ServiceStatusResponse
-}

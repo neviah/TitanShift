@@ -129,46 +129,6 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "truncated": result.truncated,
         }
 
-    def _build_app_service_manifest(project_type: str, project_name: str, target: Path) -> dict[str, Any]:
-        normalized_type = project_type.strip().lower()
-        slug = re.sub(r"[^a-z0-9]+", "-", project_name.lower()).strip("-") or "app"
-        path_hash = abs(hash(str(target))) % 10000
-
-        if normalized_type == "fastapi":
-            port = 8100 + (path_hash % 500)
-            start_command = f"python -m uvicorn app.main:app --reload --host 127.0.0.1 --port {port}"
-            return {
-                "service_id": f"app-{slug}-{path_hash}",
-                "start_strategy": "subprocess",
-                "start_command": start_command,
-                "start_args": [],
-                "working_dir": str(target).replace("\\", "/"),
-                "healthcheck_url": f"http://127.0.0.1:{port}/",
-            }
-
-        if normalized_type in {"vite", "react", "vite-react", "react-vite"}:
-            port = 5200 + (path_hash % 500)
-            start_command = f"npm run dev -- --host 127.0.0.1 --port {port}"
-            return {
-                "service_id": f"app-{slug}-{path_hash}",
-                "start_strategy": "subprocess",
-                "start_command": start_command,
-                "start_args": [],
-                "working_dir": str(target).replace("\\", "/"),
-                "healthcheck_url": f"http://127.0.0.1:{port}/",
-            }
-
-        port = 8200 + (path_hash % 500)
-        start_command = f"python -m http.server {port}"
-        return {
-            "service_id": f"app-{slug}-{path_hash}",
-            "start_strategy": "subprocess",
-            "start_command": start_command,
-            "start_args": [],
-            "working_dir": str(target).replace("\\", "/"),
-            "healthcheck_url": f"http://127.0.0.1:{port}/",
-        }
-
     def _parse_version_from_text(text: str) -> str | None:
         match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", text)
         return match.group(0) if match else None
@@ -186,6 +146,19 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         if bump == "patch":
             return f"{major}.{minor}.{patch + 1}"
         raise ValueError("bump must be one of: patch, minor, major, set")
+
+    def _release_category_for_commit(line: str) -> str:
+        message = line.strip()
+        if " " in message:
+            message = message.split(" ", 1)[1].strip()
+        lowered = message.lower()
+        if re.match(r"^(feat|feature)(\(.+\))?:", lowered):
+            return "features"
+        if re.match(r"^fix(\(.+\))?:", lowered):
+            return "fixes"
+        if re.match(r"^chore(\(.+\))?:", lowered):
+            return "chore"
+        return "other"
 
     def _build_project_scaffold(project_type: str, project_name: str) -> tuple[dict[str, str], list[str], list[str]]:
         normalized_type = project_type.strip().lower()
@@ -561,8 +534,6 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         transaction = _write_scaffold_files(target, files, overwrite)
         install_result = None
         rolled_back = False
-        app_service_manifest = _build_app_service_manifest(project_type, project_name, target)
-
         if install_dependencies:
             install_result = await _run_project_install(project_type, target)
             if not bool(install_result.get("ok", False)):
@@ -578,7 +549,6 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "commands_to_run": commands_to_run,
                     "install_result": install_result,
                     "rolled_back": True,
-                    "app_service_manifest": app_service_manifest,
                     "notes": notes + ["Rolled back scaffold because dependency installation failed."],
                 }
 
@@ -592,7 +562,6 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "commands_to_run": commands_to_run,
             "install_result": install_result,
             "rolled_back": rolled_back,
-            "app_service_manifest": app_service_manifest,
             "notes": notes,
         }
 
@@ -738,6 +707,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
     async def version_bump_handler(args: dict[str, Any]) -> dict[str, Any]:
         bump = str(args.get("bump", "patch")).strip().lower()
         set_version = str(args.get("set_version", "")).strip() or None
+        dry_run = bool(args.get("dry_run", False))
         raw_files = args.get("files")
         target_files = [
             "pyproject.toml",
@@ -757,6 +727,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
 
         next_version = _bump_semver(current_version, bump, set_version)
         updated_files: list[str] = []
+        planned_files: list[str] = []
         for raw_path in target_files:
             target = _resolve_workspace_path(raw_path)
             if not target.exists() or not target.is_file():
@@ -764,14 +735,19 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             content = target.read_text(encoding="utf-8", errors="replace")
             replaced = content.replace(current_version, next_version)
             if replaced != content:
-                target.write_text(replaced, encoding="utf-8")
-                updated_files.append(str(target).replace("\\", "/"))
+                path_str = str(target).replace("\\", "/")
+                planned_files.append(path_str)
+                if not dry_run:
+                    target.write_text(replaced, encoding="utf-8")
+                    updated_files.append(path_str)
 
         return {
             "ok": True,
+            "dry_run": dry_run,
             "current_version": current_version,
             "next_version": next_version,
             "updated_files": updated_files,
+            "planned_files": planned_files,
         }
 
     tools.register_tool(
@@ -785,6 +761,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "bump": {"type": "string", "description": "patch | minor | major | set"},
                     "set_version": {"type": "string", "description": "Explicit semantic version when bump=set"},
                     "files": {"type": "array", "items": {"type": "string"}, "description": "Optional list of files to update"},
+                    "dry_run": {"type": "boolean", "description": "Preview changes without writing files"},
                 },
             },
         )
@@ -796,6 +773,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             raise ValueError("version is required")
         output_path = str(args.get("output_path", f"RELEASE_NOTES_{version}.md")).strip()
         max_commits = int(args.get("max_commits", 25))
+        dry_run = bool(args.get("dry_run", False))
 
         git_log_lines: list[str] = []
         git_error = None
@@ -817,25 +795,58 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "",
             "- Placeholder summary: update with user-facing highlights.",
             "",
-            "## Notable Changes",
-            "",
         ]
-        if git_log_lines:
-            body_lines.extend([f"- {line}" for line in git_log_lines])
+
+        categories: dict[str, list[str]] = {
+            "features": [],
+            "fixes": [],
+            "chore": [],
+            "other": [],
+        }
+        for line in git_log_lines:
+            categories[_release_category_for_commit(line)].append(line)
+
+        body_lines.extend(["## Features", ""])
+        if categories["features"]:
+            body_lines.extend([f"- {line}" for line in categories["features"]])
         else:
-            body_lines.append("- No git log entries available.")
+            body_lines.append("- None")
+
+        body_lines.extend(["", "## Fixes", ""])
+        if categories["fixes"]:
+            body_lines.extend([f"- {line}" for line in categories["fixes"]])
+        else:
+            body_lines.append("- None")
+
+        body_lines.extend(["", "## Chore", ""])
+        if categories["chore"]:
+            body_lines.extend([f"- {line}" for line in categories["chore"]])
+        else:
+            body_lines.append("- None")
+
+        body_lines.extend(["", "## Other Changes", ""])
+        if categories["other"]:
+            body_lines.extend([f"- {line}" for line in categories["other"]])
+        else:
+            body_lines.append("- None")
+
+        if not git_log_lines:
+            body_lines.extend(["", "_No git log entries available._"])
         if git_error:
             body_lines.extend(["", f"_Git log warning: {git_error}_"])
 
         target = _resolve_workspace_path(output_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
         content = "\n".join(body_lines) + "\n"
-        target.write_text(content, encoding="utf-8")
+        if not dry_run:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
         return {
             "ok": True,
+            "dry_run": dry_run,
             "version": version,
             "path": str(target).replace("\\", "/"),
-            "bytes_written": len(content.encode("utf-8")),
+            "bytes_written": 0 if dry_run else len(content.encode("utf-8")),
+            "content_preview": content,
             "included_commits": len(git_log_lines),
             "git_warning": git_error,
         }
@@ -851,6 +862,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "version": {"type": "string", "description": "Version label used in release notes filename/content"},
                     "output_path": {"type": "string", "description": "Optional output markdown path"},
                     "max_commits": {"type": "integer", "description": "Max number of recent commits to include"},
+                    "dry_run": {"type": "boolean", "description": "Preview release notes without writing a file"},
                 },
                 "required": ["version"],
             },
@@ -863,11 +875,29 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             raise ValueError("version is required")
         tag = str(args.get("tag", f"v{version}")).strip()
         push_main = bool(args.get("push_main", False))
+        dry_run = bool(args.get("dry_run", False))
+
+        if dry_run:
+            planned_commands = [
+                f"git tag {shlex.quote(tag)}",
+                f"git push origin {shlex.quote(tag)}",
+            ]
+            if push_main:
+                planned_commands.append("git push origin main")
+            return {
+                "ok": True,
+                "dry_run": True,
+                "tag": tag,
+                "push_main": push_main,
+                "planned_commands": planned_commands,
+                "push_main_result": None,
+            }
 
         tag_result = await execution.run_command("git", "tag", tag)
         if tag_result.returncode != 0:
             return {
                 "ok": False,
+                "dry_run": False,
                 "tag": tag,
                 "step": "tag",
                 "stdout": tag_result.stdout,
@@ -879,6 +909,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         if push_tag_result.returncode != 0:
             return {
                 "ok": False,
+                "dry_run": False,
                 "tag": tag,
                 "step": "push_tag",
                 "stdout": push_tag_result.stdout,
@@ -897,6 +928,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
 
         return {
             "ok": True,
+            "dry_run": False,
             "tag": tag,
             "push_main": push_main,
             "push_main_result": push_main_result,
@@ -913,6 +945,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "version": {"type": "string", "description": "Release version used to derive default tag"},
                     "tag": {"type": "string", "description": "Optional explicit tag name"},
                     "push_main": {"type": "boolean", "description": "Whether to push origin/main after pushing the tag"},
+                    "dry_run": {"type": "boolean", "description": "Preview git commands without creating/pushing a tag"},
                 },
                 "required": ["version"],
             },

@@ -48,9 +48,6 @@ from harness.api.schemas import (
     WorkflowMetrics,
     WorkflowModeStats,
     SuperpoweredModeStats,
-    AppServiceListResponse,
-    AppServiceRegisterRequest,
-    AppServiceRegisterResponse,
     ChatRequest,
     ChatResponse,
     ConfigUpdateRequest,
@@ -3986,98 +3983,6 @@ def create_app(workspace_root: Path) -> FastAPI:
         status = runtime.service_manager.get_status(tool_name)
         if status is None:
             raise HTTPException(status_code=404, detail="Adapter service is not managed")
-        return ServiceStatusResponse(
-            service_id=status.service_id,
-            status=status.status,
-            uptime_s=status.uptime_s,
-            last_error=status.last_error,
-            last_checked=status.last_checked,
-        )
-
-    @app.get("/services/apps", response_model=AppServiceListResponse, dependencies=[Depends(require_read_api_key)])
-    async def list_app_services() -> AppServiceListResponse:
-        items = [
-            ServiceStatusResponse(
-                service_id=s.service_id,
-                status=s.status,
-                uptime_s=s.uptime_s,
-                last_error=s.last_error,
-                last_checked=s.last_checked,
-            )
-            for s in runtime.service_manager.get_all_statuses()
-            if s.service_id.startswith("app-")
-        ]
-        return AppServiceListResponse(items=items)
-
-    @app.post("/services/apps/register", response_model=AppServiceRegisterResponse, dependencies=[Depends(require_admin_api_key)])
-    async def register_app_service(req: AppServiceRegisterRequest) -> AppServiceRegisterResponse:
-        runtime.service_manager.register_service(
-            ServiceLaunchConfig(
-                service_id=req.service_id,
-                start_strategy=req.start_strategy,
-                start_command=req.start_command,
-                start_args=list(req.start_args),
-                working_dir=req.working_dir,
-                healthcheck_url=req.healthcheck_url,
-                healthcheck_timeout_s=req.healthcheck_timeout_s,
-                startup_timeout_s=req.startup_timeout_s,
-                retry_interval_s=req.retry_interval_s,
-                max_retries=req.max_retries,
-            )
-        )
-        status = runtime.service_manager.get_status(req.service_id)
-        if status is None:
-            raise HTTPException(status_code=500, detail="Failed to register app service")
-        return AppServiceRegisterResponse(
-            ok=True,
-            service=ServiceStatusResponse(
-                service_id=status.service_id,
-                status=status.status,
-                uptime_s=status.uptime_s,
-                last_error=status.last_error,
-                last_checked=status.last_checked,
-            ),
-        )
-
-    @app.get("/services/apps/{service_id}/status", response_model=ServiceStatusResponse, dependencies=[Depends(require_read_api_key)])
-    async def app_service_status(service_id: str) -> ServiceStatusResponse:
-        status = runtime.service_manager.get_status(service_id)
-        if status is None or not service_id.startswith("app-"):
-            raise HTTPException(status_code=404, detail="App service is not managed")
-        return ServiceStatusResponse(
-            service_id=status.service_id,
-            status=status.status,
-            uptime_s=status.uptime_s,
-            last_error=status.last_error,
-            last_checked=status.last_checked,
-        )
-
-    @app.post("/services/apps/{service_id}/control", response_model=ServiceStatusResponse, dependencies=[Depends(require_admin_api_key)])
-    async def app_service_control(service_id: str, req: ServiceControlRequest) -> ServiceStatusResponse:
-        if not service_id.startswith("app-"):
-            raise HTTPException(status_code=400, detail="Only app-* services are supported by this endpoint")
-
-        action = req.action.lower()
-        if action == "start":
-            started, err = await runtime.service_manager.start_service(service_id)
-            if not started:
-                raise HTTPException(status_code=400, detail=err or "Failed to start app service")
-        elif action == "stop":
-            stopped, err = await runtime.service_manager.stop_service(service_id)
-            if not stopped:
-                raise HTTPException(status_code=400, detail=err or "Failed to stop app service")
-        elif action == "restart":
-            await runtime.service_manager.stop_service(service_id)
-            await asyncio.sleep(0.5)
-            started, err = await runtime.service_manager.start_service(service_id)
-            if not started:
-                raise HTTPException(status_code=400, detail=err or "Failed to restart app service")
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
-
-        status = runtime.service_manager.get_status(service_id)
-        if status is None:
-            raise HTTPException(status_code=404, detail="App service is not managed")
         return ServiceStatusResponse(
             service_id=status.service_id,
             status=status.status,

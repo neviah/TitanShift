@@ -686,6 +686,124 @@ def test_generate_route_tool_creates_react_route_and_test() -> None:
         shutil.rmtree(target_dir, ignore_errors=True)
 
 
+def test_generate_route_tool_creates_fastapi_route_and_test() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-generate-fastapi-route-tool")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "fastapi",
+                    "name": "FastAPI Route Playground",
+                    "target_path": ".harness/test-generate-fastapi-route-tool",
+                },
+            )
+        )
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_route",
+                {
+                    "framework": "fastapi",
+                    "route_path": "/health/check",
+                    "target_path": ".harness/test-generate-fastapi-route-tool",
+                    "with_tests": True,
+                },
+            )
+        )
+        route_path = target_dir.joinpath("app", "routes", "health_check.py")
+        test_path = target_dir.joinpath("tests", "test_health_check_route.py")
+        assert result["ok"] is True
+        assert route_path.exists()
+        assert test_path.exists()
+        route_content = route_path.read_text(encoding="utf-8")
+        assert "APIRouter" in route_content
+        assert "prefix='/health/check'" in route_content
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_generate_component_tool_creates_static_site_component() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-generate-static-component-tool")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "static-site",
+                    "name": "Static Component Playground",
+                    "target_path": ".harness/test-generate-static-component-tool",
+                },
+            )
+        )
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_component",
+                {
+                    "framework": "static-site",
+                    "name": "feature card",
+                    "target_path": ".harness/test-generate-static-component-tool",
+                },
+            )
+        )
+        component_path = target_dir.joinpath("components", "feature-card.html")
+        assert result["ok"] is True
+        assert component_path.exists()
+        content = component_path.read_text(encoding="utf-8")
+        assert "component-feature-card" in content
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_generate_route_tool_creates_static_site_route() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-generate-static-route-tool")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "static-site",
+                    "name": "Static Route Playground",
+                    "target_path": ".harness/test-generate-static-route-tool",
+                },
+            )
+        )
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_route",
+                {
+                    "framework": "static-site",
+                    "route_path": "/docs/getting-started",
+                    "target_path": ".harness/test-generate-static-route-tool",
+                },
+            )
+        )
+        route_path = target_dir.joinpath("routes", "docs-getting-started.html")
+        assert result["ok"] is True
+        assert route_path.exists()
+        content = route_path.read_text(encoding="utf-8")
+        assert "Route path: /docs/getting-started" in content
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
 def test_generate_route_auto_wire_is_deferred() -> None:
     app = create_app(Path(".").resolve())
     runtime = app.state.runtime
@@ -878,11 +996,58 @@ def test_version_bump_tool_updates_specified_files_only() -> None:
         temp_file.unlink(missing_ok=True)
 
 
+def test_version_bump_tool_dry_run_does_not_write_files() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r"\b(\d+\.\d+\.\d+)\b", pyproject)
+    assert match is not None
+    current_version = match.group(1)
+    temp_file = Path(".harness/test-version-bump-dry-run.txt")
+    temp_file.parent.mkdir(parents=True, exist_ok=True)
+    temp_file.write_text(f"version={current_version}\n", encoding="utf-8")
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "version_bump",
+                {
+                    "bump": "patch",
+                    "files": [".harness/test-version-bump-dry-run.txt"],
+                    "dry_run": True,
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert result["dry_run"] is True
+        assert result["updated_files"] == []
+        assert any(path.endswith("test-version-bump-dry-run.txt") for path in result["planned_files"])
+        assert temp_file.read_text(encoding="utf-8").strip() == f"version={current_version}"
+    finally:
+        temp_file.unlink(missing_ok=True)
+
+
 def test_generate_release_notes_tool_creates_file() -> None:
     app = create_app(Path(".").resolve())
     runtime = app.state.runtime
     target = Path(".harness/RELEASE_NOTES_TEST.md")
     target.unlink(missing_ok=True)
+
+    async def fake_git_log(command: str, *args: str, timeout_s: int | None = None, cwd: str | None = None) -> ExecutionResult:
+        assert command == "git"
+        assert args[:2] == ("log", "--oneline")
+        stdout = "\n".join(
+            [
+                "abc1234 feat(ui): add dashboard shell",
+                "def5678 fix(api): handle null payload",
+                "f0f0f0f chore: update deps",
+                "1122334 docs: refresh readme",
+            ]
+        )
+        return ExecutionResult(stdout=stdout, stderr="", returncode=0, truncated=False)
+
+    original_run_command = runtime.execution.run_command
+    runtime.execution.run_command = fake_git_log  # type: ignore[assignment]
 
     try:
         result = asyncio.run(
@@ -899,6 +1064,39 @@ def test_generate_release_notes_tool_creates_file() -> None:
         assert target.exists()
         content = target.read_text(encoding="utf-8")
         assert "Release Notes 9.9.9" in content
+        assert "## Features" in content
+        assert "feat(ui): add dashboard shell" in content
+        assert "## Fixes" in content
+        assert "fix(api): handle null payload" in content
+        assert "## Chore" in content
+        assert "chore: update deps" in content
+    finally:
+        runtime.execution.run_command = original_run_command  # type: ignore[assignment]
+        target.unlink(missing_ok=True)
+
+
+def test_generate_release_notes_tool_dry_run_does_not_create_file() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target = Path(".harness/RELEASE_NOTES_DRY_RUN.md")
+    target.unlink(missing_ok=True)
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_release_notes",
+                {
+                    "version": "8.8.8",
+                    "output_path": ".harness/RELEASE_NOTES_DRY_RUN.md",
+                    "dry_run": True,
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert result["dry_run"] is True
+        assert result["bytes_written"] == 0
+        assert isinstance(result["content_preview"], str)
+        assert not target.exists()
     finally:
         target.unlink(missing_ok=True)
 
@@ -929,6 +1127,39 @@ def test_tag_and_publish_release_tool_uses_git_commands() -> None:
         assert called[0] == ("git", ("tag", "v1.2.3"))
         assert called[1] == ("git", ("push", "origin", "v1.2.3"))
         assert called[2] == ("git", ("push", "origin", "main"))
+    finally:
+        runtime.execution.run_command = original_run_command  # type: ignore[assignment]
+
+
+def test_tag_and_publish_release_tool_dry_run_skips_git_calls() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    called: list[tuple[str, tuple[str, ...]]] = []
+
+    async def fake_git(command: str, *args: str, timeout_s: int | None = None, cwd: str | None = None) -> ExecutionResult:
+        called.append((command, args))
+        return ExecutionResult(stdout="ok", stderr="", returncode=0, truncated=False)
+
+    original_run_command = runtime.execution.run_command
+    runtime.execution.run_command = fake_git  # type: ignore[assignment]
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "tag_and_publish_release",
+                {
+                    "version": "2.3.4",
+                    "push_main": True,
+                    "dry_run": True,
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert result["dry_run"] is True
+        assert called == []
+        assert "git tag v2.3.4" in result["planned_commands"][0]
+        assert "git push origin v2.3.4" in result["planned_commands"][1]
+        assert "git push origin main" in result["planned_commands"][2]
     finally:
         runtime.execution.run_command = original_run_command  # type: ignore[assignment]
 

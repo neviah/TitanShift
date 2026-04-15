@@ -234,7 +234,6 @@ class ReactiveStateMachine:
         test_failed_count: int | None = None
         created_paths: list[str] = []
         updated_paths: list[str] = []
-        generated_app_service: dict[str, Any] | None = None
         final_text = ""
         last_model_id = model.model_id
         total_tokens = model.estimate_tokens(task.description)
@@ -370,9 +369,6 @@ class ReactiveStateMachine:
                     updated = tool_result.get("updated_paths")
                     if isinstance(updated, list):
                         updated_paths.extend(str(path) for path in updated if str(path).strip())
-                    service_manifest = tool_result.get("app_service_manifest")
-                    if isinstance(service_manifest, dict):
-                        generated_app_service = service_manifest
 
                 if tc.name == "run_tests" and isinstance(tool_result, dict):
                     failure_rows = tool_result.get("failure_summary")
@@ -442,7 +438,6 @@ class ReactiveStateMachine:
                 "test_failed_count": test_failed_count,
                 "created_paths": deduped_created_paths,
                 "updated_paths": deduped_updated_paths,
-                "generated_app_service": generated_app_service,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
         )

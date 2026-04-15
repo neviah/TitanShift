@@ -19,12 +19,9 @@ import type {
   LogQueryResponse,
   GraphifyRequest,
   GraphifyResponse,
-  AppServiceRegisterRequest,
-  AppServiceRegisterResponse,
   RoleTemplate,
   ArtifactFile,
   ArtifactApproveResponse,
-  ServiceStatusResponse,
   WorkflowMetrics,
   RuntimeSkillSummary,
   SkillRepoIntakeResponse,
@@ -369,24 +366,4 @@ export function revokeArtifactApproval(artifact_type: string): Promise<{ artifac
 
 export function fetchWorkflowMetrics(): Promise<WorkflowMetrics> {
   return request('/metrics/workflow')
-}
-
-// ---- App Services ----
-
-export function registerAppService(body: AppServiceRegisterRequest): Promise<AppServiceRegisterResponse> {
-  return request('/services/apps/register', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  }, 'admin')
-}
-
-export function fetchAppServiceStatus(serviceId: string): Promise<ServiceStatusResponse> {
-  return request(`/services/apps/${encodeURIComponent(serviceId)}/status`)
-}
-
-export function controlAppService(serviceId: string, action: 'start' | 'stop' | 'restart'): Promise<ServiceStatusResponse> {
-  return request(`/services/apps/${encodeURIComponent(serviceId)}/control`, {
-    method: 'POST',
-    body: JSON.stringify({ action }),
-  }, 'admin')
 }

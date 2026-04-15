@@ -22,11 +22,6 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
   - `generate_component`
   - `generate_route`
 - `init_project` may optionally install dependencies during scaffolding.
-- Run-panel lifecycle controls implemented for generated app services:
-  - `register`
-  - `start`
-  - `stop`
-  - `restart`
 - Auto-wire policy locked for this release:
   - generation remains isolated by default
   - `auto_wire=true` is accepted but deferred
@@ -34,10 +29,12 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
   - `version_bump`
   - `generate_release_notes`
   - `tag_and_publish_release`
+  - all support `dry_run` preview mode
+  - release notes output groups commits into features/fixes/chore/other sections
 - Run output includes scaffold artifact visibility:
   - `created_paths`
   - `updated_paths`
-  - `generated_app_service`
+- Scenario tests now include FastAPI and static-site generator paths in addition to React flows.
 
 ## Phase 3 API Contracts (Proposed)
 
@@ -53,9 +50,7 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
 
 ## Remaining Phase 3 Pre-Work
 
-- Expand scenario tests for FastAPI and static-site component/route generation (not just React-focused paths).
-- Add optional dry-run mode for release helpers before mutating git state.
-- Improve release notes generation with category grouping (features/fixes/chore) from commit prefixes.
+- None for non-app scope.
 
 ## Verification Gate for Phase 3 Completion
 

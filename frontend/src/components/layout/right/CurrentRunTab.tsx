@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { controlAppService, fetchAppServiceStatus, fetchLogs, fetchTaskDetail, fetchTasks, registerAppService } from '../../../api/client'
+import { useMemo } from 'react'
+import { fetchLogs, fetchTaskDetail, fetchTasks } from '../../../api/client'
 import { usePolling } from '../../../hooks/usePolling'
 import styles from './CurrentRunTab.module.css'
 
@@ -14,9 +14,6 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 }
 
 export function CurrentRunTab() {
-  const [serviceActionError, setServiceActionError] = useState<string | null>(null)
-  const [serviceActionBusy, setServiceActionBusy] = useState(false)
-
   const { data: tasks, loading, error } = usePolling(fetchTasks, { interval: 5000 })
   const newestTask = useMemo(() => {
     const rows = (tasks ?? []).slice()
@@ -28,37 +25,7 @@ export function CurrentRunTab() {
     () => (newestTask ? fetchTaskDetail(newestTask.task_id) : Promise.resolve(null)),
     { interval: 5000 },
   )
-  const appServiceManifest = readRecord(taskDetail?.output?.generated_app_service)
-  const appServiceId = typeof appServiceManifest?.service_id === 'string' ? String(appServiceManifest.service_id) : null
-  const { data: appServiceStatus } = usePolling(
-    () => (appServiceId ? fetchAppServiceStatus(appServiceId).catch(() => null) : Promise.resolve(null)),
-    { interval: 5000 },
-  )
   const { data: logs } = usePolling(() => fetchLogs(40), { interval: 5000 })
-
-  async function runServiceAction(action: 'register' | 'start' | 'stop' | 'restart') {
-    if (!appServiceManifest || !appServiceId) return
-    setServiceActionBusy(true)
-    setServiceActionError(null)
-    try {
-      if (action === 'register') {
-        await registerAppService({
-          service_id: appServiceId,
-          start_strategy: String(appServiceManifest.start_strategy ?? 'subprocess'),
-          start_command: String(appServiceManifest.start_command ?? ''),
-          start_args: Array.isArray(appServiceManifest.start_args) ? appServiceManifest.start_args.map(String) : [],
-          working_dir: typeof appServiceManifest.working_dir === 'string' ? String(appServiceManifest.working_dir) : undefined,
-          healthcheck_url: typeof appServiceManifest.healthcheck_url === 'string' ? String(appServiceManifest.healthcheck_url) : undefined,
-        })
-      } else {
-        await controlAppService(appServiceId, action)
-      }
-    } catch (err) {
-      setServiceActionError(err instanceof Error ? err.message : 'Service action failed')
-    } finally {
-      setServiceActionBusy(false)
-    }
-  }
 
   const recentEvents = useMemo(() => {
     return (logs?.items ?? [])
@@ -133,27 +100,6 @@ export function CurrentRunTab() {
                     <span key={`${toolName}-${index}`} className="badge badge-warn">{toolName}</span>
                   ))}
                 </div>
-              </div>
-            )}
-            {appServiceManifest && (
-              <div className={styles.toolsBlock}>
-                <span className={styles.rowLabel}>Generated App Service</span>
-                <div className={styles.inlineBadges}>
-                  {appServiceId && <span className="badge badge-dim">{appServiceId}</span>}
-                  <span className={`badge ${appServiceStatus?.status === 'running' ? 'badge-ok' : appServiceStatus?.status === 'failed' ? 'badge-error' : 'badge-warn'}`}>
-                    {String(appServiceStatus?.status ?? 'not-registered')}
-                  </span>
-                </div>
-                {typeof appServiceManifest.healthcheck_url === 'string' && appServiceManifest.healthcheck_url.length > 0 && (
-                  <p className={styles.hint}>Health URL: {String(appServiceManifest.healthcheck_url)}</p>
-                )}
-                <div className={styles.buttonRow}>
-                  <button type="button" disabled={serviceActionBusy} onClick={() => runServiceAction('register')}>Register</button>
-                  <button type="button" disabled={serviceActionBusy} onClick={() => runServiceAction('start')}>Start</button>
-                  <button type="button" disabled={serviceActionBusy} onClick={() => runServiceAction('stop')}>Stop</button>
-                  <button type="button" disabled={serviceActionBusy} onClick={() => runServiceAction('restart')}>Restart</button>
-                </div>
-                {serviceActionError && <p className={`${styles.hint} text-error`}>{serviceActionError}</p>}
               </div>
             )}
             {typeof taskDetail?.output?.fallback_used === 'boolean' && (

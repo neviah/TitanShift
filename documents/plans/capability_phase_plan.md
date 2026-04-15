@@ -31,12 +31,14 @@
 - Implemented `generate_route` for `vite-react`/`react`, `fastapi`, and `static-site`.
 - Scaffold policy now supports optional dependency install execution for `init_project` via `npm install` or `python -m pip install -r requirements.txt`.
 - Scaffold writes are now transactional with preflight conflict detection and rollback on downstream failure.
-- Implemented run-panel app service lifecycle controls and health badges (register/start/stop/restart + status polling).
 - Auto-wire behavior is now explicit: default isolated generation; `auto_wire` requests are accepted but intentionally deferred with explanatory notes.
 - Implemented release automation helpers:
   - `version_bump`
   - `generate_release_notes`
   - `tag_and_publish_release`
+- Release helpers now support `dry_run` mode to preview actions before file or git mutations.
+- Release notes generation now groups commits into features, fixes, chore, and other sections using commit prefixes.
+- Added FastAPI and static-site scenario coverage for `generate_route`, plus static-site scenario coverage for `generate_component`.
 
 ## Acceptance Criteria
 
@@ -47,4 +49,3 @@
 - Test runs expose parsed failure summaries and failed-count signals.
 - Scaffold runs expose `created_paths` and `updated_paths` in task output.
 - Scaffold generators fail cleanly when targets already exist and `overwrite=false`, without partial writes.
-- Current Run panel can manage generated app services via register/start/stop/restart and display current health status.
