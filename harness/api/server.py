@@ -1502,6 +1502,14 @@ def create_app(workspace_root: Path) -> FastAPI:
                     limit=1,
                 )
                 if not fix_rows:
+                    fix_rows = runtime.logger.query(
+                        event_type="EMERGENCY_FIX_ROLLBACK",
+                        execution_id=execution_id,
+                        after=after,
+                        before=before,
+                        limit=1,
+                    )
+                if not fix_rows:
                     raise HTTPException(status_code=404, detail="Execution not found")
 
         if task_id:
@@ -1546,36 +1554,26 @@ def create_app(workspace_root: Path) -> FastAPI:
         related_event_rows: list[dict[str, Any]] = []
 
         if requested_execution_scope and execution_id:
-            executions_rows.extend(matched_execution_rows)
-            diagnosis_rows.extend(
-                runtime.logger.query(
-                    event_type="EMERGENCY_DIAGNOSIS",
-                    execution_id=execution_id,
-                    after=after,
-                    before=before,
-                    offset=offset,
-                    limit=clamped_limit,
-                )
+            scoped_rows = runtime.logger.query(
+                execution_id=execution_id,
+                after=after,
+                before=before,
+                offset=offset,
+                limit=clamped_limit,
             )
-            module_error_rows.extend(
-                runtime.logger.query(
-                    event_type="MODULE_ERROR",
-                    execution_id=execution_id,
-                    after=after,
-                    before=before,
-                    offset=offset,
-                    limit=clamped_limit,
-                )
-            )
-            related_event_rows.extend(
-                runtime.logger.query(
-                    execution_id=execution_id,
-                    after=after,
-                    before=before,
-                    offset=offset,
-                    limit=clamped_limit,
-                )
-            )
+            if matched_execution_rows:
+                executions_rows.extend(matched_execution_rows)
+            related_event_rows.extend(scoped_rows)
+            for row in scoped_rows:
+                event_type = str(row.get("event_type", ""))
+                if event_type == "AGENT_SKILL_EXECUTED":
+                    executions_rows.append(row)
+                elif event_type == "EMERGENCY_DIAGNOSIS":
+                    diagnosis_rows.append(row)
+                elif event_type == "MODULE_ERROR":
+                    module_error_rows.append(row)
+                elif include_fix_executions and event_type in {"EMERGENCY_FIX_APPLY", "EMERGENCY_FIX_ROLLBACK"}:
+                    fix_execution_rows.append(row)
 
         if task_id:
             related_event_rows.extend(
@@ -1625,7 +1623,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                     )
                 )
 
-        if include_fix_executions and execution_id:
+        if include_fix_executions and execution_id and not requested_execution_scope:
             fix_execution_rows.extend(
                 runtime.logger.query(
                     event_type="EMERGENCY_FIX_APPLY",

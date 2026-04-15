@@ -25,8 +25,16 @@ class ConfigManager:
     def _load_json(self, path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = f.read().strip()
+            if not data:
+                return {}
+            loaded = json.loads(data)
+            return loaded if isinstance(loaded, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            # Be resilient to transient partial writes and malformed local config.
+            return {}
 
     def get(self, key: str, default: Any = None) -> Any:
         env_key = "HARNESS_" + key.upper().replace(".", "_")
