@@ -120,6 +120,56 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
+    async def append_file_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        if not raw_path:
+            raise ValueError("target_path is required")
+        content = str(args.get("content", ""))
+        ensure_newline = bool(args.get("ensure_newline", True))
+        target = _resolve_workspace_path(raw_path)
+        if target.exists() and target.is_dir():
+            raise ValueError(f"target_path points to a directory: {target}")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        existed_before = target.exists()
+        prefix = ""
+        if existed_before and ensure_newline:
+            try:
+                existing = target.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                existing = ""
+            if existing and not existing.endswith("\n") and content and not content.startswith("\n"):
+                prefix = "\n"
+
+        to_write = f"{prefix}{content}"
+        with target.open("a", encoding="utf-8") as f:
+            f.write(to_write)
+
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "bytes_written": len(to_write.encode("utf-8")),
+            "appended": True,
+            "created": not existed_before,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="append_file",
+            description="Append UTF-8 text to an existing file or create it if missing. Prefer this when user asks to keep existing content and add a new line.",
+            handler=append_file_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "content": {"type": "string", "description": "Text to append"},
+                    "ensure_newline": {"type": "boolean", "description": "Insert a newline before appended content when needed; defaults to true"},
+                },
+                "required": ["target_path", "content"],
+            },
+        )
+    )
+
     async def read_file_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw_path = str(args.get("path") or args.get("target_path") or "").strip()
         if not raw_path:

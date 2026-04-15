@@ -56,6 +56,16 @@ export function CurrentRunTab() {
                 <span className="badge badge-dim">{String(taskDetail.output.workflow_mode)}</span>
               </div>
             )}
+            {readStringArray(taskDetail?.output?.used_tools).length > 0 && (
+              <div className={styles.toolsBlock}>
+                <span className={styles.rowLabel}>Tools Used</span>
+                <div className={styles.inlineBadges}>
+                  {readStringArray(taskDetail?.output?.used_tools).map((toolName, index) => (
+                    <span key={`${toolName}-${index}`} className="badge badge-dim">{toolName}</span>
+                  ))}
+                </div>
+              </div>
+            )}
             {readStringArray(taskDetail?.output?.missing_approvals).length > 0 && (
               <div className={styles.inlineBadges}>
                 {readStringArray(taskDetail?.output?.missing_approvals).map((approval) => (
