@@ -148,7 +148,7 @@ T = TypeVar("T")
 
 def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
-    app = FastAPI(title="TitantShift Harness API", version="0.3.0")
+    app = FastAPI(title="TitantShift Harness API", version="0.3.1")
     app.state.runtime = runtime
     emergency_fix_history: dict[str, dict[str, Any]] = {}
 
