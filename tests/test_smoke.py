@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient as FastAPITestClient
 from harness.api.client import HarnessApiClient
 from harness.api.server import create_app
 from harness.execution.policy import ExecutionPolicy
-from harness.execution.runner import ExecutionDeniedError, ExecutionModule
+from harness.execution.runner import ExecutionDeniedError, ExecutionModule, ExecutionResult
 from harness.runtime.bootstrap import build_runtime
 from harness.model.adapter import CloudOpenAIAdapter, LMStudioAdapter, ModelRegistry
 from harness.runtime.config import ConfigManager
@@ -682,6 +682,132 @@ def test_generate_route_tool_creates_react_route_and_test() -> None:
         assert "Route path: /dashboard/overview" in route_content
         assert any(path.endswith("src/routes/DashboardOverviewRoute.jsx") for path in result["created_paths"])
     finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_init_project_tool_can_run_dependency_install() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-init-project-install")
+    captured_calls: list[tuple[str, tuple[str, ...], str | None]] = []
+
+    async def fake_run_command(command: str, *args: str, timeout_s: int | None = None, cwd: str | None = None) -> ExecutionResult:
+        captured_calls.append((command, args, cwd))
+        return ExecutionResult(stdout="installed", stderr="", returncode=0, truncated=False)
+
+    original_run_command = runtime.execution.run_command
+    runtime.execution.run_command = fake_run_command  # type: ignore[assignment]
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "vite-react",
+                    "name": "Install Playground",
+                    "target_path": ".harness/test-init-project-install",
+                    "install_dependencies": True,
+                },
+            )
+        )
+        assert result["ok"] is True
+        assert result["install_result"]["ok"] is True
+        assert captured_calls
+        assert captured_calls[0][0] == "npm"
+        assert captured_calls[0][1] == ("install",)
+    finally:
+        runtime.execution.run_command = original_run_command  # type: ignore[assignment]
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_generate_component_is_idempotent_without_overwrite() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-generate-component-idempotent")
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "vite-react",
+                    "name": "Idempotent Playground",
+                    "target_path": ".harness/test-generate-component-idempotent",
+                },
+            )
+        )
+        asyncio.run(
+            runtime.tools.execute_tool(
+                "generate_component",
+                {
+                    "framework": "vite-react",
+                    "name": "status badge",
+                    "target_path": ".harness/test-generate-component-idempotent",
+                },
+            )
+        )
+        component_path = target_dir.joinpath("src", "components", "StatusBadge.jsx")
+        original_content = component_path.read_text(encoding="utf-8")
+
+        try:
+            asyncio.run(
+                runtime.tools.execute_tool(
+                    "generate_component",
+                    {
+                        "framework": "vite-react",
+                        "name": "status badge",
+                        "target_path": ".harness/test-generate-component-idempotent",
+                    },
+                )
+            )
+            assert False, "Expected generate_component to fail when overwrite is false"
+        except ValueError as exc:
+            assert "overwrite=false" in str(exc)
+
+        assert component_path.read_text(encoding="utf-8") == original_content
+    finally:
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_init_project_rolls_back_when_dependency_install_fails() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+    target_dir = Path(".harness/test-init-project-rollback")
+
+    async def failing_run_command(command: str, *args: str, timeout_s: int | None = None, cwd: str | None = None) -> ExecutionResult:
+        return ExecutionResult(stdout="", stderr="install failed", returncode=1, truncated=False)
+
+    original_run_command = runtime.execution.run_command
+    runtime.execution.run_command = failing_run_command  # type: ignore[assignment]
+
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    try:
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "init_project",
+                {
+                    "project_type": "vite-react",
+                    "name": "Rollback Playground",
+                    "target_path": ".harness/test-init-project-rollback",
+                    "install_dependencies": True,
+                },
+            )
+        )
+        assert result["ok"] is False
+        assert result["rolled_back"] is True
+        assert result["install_result"]["returncode"] == 1
+        assert not target_dir.joinpath("package.json").exists()
+        assert not target_dir.joinpath("src", "App.jsx").exists()
+    finally:
+        runtime.execution.run_command = original_run_command  # type: ignore[assignment]
         shutil.rmtree(target_dir, ignore_errors=True)
 
 

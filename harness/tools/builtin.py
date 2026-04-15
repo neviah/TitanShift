@@ -20,22 +20,113 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         candidate = Path(raw_path)
         return candidate.resolve() if candidate.is_absolute() else (execution.default_cwd / candidate).resolve()
 
-    def _write_scaffold_files(base_path: Path, files: dict[str, str], overwrite: bool) -> tuple[list[str], list[str]]:
-        created_paths: list[str] = []
-        updated_paths: list[str] = []
+    def _rollback_scaffold_transaction(
+        operations: list[dict[str, Any]],
+        base_path: Path,
+    ) -> None:
+        for operation in reversed(operations):
+            target = operation["target"]
+            existed_before = bool(operation["existed_before"])
+            if existed_before:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(str(operation["original_content"]), encoding="utf-8")
+                continue
+
+            if target.exists():
+                target.unlink(missing_ok=True)
+
+            parent = target.parent
+            while parent != base_path and parent.exists():
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
+                parent = parent.parent
+
+    def _write_scaffold_files(base_path: Path, files: dict[str, str], overwrite: bool) -> dict[str, Any]:
+        operations: list[dict[str, Any]] = []
         for relative_path, content in files.items():
             target = (base_path / relative_path).resolve()
-            target.parent.mkdir(parents=True, exist_ok=True)
             existed_before = target.exists()
+            if existed_before and target.is_dir():
+                raise ValueError(f"target file path points to a directory: {target}")
             if existed_before and not overwrite:
                 raise ValueError(f"target file already exists and overwrite=false: {target}")
-            target.write_text(content, encoding="utf-8")
-            normalized = str(target).replace("\\", "/")
-            if existed_before:
-                updated_paths.append(normalized)
-            else:
-                created_paths.append(normalized)
-        return created_paths, updated_paths
+            operations.append(
+                {
+                    "target": target,
+                    "content": content,
+                    "existed_before": existed_before,
+                    "original_content": target.read_text(encoding="utf-8", errors="replace") if existed_before else None,
+                }
+            )
+
+        created_paths: list[str] = []
+        updated_paths: list[str] = []
+        applied_operations: list[dict[str, Any]] = []
+        try:
+            for operation in operations:
+                target = operation["target"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(str(operation["content"]), encoding="utf-8")
+                applied_operations.append(operation)
+                normalized = str(target).replace("\\", "/")
+                if bool(operation["existed_before"]):
+                    updated_paths.append(normalized)
+                else:
+                    created_paths.append(normalized)
+        except Exception:
+            _rollback_scaffold_transaction(applied_operations, base_path)
+            raise
+
+        return {
+            "created_paths": created_paths,
+            "updated_paths": updated_paths,
+            "operations": applied_operations,
+        }
+
+    async def _run_project_install(project_type: str, target: Path) -> dict[str, Any]:
+        normalized_type = project_type.strip().lower()
+        if normalized_type == "fastapi":
+            command = "python"
+            args = ["-m", "pip", "install", "-r", "requirements.txt"]
+        elif normalized_type in {"vite", "react", "vite-react", "react-vite"}:
+            command = "npm"
+            args = ["install"]
+        else:
+            return {
+                "ok": True,
+                "skipped": True,
+                "command": None,
+                "stdout": "",
+                "stderr": "",
+                "returncode": 0,
+                "truncated": False,
+                "reason": "No dependency installation required for this project type.",
+            }
+
+        try:
+            result = await execution.run_command(command, *args, cwd=str(target))
+        except ExecutionDeniedError as exc:
+            return {
+                "ok": False,
+                "skipped": False,
+                "command": " ".join([command, *args]),
+                "stdout": "",
+                "stderr": str(exc),
+                "returncode": -1,
+                "truncated": False,
+            }
+
+        return {
+            "ok": result.returncode == 0,
+            "skipped": False,
+            "command": " ".join([command, *args]),
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+            "truncated": result.truncated,
+        }
 
     def _build_project_scaffold(project_type: str, project_name: str) -> tuple[dict[str, str], list[str], list[str]]:
         normalized_type = project_type.strip().lower()
@@ -395,6 +486,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         project_name = str(args.get("name") or "").strip()
         raw_target_path = str(args.get("target_path") or args.get("path") or "").strip()
         overwrite = bool(args.get("overwrite", False))
+        install_dependencies = bool(args.get("install_dependencies", False))
 
         if not project_type:
             raise ValueError("project_type is required")
@@ -407,16 +499,38 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         target.mkdir(parents=True, exist_ok=True)
 
         files, commands_to_run, notes = _build_project_scaffold(project_type, project_name)
-        created_paths, updated_paths = _write_scaffold_files(target, files, overwrite)
+        transaction = _write_scaffold_files(target, files, overwrite)
+        install_result = None
+        rolled_back = False
+
+        if install_dependencies:
+            install_result = await _run_project_install(project_type, target)
+            if not bool(install_result.get("ok", False)):
+                _rollback_scaffold_transaction(list(transaction["operations"]), target)
+                rolled_back = True
+                return {
+                    "ok": False,
+                    "project_type": project_type,
+                    "name": project_name,
+                    "target_path": str(target).replace("\\", "/"),
+                    "created_paths": [],
+                    "updated_paths": [],
+                    "commands_to_run": commands_to_run,
+                    "install_result": install_result,
+                    "rolled_back": True,
+                    "notes": notes + ["Rolled back scaffold because dependency installation failed."],
+                }
 
         return {
             "ok": True,
             "project_type": project_type,
             "name": project_name,
             "target_path": str(target).replace("\\", "/"),
-            "created_paths": created_paths,
-            "updated_paths": updated_paths,
+            "created_paths": transaction["created_paths"],
+            "updated_paths": transaction["updated_paths"],
             "commands_to_run": commands_to_run,
+            "install_result": install_result,
+            "rolled_back": rolled_back,
             "notes": notes,
         }
 
@@ -431,6 +545,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "project_type": {"type": "string", "description": "fastapi | vite-react | static-site"},
                     "name": {"type": "string", "description": "Display name for the generated project"},
                     "target_path": {"type": "string", "description": "Directory to scaffold into, relative to workspace root or absolute allowed path"},
+                    "install_dependencies": {"type": "boolean", "description": "Whether to run npm install or pip install -r requirements.txt when applicable"},
                     "overwrite": {"type": "boolean", "description": "Whether existing scaffold files may be replaced; defaults to false"},
                 },
                 "required": ["project_type", "name", "target_path"],
@@ -458,15 +573,15 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         target.mkdir(parents=True, exist_ok=True)
 
         files, notes = _build_component_scaffold(framework, component_name, props_schema)
-        created_paths, updated_paths = _write_scaffold_files(target, files, overwrite)
+        transaction = _write_scaffold_files(target, files, overwrite)
 
         return {
             "ok": True,
             "framework": framework,
             "name": component_name,
             "target_path": str(target).replace("\\", "/"),
-            "created_paths": created_paths,
-            "updated_paths": updated_paths,
+            "created_paths": transaction["created_paths"],
+            "updated_paths": transaction["updated_paths"],
             "notes": notes,
         }
 
@@ -508,15 +623,15 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         target.mkdir(parents=True, exist_ok=True)
 
         files, notes = _build_route_scaffold(framework, route_path, with_loader, with_tests)
-        created_paths, updated_paths = _write_scaffold_files(target, files, overwrite)
+        transaction = _write_scaffold_files(target, files, overwrite)
 
         return {
             "ok": True,
             "framework": framework,
             "route_path": route_path,
             "target_path": str(target).replace("\\", "/"),
-            "created_paths": created_paths,
-            "updated_paths": updated_paths,
+            "created_paths": transaction["created_paths"],
+            "updated_paths": transaction["updated_paths"],
             "notes": notes,
         }
 

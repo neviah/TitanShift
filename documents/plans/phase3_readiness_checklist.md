@@ -21,6 +21,7 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
 - Additional generators implemented:
   - `generate_component`
   - `generate_route`
+- `init_project` may optionally install dependencies during scaffolding.
 - Run output includes scaffold artifact visibility:
   - `created_paths`
   - `updated_paths`
@@ -39,9 +40,9 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
 
 ## Remaining Phase 3 Pre-Work
 
-- Decide policy for command execution during scaffolding (`npm install`, `pip install`, optional).
-- Define idempotency behavior for generators when targets already exist.
-- Define rollback strategy for partial scaffold failures.
+- Add service lifecycle controls and health badges to the run panel so scaffolded apps can be started, stopped, and observed from the UI.
+- Decide whether generators should auto-wire new components/routes into existing app entry points or keep generation isolated by default.
+- Add release helpers after scaffold lifecycle support is in place.
 
 ## Verification Gate for Phase 3 Completion
 

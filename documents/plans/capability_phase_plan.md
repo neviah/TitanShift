@@ -29,6 +29,8 @@
 - Implemented `init_project` scaffold tool for `fastapi`, `vite-react`, and `static-site`.
 - Implemented `generate_component` for `vite-react`/`react` and `static-site`.
 - Implemented `generate_route` for `vite-react`/`react`, `fastapi`, and `static-site`.
+- Scaffold policy now supports optional dependency install execution for `init_project` via `npm install` or `python -m pip install -r requirements.txt`.
+- Scaffold writes are now transactional with preflight conflict detection and rollback on downstream failure.
 - Add service lifecycle controls in run panel (start/stop/restart + health badge).
 - Add release automation helpers:
   - `version_bump`
@@ -43,3 +45,4 @@
 - Run panel shows browser proof artifact fields for browser-capable tool runs.
 - Test runs expose parsed failure summaries and failed-count signals.
 - Scaffold runs expose `created_paths` and `updated_paths` in task output.
+- Scaffold generators fail cleanly when targets already exist and `overwrite=false`, without partial writes.
