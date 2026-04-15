@@ -15,13 +15,13 @@
   - Narrows first-turn tool schema to requested tool(s) plus file support tools.
   - Removes hard bias that previously pushed all live lookups to `web_fetch`.
 
-## Phase 2 (Next)
+## Phase 2 (In Progress)
 
-- Add `insert_at_line` and `delete_range` file-edit tools.
-- Add `yaml_edit` structured editor with path updates.
-- Add `run_tests` tool with test target selection and parsed failure summary.
-- Add `lint_and_fix` wrapper for project-aware lint/fix.
-- Add adapter-aware browser proof artifacts (final URL + evidence snippet + optional screenshot metadata).
+- Implemented `insert_at_line` and `delete_range` file-edit tools.
+- Implemented `yaml_edit` structured editor with dot-path updates.
+- Implemented `run_tests` tool with framework auto-detection and optional test target.
+- Implemented `lint_and_fix` wrapper with framework auto-detection and optional fix mode.
+- Remaining: adapter-aware browser proof artifacts (final URL + evidence snippet + optional screenshot metadata).
 
 ## Phase 3 (Planned)
 

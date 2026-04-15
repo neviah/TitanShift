@@ -65,12 +65,17 @@
       "append_file",
       "replace_in_file",
       "json_edit",
+      "insert_at_line",
+      "delete_range",
+      "yaml_edit",
       "read_file",
       "list_directory",
       "rename_or_move",
       "delete_file",
       "search_workspace",
-      "run_project_check"
+      "run_project_check",
+      "run_tests",
+      "lint_and_fix"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [

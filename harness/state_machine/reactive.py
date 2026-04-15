@@ -331,11 +331,12 @@ class ReactiveStateMachine:
 
         requested_set = set(requested_tools)
         used_requested = [name for name in used_tools if name in requested_set]
-        fallback_used = bool(requested_set) and bool(used_tools) and not bool(used_requested)
+        missing_requested_tools = bool(requested_set) and not bool(used_requested)
+        fallback_used = missing_requested_tools
         primary_failure_reason = None
         if tool_errors:
             primary_failure_reason = tool_errors[0]
-        elif requested_set and not used_requested:
+        elif missing_requested_tools:
             primary_failure_reason = "Requested tools were not used by model output"
 
         return TaskResult(
@@ -351,7 +352,7 @@ class ReactiveStateMachine:
                 "fallback_used": fallback_used,
                 "primary_failure_reason": primary_failure_reason,
             },
-            success=bool(final_text and not final_text.startswith("[Agent reached")),
+            success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
         )
 
     def _build_tool_definitions(self) -> list[dict[str, Any]]:

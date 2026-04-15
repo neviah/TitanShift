@@ -8,6 +8,7 @@ import shlex
 from typing import Any
 
 import httpx
+import yaml
 
 from harness.execution.runner import ExecutionDeniedError, ExecutionModule
 from harness.tools.definitions import ToolDefinition
@@ -281,6 +282,172 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
+    async def insert_at_line_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        if not raw_path:
+            raise ValueError("target_path is required")
+        line_number = int(args.get("line_number", 0))
+        content = str(args.get("content", ""))
+        if line_number < 0:
+            raise ValueError("line_number must be >= 0")
+
+        target = _resolve_workspace_path(raw_path)
+        if target.exists() and target.is_dir():
+            raise ValueError(f"target_path points to a directory: {target}")
+
+        existing = ""
+        if target.exists() and target.is_file():
+            existing = target.read_text(encoding="utf-8", errors="replace")
+
+        lines = existing.splitlines()
+        if line_number > len(lines):
+            line_number = len(lines)
+        lines.insert(line_number, content)
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        serialized = "\n".join(lines)
+        if existing.endswith("\n") or not existing:
+            serialized += "\n"
+        target.write_text(serialized, encoding="utf-8")
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "inserted_at": line_number,
+            "line_count": len(lines),
+            "bytes_written": len(serialized.encode("utf-8")),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="insert_at_line",
+            description="Insert one line of text at a specific 0-based line index in a UTF-8 file.",
+            handler=insert_at_line_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "line_number": {"type": "integer", "description": "0-based line index to insert at"},
+                    "content": {"type": "string", "description": "Line content to insert"},
+                },
+                "required": ["target_path", "line_number", "content"],
+            },
+        )
+    )
+
+    async def delete_range_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        if not raw_path:
+            raise ValueError("target_path is required")
+        start_line = int(args.get("start_line", 1))
+        end_line = int(args.get("end_line", start_line))
+        if start_line < 1 or end_line < start_line:
+            raise ValueError("line range must be valid and 1-based")
+
+        target = _resolve_workspace_path(raw_path)
+        if not target.exists() or not target.is_file():
+            raise ValueError(f"file not found: {target}")
+
+        content = target.read_text(encoding="utf-8", errors="replace")
+        lines = content.splitlines()
+        if start_line > len(lines):
+            raise ValueError("start_line exceeds file length")
+
+        s = start_line - 1
+        e = min(end_line, len(lines))
+        removed_count = e - s
+        new_lines = lines[:s] + lines[e:]
+        serialized = "\n".join(new_lines)
+        if content.endswith("\n") and serialized:
+            serialized += "\n"
+        target.write_text(serialized, encoding="utf-8")
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "removed_lines": removed_count,
+            "line_count": len(new_lines),
+            "bytes_written": len(serialized.encode("utf-8")),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="delete_range",
+            description="Delete a 1-based inclusive line range from a UTF-8 file.",
+            handler=delete_range_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "start_line": {"type": "integer", "description": "1-based starting line"},
+                    "end_line": {"type": "integer", "description": "1-based ending line (inclusive)"},
+                },
+                "required": ["target_path", "start_line", "end_line"],
+            },
+        )
+    )
+
+    async def yaml_edit_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        updates = args.get("updates")
+        if not raw_path:
+            raise ValueError("target_path is required")
+        if not isinstance(updates, dict) or not updates:
+            raise ValueError("updates must be a non-empty object")
+
+        target = _resolve_workspace_path(raw_path)
+        document: dict[str, Any] = {}
+        if target.exists() and target.is_file():
+            raw = target.read_text(encoding="utf-8", errors="replace")
+            if raw.strip():
+                loaded = yaml.safe_load(raw)
+                if loaded is None:
+                    document = {}
+                elif not isinstance(loaded, dict):
+                    raise ValueError("target YAML must be a mapping/object")
+                else:
+                    document = loaded
+        elif target.exists() and target.is_dir():
+            raise ValueError(f"target_path points to a directory: {target}")
+
+        for raw_key, value in updates.items():
+            key_path = str(raw_key).strip()
+            if not key_path:
+                continue
+            parts = [p for p in key_path.split(".") if p]
+            cursor: dict[str, Any] = document
+            for part in parts[:-1]:
+                nxt = cursor.get(part)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    cursor[part] = nxt
+                cursor = nxt
+            cursor[parts[-1]] = value
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        serialized = yaml.safe_dump(document, sort_keys=True, allow_unicode=False)
+        target.write_text(serialized, encoding="utf-8")
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "updated_keys": sorted(str(k) for k in updates.keys()),
+            "bytes_written": len(serialized.encode("utf-8")),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="yaml_edit",
+            description="Upsert keys in a YAML mapping file using dot-path keys.",
+            handler=yaml_edit_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "YAML file path relative to workspace root or absolute allowed path"},
+                    "updates": {"type": "object", "description": "Map of dot-path keys to values"},
+                },
+                "required": ["target_path", "updates"],
+            },
+        )
+    )
+
     async def read_file_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw_path = str(args.get("path") or args.get("target_path") or "").strip()
         if not raw_path:
@@ -500,6 +667,123 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "cwd": {"type": "string", "description": "Optional working directory"},
                 },
                 "required": ["check"],
+            },
+        )
+    )
+
+    async def run_tests_handler(args: dict[str, Any]) -> dict[str, Any]:
+        framework = str(args.get("framework", "auto")).strip().lower()
+        target = str(args.get("target", "")).strip()
+        cwd = args.get("cwd")
+
+        if framework not in {"auto", "python", "npm"}:
+            raise ValueError("framework must be one of: auto, python, npm")
+
+        resolved_framework = framework
+        if resolved_framework == "auto":
+            root = execution.default_cwd if not cwd else _resolve_workspace_path(str(cwd))
+            if (root / "package.json").exists():
+                resolved_framework = "npm"
+            else:
+                resolved_framework = "python"
+
+        if resolved_framework == "python":
+            command = "python"
+            cmd_args = ["-m", "pytest", "-q"]
+            if target:
+                cmd_args.append(target)
+        else:
+            command = "npm"
+            cmd_args = ["test"]
+            if target:
+                cmd_args.extend(["--", target])
+
+        try:
+            result = await execution.run_command(command, *cmd_args, cwd=cwd)
+        except ExecutionDeniedError as exc:
+            return {"ok": False, "error": str(exc), "framework": resolved_framework}
+
+        return {
+            "ok": result.returncode == 0,
+            "framework": resolved_framework,
+            "command": " ".join([command, *cmd_args]),
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "truncated": result.truncated,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="run_tests",
+            description="Run tests for python or npm projects, with optional target filter.",
+            handler=run_tests_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "framework": {"type": "string", "description": "auto | python | npm"},
+                    "target": {"type": "string", "description": "Optional test target or pattern"},
+                    "cwd": {"type": "string", "description": "Optional working directory"},
+                },
+            },
+        )
+    )
+
+    async def lint_and_fix_handler(args: dict[str, Any]) -> dict[str, Any]:
+        framework = str(args.get("framework", "auto")).strip().lower()
+        fix = bool(args.get("fix", False))
+        cwd = args.get("cwd")
+
+        if framework not in {"auto", "python", "npm"}:
+            raise ValueError("framework must be one of: auto, python, npm")
+
+        resolved_framework = framework
+        if resolved_framework == "auto":
+            root = execution.default_cwd if not cwd else _resolve_workspace_path(str(cwd))
+            if (root / "package.json").exists():
+                resolved_framework = "npm"
+            else:
+                resolved_framework = "python"
+
+        if resolved_framework == "python":
+            command = "python"
+            cmd_args = ["-m", "ruff", "check", "."]
+            if fix:
+                cmd_args.append("--fix")
+        else:
+            command = "npm"
+            cmd_args = ["run", "lint"]
+            if fix:
+                cmd_args.extend(["--", "--fix"])
+
+        try:
+            result = await execution.run_command(command, *cmd_args, cwd=cwd)
+        except ExecutionDeniedError as exc:
+            return {"ok": False, "error": str(exc), "framework": resolved_framework}
+
+        return {
+            "ok": result.returncode == 0,
+            "framework": resolved_framework,
+            "fix": fix,
+            "command": " ".join([command, *cmd_args]),
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "truncated": result.truncated,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="lint_and_fix",
+            description="Run lint checks (and optional auto-fix) for python or npm projects.",
+            handler=lint_and_fix_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "framework": {"type": "string", "description": "auto | python | npm"},
+                    "fix": {"type": "boolean", "description": "Apply automatic fixes when supported"},
+                    "cwd": {"type": "string", "description": "Optional working directory"},
+                },
             },
         )
     )
