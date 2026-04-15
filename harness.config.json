@@ -63,6 +63,8 @@
       "create_directory",
       "write_file",
       "append_file",
+      "replace_in_file",
+      "json_edit",
       "read_file",
       "list_directory",
       "rename_or_move",

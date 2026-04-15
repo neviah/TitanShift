@@ -80,6 +80,50 @@ class ReactiveStateMachine:
             return True
         return any(skill_id in normalized_name for skill_id in skill_ids)
 
+    def _detect_requested_tools(self, task_description: str) -> list[str]:
+        """Detect explicitly requested tools from user task text."""
+        text = task_description.lower()
+        available = [tool.name for tool in self.tools.list_tools()]
+        matched: set[str] = set()
+
+        for tool_name in available:
+            if tool_name.lower() in text:
+                matched.add(tool_name)
+
+        # Intent aliases for repo-intake generated camofox tools
+        if "camofox" in text:
+            for tool_name in available:
+                lower_name = tool_name.lower()
+                if "camofox" in lower_name and lower_name.startswith("repo_"):
+                    matched.add(tool_name)
+
+        return sorted(matched)
+
+    def _build_active_tool_definitions(self, requested_tools: list[str]) -> list[dict[str, Any]]:
+        """Build tool definitions, optionally narrowed when user explicitly requests tools."""
+        all_defs = self._build_tool_definitions()
+        if not requested_tools:
+            return all_defs
+
+        support_tools = {
+            "create_directory",
+            "write_file",
+            "append_file",
+            "read_file",
+            "list_directory",
+            "rename_or_move",
+            "delete_file",
+            "search_workspace",
+        }
+        requested = set(requested_tools)
+        filtered = [
+            td
+            for td in all_defs
+            if str(td.get("function", {}).get("name", "")) in requested
+            or str(td.get("function", {}).get("name", "")) in support_tools
+        ]
+        return filtered or all_defs
+
     async def run_task(self, task: Task) -> TaskResult:
         budget = self._resolve_budget(task)
         if budget["max_steps"] < 1:
@@ -90,11 +134,11 @@ class ReactiveStateMachine:
         model = self.models.select_model(preferred_backend)
 
         # System prompt
+        requested_tools = self._detect_requested_tools(task.description)
         system_parts = [
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
-            "When you need to look up live information, fetch web pages, check news, prices, search results, "
-            "or any real-time data — always use the web_fetch tool. Do not explain that you cannot browse; "
-            "just call the tool with the appropriate URL.",
+            "When you need live information, use the most specific available tool for the user request. "
+            "Use web_fetch for general web lookups only when a specific requested tool is not required.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file. "
             "Do not merely describe the files when you can create them.",
             "After completing file operations, summarize what was created and where. Do not paste full file contents "
@@ -102,6 +146,13 @@ class ReactiveStateMachine:
             "Only emit tool calls for actual tools from the provided tool schema. Never emit tool calls for skills "
             "such as brainstorming, writing-plans, or subagent-driven-development.",
         ]
+        if requested_tools:
+            system_parts.append(
+                "The user explicitly requested these tools: "
+                + ", ".join(requested_tools)
+                + ". You must attempt these requested tools before substituting alternatives. "
+                "Do not replace requested repo/browser tools with web_fetch unless requested tools fail."
+            )
         if workspace_root:
             system_parts.append(
                 f"The active workspace folder is: {workspace_root}. "
@@ -118,7 +169,7 @@ class ReactiveStateMachine:
         system_prompt = " ".join(system_parts)
 
         # Build OpenAI-format tool definitions from the registry
-        tool_defs = self._build_tool_definitions()
+        tool_defs = self._build_active_tool_definitions(requested_tools)
 
         # Multi-turn message history
         messages: list[dict[str, Any]] = [
@@ -127,6 +178,7 @@ class ReactiveStateMachine:
         ]
 
         used_tools: list[str] = []
+        tool_errors: list[str] = []
         last_tool_result_lines: list[str] = []
         final_text = ""
         last_model_id = model.model_id
@@ -227,6 +279,7 @@ class ReactiveStateMachine:
                     result = await self.tools.execute_tool(tc.name, tc.arguments)
                     tool_content = json.dumps(result)
                 except PermissionError as exc:
+                    tool_errors.append(f"{tc.name}: {exc}")
                     if tc.name == "shell_command":
                         fallback_args = {
                             "url": f"https://duckduckgo.com/html/?q={quote_plus(task.description)}"
@@ -252,6 +305,7 @@ class ReactiveStateMachine:
                     else:
                         tool_content = json.dumps({"ok": False, "error": str(exc)})
                 except Exception as exc:
+                    tool_errors.append(f"{tc.name}: {exc}")
                     tool_content = json.dumps({"ok": False, "error": str(exc)})
 
                 total_tokens += model.estimate_tokens(tool_content)
@@ -275,6 +329,15 @@ class ReactiveStateMachine:
             if not final_text:
                 final_text = "[Agent reached max steps without producing a final response]"
 
+        requested_set = set(requested_tools)
+        used_requested = [name for name in used_tools if name in requested_set]
+        fallback_used = bool(requested_set) and bool(used_tools) and not bool(used_requested)
+        primary_failure_reason = None
+        if tool_errors:
+            primary_failure_reason = tool_errors[0]
+        elif requested_set and not used_requested:
+            primary_failure_reason = "Requested tools were not used by model output"
+
         return TaskResult(
             task_id=task.id,
             output={
@@ -283,6 +346,10 @@ class ReactiveStateMachine:
                 "mode": "reactive",
                 "estimated_total_tokens": total_tokens,
                 "used_tools": used_tools,
+                "requested_tools": requested_tools,
+                "attempted_tools": used_tools,
+                "fallback_used": fallback_used,
+                "primary_failure_reason": primary_failure_reason,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached")),
         )

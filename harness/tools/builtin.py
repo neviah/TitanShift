@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -166,6 +167,116 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "ensure_newline": {"type": "boolean", "description": "Insert a newline before appended content when needed; defaults to true"},
                 },
                 "required": ["target_path", "content"],
+            },
+        )
+    )
+
+    async def replace_in_file_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        old_text = str(args.get("old_text", ""))
+        new_text = str(args.get("new_text", ""))
+        if not raw_path:
+            raise ValueError("target_path is required")
+        if not old_text:
+            raise ValueError("old_text is required")
+
+        count = int(args.get("count", 1))
+        target = _resolve_workspace_path(raw_path)
+        if not target.exists() or not target.is_file():
+            raise ValueError(f"file not found: {target}")
+
+        content = target.read_text(encoding="utf-8", errors="replace")
+        replaced = content.replace(old_text, new_text, count if count > 0 else -1)
+        occurrences = content.count(old_text)
+        applied = min(occurrences, count) if count > 0 else occurrences
+        if applied == 0:
+            raise ValueError("old_text not found in target file")
+        target.write_text(replaced, encoding="utf-8")
+
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "replacements": applied,
+            "bytes_written": len(replaced.encode("utf-8")),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="replace_in_file",
+            description="Replace text in an existing UTF-8 file. Use for targeted edits without rewriting whole files.",
+            handler=replace_in_file_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "old_text": {"type": "string", "description": "Existing text to replace"},
+                    "new_text": {"type": "string", "description": "Replacement text"},
+                    "count": {"type": "integer", "description": "Maximum replacements; defaults to 1"},
+                },
+                "required": ["target_path", "old_text", "new_text"],
+            },
+        )
+    )
+
+    async def json_edit_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        updates = args.get("updates")
+        if not raw_path:
+            raise ValueError("target_path is required")
+        if not isinstance(updates, dict) or not updates:
+            raise ValueError("updates must be a non-empty object")
+
+        target = _resolve_workspace_path(raw_path)
+        document: dict[str, Any] = {}
+        if target.exists() and target.is_file():
+            raw = target.read_text(encoding="utf-8", errors="replace").strip()
+            if raw:
+                loaded = json.loads(raw)
+                if not isinstance(loaded, dict):
+                    raise ValueError("target JSON must be an object")
+                document = loaded
+        elif target.exists() and target.is_dir():
+            raise ValueError(f"target_path points to a directory: {target}")
+
+        for raw_key, value in updates.items():
+            key_path = str(raw_key).strip()
+            if not key_path:
+                continue
+            parts = [p for p in key_path.split(".") if p]
+            cursor: dict[str, Any] = document
+            for part in parts[:-1]:
+                nxt = cursor.get(part)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    cursor[part] = nxt
+                cursor = nxt
+            cursor[parts[-1]] = value
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(document, indent=2, sort_keys=True)
+        target.write_text(serialized + "\n", encoding="utf-8")
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "updated_keys": sorted(str(k) for k in updates.keys()),
+            "bytes_written": len((serialized + "\n").encode("utf-8")),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="json_edit",
+            description="Upsert keys in a JSON object file using dot-path keys (for example: scripts.build).",
+            handler=json_edit_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "JSON file path relative to workspace root or absolute allowed path"},
+                    "updates": {
+                        "type": "object",
+                        "description": "Map of dot-path keys to values (e.g. {'scripts.build':'vite build'})",
+                    },
+                },
+                "required": ["target_path", "updates"],
             },
         )
     )

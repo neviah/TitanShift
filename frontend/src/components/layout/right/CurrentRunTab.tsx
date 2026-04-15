@@ -66,6 +66,27 @@ export function CurrentRunTab() {
                 </div>
               </div>
             )}
+            {readStringArray(taskDetail?.output?.requested_tools).length > 0 && (
+              <div className={styles.toolsBlock}>
+                <span className={styles.rowLabel}>Requested Tools</span>
+                <div className={styles.inlineBadges}>
+                  {readStringArray(taskDetail?.output?.requested_tools).map((toolName, index) => (
+                    <span key={`${toolName}-${index}`} className="badge badge-warn">{toolName}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {typeof taskDetail?.output?.fallback_used === 'boolean' && (
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>Fallback Used</span>
+                <span className={`badge ${taskDetail.output.fallback_used ? 'badge-warn' : 'badge-ok'}`}>
+                  {taskDetail.output.fallback_used ? 'yes' : 'no'}
+                </span>
+              </div>
+            )}
+            {typeof taskDetail?.output?.primary_failure_reason === 'string' && taskDetail.output.primary_failure_reason.length > 0 && (
+              <p className={`${styles.hint} text-error`}>{String(taskDetail.output.primary_failure_reason)}</p>
+            )}
             {readStringArray(taskDetail?.output?.missing_approvals).length > 0 && (
               <div className={styles.inlineBadges}>
                 {readStringArray(taskDetail?.output?.missing_approvals).map((approval) => (
