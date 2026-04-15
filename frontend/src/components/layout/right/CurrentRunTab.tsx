@@ -7,6 +7,12 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : []
 }
 
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
 export function CurrentRunTab() {
   const { data: tasks, loading, error } = usePolling(fetchTasks, { interval: 5000 })
   const newestTask = useMemo(() => {
@@ -82,6 +88,40 @@ export function CurrentRunTab() {
                 <span className={`badge ${taskDetail.output.fallback_used ? 'badge-warn' : 'badge-ok'}`}>
                   {taskDetail.output.fallback_used ? 'yes' : 'no'}
                 </span>
+              </div>
+            )}
+            {readRecord(taskDetail?.output?.browser_proof) && (
+              <div className={styles.toolsBlock}>
+                <span className={styles.rowLabel}>Browser Proof</span>
+                <div className={styles.inlineBadges}>
+                  {typeof readRecord(taskDetail?.output?.browser_proof)?.tool_name === 'string' && (
+                    <span className="badge badge-dim">{String(readRecord(taskDetail?.output?.browser_proof)?.tool_name)}</span>
+                  )}
+                  {typeof readRecord(taskDetail?.output?.browser_proof)?.final_url === 'string' && (
+                    <span className="badge badge-ok">{String(readRecord(taskDetail?.output?.browser_proof)?.final_url)}</span>
+                  )}
+                </div>
+                {typeof readRecord(taskDetail?.output?.browser_proof)?.evidence_snippet === 'string' && (
+                  <p className={styles.hint}>{String(readRecord(taskDetail?.output?.browser_proof)?.evidence_snippet)}</p>
+                )}
+                {readRecord(readRecord(taskDetail?.output?.browser_proof)?.screenshot_metadata) && (
+                  <p className={styles.hint}>
+                    Screenshot metadata: {Object.keys(readRecord(readRecord(taskDetail?.output?.browser_proof)?.screenshot_metadata) ?? {}).join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
+            {readStringArray(taskDetail?.output?.test_failure_summary).length > 0 && (
+              <div className={styles.toolsBlock}>
+                <span className={styles.rowLabel}>Test Failure Summary</span>
+                <div className={styles.list}>
+                  {readStringArray(taskDetail?.output?.test_failure_summary).map((row, index) => (
+                    <p key={`${row}-${index}`} className={`${styles.hint} text-error`}>{row}</p>
+                  ))}
+                </div>
+                {typeof taskDetail?.output?.test_failed_count === 'number' && (
+                  <span className="badge badge-error">Failed: {String(taskDetail.output.test_failed_count)}</span>
+                )}
               </div>
             )}
             {typeof taskDetail?.output?.primary_failure_reason === 'string' && taskDetail.output.primary_failure_reason.length > 0 && (

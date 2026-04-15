@@ -124,6 +124,55 @@ class ReactiveStateMachine:
         ]
         return filtered or all_defs
 
+    def _extract_browser_proof(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        tool_result: Any,
+    ) -> dict[str, Any] | None:
+        if not isinstance(tool_result, dict):
+            return None
+
+        lower_name = tool_name.lower()
+        final_url = None
+        for key in ("final_url", "url", "current_url", "page_url"):
+            value = tool_result.get(key)
+            if isinstance(value, str) and value.strip():
+                final_url = value.strip()
+                break
+        if not final_url:
+            arg_url = tool_args.get("url")
+            if isinstance(arg_url, str) and arg_url.strip():
+                final_url = arg_url.strip()
+
+        evidence = None
+        for key in ("evidence_snippet", "content", "text", "summary", "excerpt"):
+            value = tool_result.get(key)
+            if isinstance(value, str) and value.strip():
+                evidence = value.strip()
+                break
+
+        screenshot_metadata: dict[str, Any] = {}
+        for key in ("screenshot_path", "screenshot_url", "screenshot_id"):
+            if key in tool_result:
+                screenshot_metadata[key] = tool_result.get(key)
+        meta = tool_result.get("screenshot_metadata")
+        if isinstance(meta, dict):
+            screenshot_metadata.update(meta)
+
+        is_browser_tool = lower_name == "web_fetch" or "camofox" in lower_name
+        if not is_browser_tool and not final_url and not evidence and not screenshot_metadata:
+            return None
+
+        proof: dict[str, Any] = {"tool_name": tool_name}
+        if final_url:
+            proof["final_url"] = final_url
+        if evidence:
+            proof["evidence_snippet"] = evidence[:600]
+        if screenshot_metadata:
+            proof["screenshot_metadata"] = screenshot_metadata
+        return proof
+
     async def run_task(self, task: Task) -> TaskResult:
         budget = self._resolve_budget(task)
         if budget["max_steps"] < 1:
@@ -180,6 +229,9 @@ class ReactiveStateMachine:
         used_tools: list[str] = []
         tool_errors: list[str] = []
         last_tool_result_lines: list[str] = []
+        browser_proofs: list[dict[str, Any]] = []
+        test_failure_summary: list[str] = []
+        test_failed_count: int | None = None
         final_text = ""
         last_model_id = model.model_id
         total_tokens = model.estimate_tokens(task.description)
@@ -277,7 +329,7 @@ class ReactiveStateMachine:
                     continue
                 try:
                     result = await self.tools.execute_tool(tc.name, tc.arguments)
-                    tool_content = json.dumps(result)
+                    tool_result: dict[str, Any] | Any = result
                 except PermissionError as exc:
                     tool_errors.append(f"{tc.name}: {exc}")
                     if tc.name == "shell_command":
@@ -286,27 +338,37 @@ class ReactiveStateMachine:
                         }
                         try:
                             fallback = await self.tools.execute_tool("web_fetch", fallback_args)
-                            tool_content = json.dumps(
-                                {
-                                    "ok": True,
-                                    "fallback": "web_fetch",
-                                    "original_error": str(exc),
-                                    "result": fallback,
-                                }
-                            )
+                            tool_result = {
+                                "ok": True,
+                                "fallback": "web_fetch",
+                                "original_error": str(exc),
+                                "result": fallback,
+                            }
                         except Exception as fallback_exc:
-                            tool_content = json.dumps(
-                                {
-                                    "ok": False,
-                                    "error": str(exc),
-                                    "fallback_error": str(fallback_exc),
-                                }
-                            )
+                            tool_result = {
+                                "ok": False,
+                                "error": str(exc),
+                                "fallback_error": str(fallback_exc),
+                            }
                     else:
-                        tool_content = json.dumps({"ok": False, "error": str(exc)})
+                        tool_result = {"ok": False, "error": str(exc)}
                 except Exception as exc:
                     tool_errors.append(f"{tc.name}: {exc}")
-                    tool_content = json.dumps({"ok": False, "error": str(exc)})
+                    tool_result = {"ok": False, "error": str(exc)}
+
+                proof = self._extract_browser_proof(tc.name, tc.arguments, tool_result)
+                if proof:
+                    browser_proofs.append(proof)
+
+                if tc.name == "run_tests" and isinstance(tool_result, dict):
+                    failure_rows = tool_result.get("failure_summary")
+                    if isinstance(failure_rows, list):
+                        test_failure_summary.extend(str(row).strip() for row in failure_rows if str(row).strip())
+                    failed_count = tool_result.get("failed_count")
+                    if isinstance(failed_count, int):
+                        test_failed_count = max(test_failed_count or 0, failed_count)
+
+                tool_content = json.dumps(tool_result, default=str)
 
                 total_tokens += model.estimate_tokens(tool_content)
                 condensed = tool_content[:2800]
@@ -339,6 +401,13 @@ class ReactiveStateMachine:
         elif missing_requested_tools:
             primary_failure_reason = "Requested tools were not used by model output"
 
+        deduped_test_summary: list[str] = []
+        for row in test_failure_summary:
+            if row not in deduped_test_summary:
+                deduped_test_summary.append(row)
+
+        latest_browser_proof = browser_proofs[-1] if browser_proofs else None
+
         return TaskResult(
             task_id=task.id,
             output={
@@ -351,6 +420,10 @@ class ReactiveStateMachine:
                 "attempted_tools": used_tools,
                 "fallback_used": fallback_used,
                 "primary_failure_reason": primary_failure_reason,
+                "browser_proof": latest_browser_proof,
+                "browser_proofs": browser_proofs,
+                "test_failure_summary": deduped_test_summary[:20],
+                "test_failed_count": test_failed_count,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
         )

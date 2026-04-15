@@ -15,15 +15,16 @@
   - Narrows first-turn tool schema to requested tool(s) plus file support tools.
   - Removes hard bias that previously pushed all live lookups to `web_fetch`.
 
-## Phase 2 (In Progress)
+## Phase 2 (Implemented)
 
 - Implemented `insert_at_line` and `delete_range` file-edit tools.
 - Implemented `yaml_edit` structured editor with dot-path updates.
-- Implemented `run_tests` tool with framework auto-detection and optional test target.
+- Implemented `run_tests` tool with framework auto-detection, optional target, and parsed failure summary.
 - Implemented `lint_and_fix` wrapper with framework auto-detection and optional fix mode.
-- Remaining: adapter-aware browser proof artifacts (final URL + evidence snippet + optional screenshot metadata).
+- Implemented browser proof artifacts in task output (`final_url`, `evidence_snippet`, optional `screenshot_metadata`).
+- Surfaced browser proof and parsed test-failure summary in Current Run panel.
 
-## Phase 3 (Planned)
+## Phase 3 (Ready)
 
 - Add project scaffold tools:
   - `init_project` (FastAPI/React/Vite/static)
@@ -40,3 +41,5 @@
 - User can explicitly demand a repo tool and see whether it was attempted.
 - File append requests no longer overwrite existing content.
 - Run panel exposes enough telemetry to debug tool routing failures without opening raw logs.
+- Run panel shows browser proof artifact fields for browser-capable tool runs.
+- Test runs expose parsed failure summaries and failed-count signals.

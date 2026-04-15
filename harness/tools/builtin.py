@@ -672,6 +672,34 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
     )
 
     async def run_tests_handler(args: dict[str, Any]) -> dict[str, Any]:
+        def _parse_pytest_failures(text: str) -> tuple[list[str], int | None]:
+            lines = text.splitlines()
+            failures = [line.strip() for line in lines if line.startswith("FAILED ")]
+            failed_count: int | None = None
+            match = re.search(r"(\d+)\s+failed", text)
+            if match:
+                failed_count = int(match.group(1))
+            return failures[:20], failed_count
+
+        def _parse_npm_failures(text: str) -> tuple[list[str], int | None]:
+            lines = text.splitlines()
+            failures: list[str] = []
+            for raw in lines:
+                line = raw.strip()
+                if line.startswith("FAIL "):
+                    failures.append(line)
+                elif " failed" in line.lower() and ("tests" in line.lower() or "suites" in line.lower()):
+                    failures.append(line)
+
+            failed_count: int | None = None
+            suites = re.search(r"Test Suites:\s*(\d+)\s*failed", text, flags=re.IGNORECASE)
+            tests = re.search(r"Tests:\s*(\d+)\s*failed", text, flags=re.IGNORECASE)
+            if tests:
+                failed_count = int(tests.group(1))
+            elif suites:
+                failed_count = int(suites.group(1))
+            return failures[:20], failed_count
+
         framework = str(args.get("framework", "auto")).strip().lower()
         target = str(args.get("target", "")).strip()
         cwd = args.get("cwd")
@@ -703,6 +731,12 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         except ExecutionDeniedError as exc:
             return {"ok": False, "error": str(exc), "framework": resolved_framework}
 
+        merged_output = f"{result.stdout}\n{result.stderr}".strip()
+        if resolved_framework == "python":
+            failure_summary, failed_count = _parse_pytest_failures(merged_output)
+        else:
+            failure_summary, failed_count = _parse_npm_failures(merged_output)
+
         return {
             "ok": result.returncode == 0,
             "framework": resolved_framework,
@@ -711,6 +745,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "stdout": result.stdout,
             "stderr": result.stderr,
             "truncated": result.truncated,
+            "failure_summary": failure_summary,
+            "failed_count": failed_count,
         }
 
     tools.register_tool(
