@@ -421,6 +421,20 @@ class SkillRepoIntakeResponse(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class SkillRepoIntakeUninstallRequest(BaseModel):
+    skill_id: str = Field(min_length=1)
+
+
+class SkillRepoIntakeUninstallResponse(BaseModel):
+    ok: bool
+    skill_id: str
+    uninstalled: bool
+    removed_tool_ids: list[str] = Field(default_factory=list)
+    removed_manifest: bool = False
+    stopped_services: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class UiMarketOverviewResponse(BaseModel):
     total_listed: int
     installed_count: int

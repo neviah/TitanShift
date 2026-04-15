@@ -25,6 +25,7 @@ import type {
   WorkflowMetrics,
   RuntimeSkillSummary,
   SkillRepoIntakeResponse,
+  SkillRepoIntakeUninstallResponse,
 } from './types'
 
 export const API_BASE = '/api'
@@ -188,6 +189,13 @@ export function intakeSkillRepo(
   return request('/skills/repo-intake', {
     method: 'POST',
     body: JSON.stringify({ repo_url, auto_install, trust_policy }),
+  }, 'admin')
+}
+
+export function uninstallRepoIntakeSkill(skill_id: string): Promise<SkillRepoIntakeUninstallResponse> {
+  return request('/skills/repo-intake/uninstall', {
+    method: 'POST',
+    body: JSON.stringify({ skill_id }),
   }, 'admin')
 }
 

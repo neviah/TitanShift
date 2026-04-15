@@ -117,6 +117,8 @@ from harness.api.schemas import (
     SkillMarketUpdateResponse,
     SkillRepoIntakeRequest,
     SkillRepoIntakeResponse,
+    SkillRepoIntakeUninstallRequest,
+    SkillRepoIntakeUninstallResponse,
     SkillSummary,
     RunTelemetrySummary,
     ServiceControlRequest,
@@ -136,6 +138,7 @@ from harness.api.schemas import (
 )
 from harness.scheduler.module import ScheduledJob
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
+from harness.runtime.service_manager import ServiceLaunchConfig
 from harness.runtime.types import Task
 from harness.skills.registry import SkillDefinition
 from harness.tools.definitions import ToolDefinition
@@ -881,6 +884,77 @@ def create_app(workspace_root: Path) -> FastAPI:
         payload = [registry[k] for k in sorted(registry.keys())]
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
+    def _register_http_service_from_adapter(record: dict[str, Any]) -> None:
+        tool_name = str(record.get("tool_name", "")).strip()
+        if not tool_name:
+            return
+        lifecycle = record.get("lifecycle")
+        if not isinstance(lifecycle, dict):
+            return
+        start_command = str(lifecycle.get("start_command", "")).strip()
+        if not start_command:
+            return
+
+        base_url = str(record.get("base_url", "")).strip() or "http://127.0.0.1:8000"
+        healthcheck_url = str(lifecycle.get("healthcheck_url", "")).strip() or f"{base_url.rstrip('/')}/health"
+        start_strategy = str(lifecycle.get("start_strategy", "subprocess")).strip() or "subprocess"
+        working_dir = str(lifecycle.get("working_dir", "")).strip() or str(workspace_root)
+        startup_timeout_s = float(lifecycle.get("startup_timeout_s", 30.0))
+        healthcheck_timeout_s = float(lifecycle.get("healthcheck_timeout_s", 5.0))
+        retry_interval_s = float(lifecycle.get("retry_interval_s", 1.0))
+        max_retries = int(lifecycle.get("max_retries", 5))
+        raw_start_args = lifecycle.get("start_args", [])
+        start_args = [str(v) for v in list(raw_start_args)] if isinstance(raw_start_args, list) else []
+
+        runtime.service_manager.register_service(
+            ServiceLaunchConfig(
+                service_id=tool_name,
+                start_strategy=start_strategy,
+                start_command=start_command,
+                start_args=start_args,
+                working_dir=working_dir,
+                healthcheck_url=healthcheck_url,
+                startup_timeout_s=startup_timeout_s,
+                healthcheck_timeout_s=healthcheck_timeout_s,
+                retry_interval_s=retry_interval_s,
+                max_retries=max_retries,
+            )
+        )
+
+    async def _uninstall_repo_intake_skill(skill_id: str) -> tuple[list[str], bool, list[str], list[str]]:
+        manifest = repo_intake_manifests.get(skill_id)
+        if not isinstance(manifest, dict):
+            return [], False, [], ["No repo-intake manifest found for skill"]
+
+        removed_tool_ids: list[str] = []
+        warnings: list[str] = []
+        stopped_services: list[str] = []
+
+        for tool_name in [str(v) for v in list(manifest.get("generated_tool_ids", [])) if str(v).strip()]:
+            stop_ok, stop_err = await runtime.service_manager.stop_service(tool_name)
+            if stop_ok:
+                stopped_services.append(tool_name)
+            elif stop_err and "not registered" not in stop_err.lower():
+                warnings.append(f"Could not stop service for {tool_name}: {stop_err}")
+
+            runtime.service_manager.unregister_service(tool_name)
+
+            if runtime.tools.unregister_tool(tool_name):
+                removed_tool_ids.append(tool_name)
+            runtime.tools.policy.allowed_tool_names.discard(tool_name)
+            repo_tool_adapters.pop(tool_name, None)
+
+        _save_repo_tool_adapters(repo_tool_adapters)
+
+        repo_intake_manifests.pop(skill_id, None)
+        _save_repo_intake_manifests(repo_intake_manifests)
+
+        runtime.skills.unregister_skill(skill_id)
+        market_installed.discard(skill_id)
+        _save_market_installed(market_installed)
+
+        return removed_tool_ids, True, stopped_services, warnings
+
     def _evaluate_repo_trust(repo_url: str, trust_policy: str, hints: dict[str, Any]) -> tuple[bool, str]:
         policy = trust_policy.strip().lower() or "github_only"
         parsed = urlparse(repo_url)
@@ -1171,23 +1245,18 @@ def create_app(workspace_root: Path) -> FastAPI:
             description = str(record.get("description", "Generated HTTP adapter"))
             lifecycle = record.get("lifecycle", {})
 
+            _register_http_service_from_adapter(record)
+
             async def _http_handler(args: dict[str, Any], *, _base_url: str = base_url, _default_path: str = default_path, _tool_name: str = tool_name, _lifecycle: dict[str, Any] | None = lifecycle) -> dict[str, Any]:
                 # Check and auto-start service if needed
                 if _lifecycle:
                     service_id = _tool_name
                     is_healthy, health_error = await runtime.service_manager.check_health(service_id)
                     if not is_healthy:
-                        try:
-                            await runtime.service_manager.start_service(
-                                service_id=service_id,
-                                start_strategy=_lifecycle.get("start_strategy", "subprocess"),
-                                start_command=_lifecycle.get("start_command", ""),
-                                healthcheck_url=_lifecycle.get("healthcheck_url", f"{_base_url}/health"),
-                                startup_timeout_s=_lifecycle.get("startup_timeout_s", 30.0),
-                            )
-                        except Exception as e:
-                            error_msg = f"Service startup failed: {str(e)}"
-                            raise RuntimeError(f"{error_msg}. Requested tool: {_tool_name}") from e
+                        started, start_err = await runtime.service_manager.start_service(service_id)
+                        if not started:
+                            failure = start_err or health_error or "Unknown service startup failure"
+                            raise RuntimeError(f"Service startup failed: {failure}. Requested tool: {_tool_name}")
                 
                 method = str(args.get("method", "GET")).strip().upper()
                 if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
@@ -3315,36 +3384,34 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         removed_tool_ids: list[str] = []
         removed_manifest = False
+        stopped_services: list[str] = []
+        warnings: list[str] = []
         manifest = repo_intake_manifests.get(skill_id)
         if isinstance(manifest, dict):
-            for tool_name in [str(v) for v in list(manifest.get("generated_tool_ids", [])) if str(v).strip()]:
-                if runtime.tools.unregister_tool(tool_name):
-                    removed_tool_ids.append(tool_name)
-                runtime.tools.policy.allowed_tool_names.discard(tool_name)
-                repo_tool_adapters.pop(tool_name, None)
-            if removed_tool_ids:
-                _save_repo_tool_adapters(repo_tool_adapters)
-            repo_intake_manifests.pop(skill_id, None)
-            _save_repo_intake_manifests(repo_intake_manifests)
-            removed_manifest = True
+            removed_tool_ids, removed_manifest, stopped_services, warnings = await _uninstall_repo_intake_skill(skill_id)
             runtime.logger.log(
                 "SKILL_REPO_UNINSTALL_CASCADE",
                 {
                     "skill_id": skill_id,
                     "removed_tool_ids": removed_tool_ids,
-                    "removed_manifest": True,
+                    "removed_manifest": removed_manifest,
+                    "stopped_services": stopped_services,
+                    "warnings": warnings,
                 },
             )
+        else:
+            runtime.skills.unregister_skill(skill_id)
+            market_installed.discard(skill_id)
+            _save_market_installed(market_installed)
 
-        runtime.skills.unregister_skill(skill_id)
-        market_installed.discard(skill_id)
-        _save_market_installed(market_installed)
         runtime.logger.log(
             "SKILL_MARKET_UNINSTALL",
             {
                 "skill_id": skill_id,
                 "removed_tool_ids": removed_tool_ids,
                 "removed_manifest": removed_manifest,
+                "stopped_services": stopped_services,
+                "warnings": warnings,
             },
         )
         return SkillMarketUninstallResponse(
@@ -3725,6 +3792,42 @@ def create_app(workspace_root: Path) -> FastAPI:
             notes=notes,
         )
 
+    @app.post(
+        "/skills/repo-intake/uninstall",
+        response_model=SkillRepoIntakeUninstallResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def skills_repo_intake_uninstall(body: SkillRepoIntakeUninstallRequest) -> SkillRepoIntakeUninstallResponse:
+        skill_id = body.skill_id.strip()
+        _validate_skill_id(skill_id)
+
+        manifest = repo_intake_manifests.get(skill_id)
+        if not isinstance(manifest, dict):
+            raise HTTPException(status_code=404, detail="Repo-intake manifest not found for skill")
+
+        removed_tool_ids, removed_manifest, stopped_services, warnings = await _uninstall_repo_intake_skill(skill_id)
+
+        runtime.logger.log(
+            "SKILL_REPO_INTAKE_UNINSTALL",
+            {
+                "skill_id": skill_id,
+                "removed_tool_ids": removed_tool_ids,
+                "removed_manifest": removed_manifest,
+                "stopped_services": stopped_services,
+                "warnings": warnings,
+            },
+        )
+
+        return SkillRepoIntakeUninstallResponse(
+            ok=True,
+            skill_id=skill_id,
+            uninstalled=True,
+            removed_tool_ids=removed_tool_ids,
+            removed_manifest=removed_manifest,
+            stopped_services=stopped_services,
+            warnings=warnings,
+        )
+
     @app.get("/ui/market/overview", response_model=UiMarketOverviewResponse, dependencies=[Depends(require_read_api_key)])
     async def ui_market_overview() -> UiMarketOverviewResponse:
         rows = _current_market_rows()
@@ -3740,6 +3843,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "SKILL_MARKET_UPDATE",
             "SKILL_REPO_INTAKE",
             "SKILL_REPO_UNINSTALL_CASCADE",
+            "SKILL_REPO_INTAKE_UNINSTALL",
         ]:
             market_events.extend(runtime.logger.query(event_type=event_type, limit=20))
         market_events.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
@@ -3877,6 +3981,8 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def adapter_status(tool_name: str) -> ServiceStatusResponse:
         """Get the current status of a generated repo adapter service."""
         status = runtime.service_manager.get_status(tool_name)
+        if status is None:
+            raise HTTPException(status_code=404, detail="Adapter service is not managed")
         return ServiceStatusResponse(
             service_id=status.service_id,
             status=status.status,
@@ -3885,23 +3991,31 @@ def create_app(workspace_root: Path) -> FastAPI:
             last_checked=status.last_checked,
         )
 
-    @app.post("/skills/repo-adapters/{tool_name}/control", response_model=ServiceStatusResponse, dependencies=[Depends(require_write_api_key)])
+    @app.post("/skills/repo-adapters/{tool_name}/control", response_model=ServiceStatusResponse, dependencies=[Depends(require_admin_api_key)])
     async def adapter_control(tool_name: str, req: ServiceControlRequest) -> ServiceStatusResponse:
         """Start, stop, or restart a generated repo adapter service."""
         action = req.action.lower()
         
         if action == "start":
-            await runtime.service_manager.start_service(tool_name)
+            started, err = await runtime.service_manager.start_service(tool_name)
+            if not started:
+                raise HTTPException(status_code=400, detail=err or "Failed to start service")
         elif action == "stop":
-            await runtime.service_manager.stop_service(tool_name)
+            stopped, err = await runtime.service_manager.stop_service(tool_name)
+            if not stopped:
+                raise HTTPException(status_code=400, detail=err or "Failed to stop service")
         elif action == "restart":
             await runtime.service_manager.stop_service(tool_name)
             await asyncio.sleep(0.5)
-            await runtime.service_manager.start_service(tool_name)
+            started, err = await runtime.service_manager.start_service(tool_name)
+            if not started:
+                raise HTTPException(status_code=400, detail=err or "Failed to restart service")
         else:
             raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
         
         status = runtime.service_manager.get_status(tool_name)
+        if status is None:
+            raise HTTPException(status_code=404, detail="Adapter service is not managed")
         return ServiceStatusResponse(
             service_id=status.service_id,
             status=status.status,

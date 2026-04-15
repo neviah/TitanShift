@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { usePolling } from '../hooks/usePolling'
-import { fetchRuntimeSkills, intakeSkillRepo } from '../api/client'
+import { fetchRuntimeSkills, intakeSkillRepo, uninstallRepoIntakeSkill } from '../api/client'
 import type { RuntimeSkillSummary, SkillRepoIntakeResponse } from '../api/types'
 import styles from './SkillsView.module.css'
-import { Sparkles, Wrench, Link2, Send, Bot } from 'lucide-react'
+import { Sparkles, Wrench, Link2, Send, Bot, Trash2 } from 'lucide-react'
 
 export function SkillsView() {
   const { data: runtimeData, loading: runtimeLoading, error: runtimeError, refresh: refreshRuntime } = usePolling(fetchRuntimeSkills, { interval: 30000 })
@@ -13,6 +13,8 @@ export function SkillsView() {
   const [intakeBusy, setIntakeBusy] = useState(false)
   const [intakeError, setIntakeError] = useState<string | null>(null)
   const [intakeResult, setIntakeResult] = useState<SkillRepoIntakeResponse | null>(null)
+  const [uninstallBusySkill, setUninstallBusySkill] = useState<string | null>(null)
+  const [uninstallError, setUninstallError] = useState<string | null>(null)
 
   const builtinSkills = useMemo(
     () => (runtimeData ?? []).filter((skill) => skill.tags.includes('builtin')),
@@ -45,6 +47,23 @@ export function SkillsView() {
       setIntakeResult(null)
     } finally {
       setIntakeBusy(false)
+    }
+  }
+
+  async function handleRepoUninstall(skillId: string) {
+    if (!skillId.trim()) return
+    setUninstallBusySkill(skillId)
+    setUninstallError(null)
+    try {
+      await uninstallRepoIntakeSkill(skillId)
+      await refreshRuntime()
+      if (intakeResult?.installed_skill_id === skillId) {
+        setIntakeResult(null)
+      }
+    } catch (err) {
+      setUninstallError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUninstallBusySkill(null)
     }
   }
 
@@ -101,6 +120,7 @@ export function SkillsView() {
         </form>
 
         {intakeError && <p className={`${styles.hint} text-error`}>{intakeError}</p>}
+        {uninstallError && <p className={`${styles.hint} text-error`}>{uninstallError}</p>}
 
         <div className={styles.processPanel}>
           <div className={styles.processHeader}>
@@ -125,6 +145,19 @@ export function SkillsView() {
                   <span className="badge badge-ok">tools: {(intakeResult.generated_tool_ids ?? []).length}</span>
                 )}
               </div>
+              {intakeResult.installed_skill_id && (
+                <div className={styles.resultActions}>
+                  <button
+                    className={`${styles.btn} ${styles.btnDanger} ${styles.submitBtn}`}
+                    type="button"
+                    disabled={uninstallBusySkill === intakeResult.installed_skill_id}
+                    onClick={() => { void handleRepoUninstall(intakeResult.installed_skill_id ?? '') }}
+                  >
+                    <Trash2 size={13} />
+                    {uninstallBusySkill === intakeResult.installed_skill_id ? 'Uninstalling…' : 'Uninstall This Repo Integration'}
+                  </button>
+                </div>
+              )}
               <ul className={styles.processList}>
                 {intakeResult.process_log.map((line, index) => (
                   <li key={`line-${index}`}>{line}</li>
@@ -176,6 +209,19 @@ export function SkillsView() {
                   </div>
                 )}
               </div>
+              {skill.tags.includes('repo-intake') && !skill.tags.includes('builtin') && (
+                <div className={styles.actions}>
+                  <button
+                    className={`${styles.btn} ${styles.btnDanger}`}
+                    type="button"
+                    title="Uninstall repo-intake skill and generated tools"
+                    disabled={uninstallBusySkill === skill.skill_id}
+                    onClick={() => { void handleRepoUninstall(skill.skill_id) }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              )}
             </li>
           ))}
           {allSkills.length === 0 && (

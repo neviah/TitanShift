@@ -259,6 +259,12 @@
   gap: 6px;
 }
 
+.resultActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .processList,
 .notesList {
   margin: 0;

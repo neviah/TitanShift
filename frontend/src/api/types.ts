@@ -215,6 +215,16 @@ export interface SkillRepoIntakeResponse {
   notes: string[]
 }
 
+export interface SkillRepoIntakeUninstallResponse {
+  ok: boolean
+  skill_id: string
+  uninstalled: boolean
+  removed_tool_ids: string[]
+  removed_manifest: boolean
+  stopped_services: string[]
+  warnings: string[]
+}
+
 export interface RoleTemplate {
   role_key: string
   role_name: string

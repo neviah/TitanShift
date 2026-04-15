@@ -61,6 +61,17 @@ class ServiceManager:
             last_checked=datetime.now(timezone.utc).isoformat(),
         )
 
+    def unregister_service(self, service_id: str) -> None:
+        """Remove a service from management and stop it if needed."""
+        proc = self._service_processes.pop(service_id, None)
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        self.services.pop(service_id, None)
+        self.service_statuses.pop(service_id, None)
+
     async def check_health(self, service_id: str) -> tuple[bool, str | None]:
         """
         Check if a service is healthy via its healthcheck endpoint.
@@ -158,6 +169,9 @@ class ServiceManager:
 
     async def stop_service(self, service_id: str) -> tuple[bool, str | None]:
         """Stop a running service."""
+        if service_id not in self.service_statuses:
+            return False, f"Service not registered: {service_id}"
+
         proc = self._service_processes.pop(service_id, None)
         if proc:
             try:
