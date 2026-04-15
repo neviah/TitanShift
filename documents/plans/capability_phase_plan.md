@@ -49,3 +49,7 @@
 - Test runs expose parsed failure summaries and failed-count signals.
 - Scaffold runs expose `created_paths` and `updated_paths` in task output.
 - Scaffold generators fail cleanly when targets already exist and `overwrite=false`, without partial writes.
+
+## Next Planning Reference
+
+- Artifact and media roadmap items 1 through 3 are documented in `documents/plans/artifact_media_plan.md`.

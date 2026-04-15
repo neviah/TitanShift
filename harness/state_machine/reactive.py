@@ -45,6 +45,7 @@ class ReactiveStateMachine:
             "create_folder": "create_directory",
         }
         normalized = aliases.get(name, name)
+        normalized = self._resolve_registered_tool_name(normalized)
 
         task_text = task_description.lower()
         web_intent = any(token in task_text for token in ["weather", "search", "news", "price", "web", "internet", "current"]) 
@@ -69,6 +70,19 @@ class ReactiveStateMachine:
             )
 
         return ToolCall(id=tool_call.id, name=normalized, arguments=args)
+
+    @staticmethod
+    def _canonical_tool_name(name: str) -> str:
+        return name.strip().lower().replace("-", "_").replace(".", "_").replace(":", "_")
+
+    def _resolve_registered_tool_name(self, name: str) -> str:
+        if self.tools.get_tool(name) is not None:
+            return name
+        canonical = self._canonical_tool_name(name)
+        for tool in self.tools.list_tools():
+            if self._canonical_tool_name(tool.name) == canonical:
+                return tool.name
+        return name
 
     def _is_skill_like_pseudo_call(self, tool_call: ToolCall) -> bool:
         if self.skills is None:
@@ -99,28 +113,31 @@ class ReactiveStateMachine:
 
         return sorted(matched)
 
-    def _build_active_tool_definitions(self, requested_tools: list[str]) -> list[dict[str, Any]]:
+    def _build_active_tool_definitions(self, requested_tools: list[str], *, allow_support_tools: bool = True) -> list[dict[str, Any]]:
         """Build tool definitions, optionally narrowed when user explicitly requests tools."""
         all_defs = self._build_tool_definitions()
         if not requested_tools:
             return all_defs
 
-        support_tools = {
+        essential_support_tools = {
             "create_directory",
             "write_file",
             "append_file",
             "read_file",
+        }
+        support_tools = {
             "list_directory",
             "rename_or_move",
             "delete_file",
             "search_workspace",
         }
+        enabled_support = essential_support_tools | (support_tools if allow_support_tools else set())
         requested = set(requested_tools)
         filtered = [
             td
             for td in all_defs
             if str(td.get("function", {}).get("name", "")) in requested
-            or str(td.get("function", {}).get("name", "")) in support_tools
+            or str(td.get("function", {}).get("name", "")) in enabled_support
         ]
         return filtered or all_defs
 
@@ -184,6 +201,8 @@ class ReactiveStateMachine:
 
         # System prompt
         requested_tools = self._detect_requested_tools(task.description)
+        requested_canonical = {self._canonical_tool_name(name) for name in requested_tools}
+        requested_repo_tools = [name for name in requested_tools if name.startswith("repo_")]
         system_parts = [
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
             "When you need live information, use the most specific available tool for the user request. "
@@ -249,7 +268,13 @@ class ReactiveStateMachine:
                 )
 
             try:
-                active_tool_defs = tool_defs if not used_tools else None
+                used_requested_tools = [name for name in used_tools if self._canonical_tool_name(name) in requested_canonical]
+                active_tool_defs = None
+                if not used_tools:
+                    active_tool_defs = self._build_active_tool_definitions(
+                        requested_tools,
+                        allow_support_tools=not bool(requested_repo_tools),
+                    )
                 response = await asyncio.wait_for(
                     model.generate(ModelRequest(
                         prompt="",
@@ -300,6 +325,15 @@ class ReactiveStateMachine:
             last_model_id = response.model_id
 
             if not response.tool_calls:
+                if requested_repo_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
+                    correction = (
+                        "You must first attempt one of the explicitly requested repo/browser tools before using support tools or finishing. "
+                        + "Requested repo tools: "
+                        + ", ".join(requested_repo_tools)
+                    )
+                    messages.append({"role": "user", "content": correction})
+                    total_tokens += model.estimate_tokens(correction)
+                    continue
                 # LLM produced a final text answer — done
                 final_text = response.text
                 total_tokens += model.estimate_tokens(response.text)
@@ -309,8 +343,18 @@ class ReactiveStateMachine:
             # LM Studio compatibility note: some model/server combos reject tool-role messages.
             # We therefore feed tool outputs back as plain user context for the next turn.
             tool_result_lines: list[str] = []
-            for raw_tc in response.tool_calls:
-                tc = self._normalize_tool_call(raw_tc, task.description)
+            normalized_tool_calls = [self._normalize_tool_call(raw_tc, task.description) for raw_tc in response.tool_calls]
+            if requested_repo_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
+                if not any(self._canonical_tool_name(tc.name) in requested_canonical for tc in normalized_tool_calls):
+                    correction = (
+                        "Support tools alone are insufficient here. Attempt one explicitly requested repo/browser tool first: "
+                        + ", ".join(requested_repo_tools)
+                    )
+                    messages.append({"role": "user", "content": correction})
+                    total_tokens += model.estimate_tokens(correction)
+                    continue
+
+            for tc in normalized_tool_calls:
                 used_tools.append(tc.name)
                 if self._is_skill_like_pseudo_call(tc):
                     tool_content = json.dumps(
@@ -401,9 +445,8 @@ class ReactiveStateMachine:
             if not final_text:
                 final_text = "[Agent reached max steps without producing a final response]"
 
-        requested_set = set(requested_tools)
-        used_requested = [name for name in used_tools if name in requested_set]
-        missing_requested_tools = bool(requested_set) and not bool(used_requested)
+        used_requested = [name for name in used_tools if self._canonical_tool_name(name) in requested_canonical]
+        missing_requested_tools = bool(requested_canonical) and not bool(used_requested)
         fallback_used = missing_requested_tools
         primary_failure_reason = None
         if tool_errors:

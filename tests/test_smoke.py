@@ -16,7 +16,7 @@ from harness.api.server import create_app
 from harness.execution.policy import ExecutionPolicy
 from harness.execution.runner import ExecutionDeniedError, ExecutionModule, ExecutionResult
 from harness.runtime.bootstrap import build_runtime
-from harness.model.adapter import CloudOpenAIAdapter, LMStudioAdapter, ModelRegistry
+from harness.model.adapter import CloudOpenAIAdapter, LMStudioAdapter, ModelRegistry, ModelResponse, ToolCall
 from harness.runtime.config import ConfigManager
 from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.runtime.types import Task
@@ -80,6 +80,15 @@ class TestClient(FastAPITestClient):
             return super().request(method, url, *args, **kwargs)
 
         return response
+
+
+CAMOFOX_REDDIT_PROMPT = (
+    'If the file "reddit.txt" does not exist in our workspace directory, then create it. '
+    "Use the repo camofox tool and skill for browsing. and go to reddit. "
+    "use append_file tool to add exactly one new line in that text file. writing the link to the first post you see on the reddit website on a new line in that text file. "
+    "After writing, use read_file on reddit.txt and return the full final file content. "
+    "Also return the exact tools_used list."
+)
 
 
 def test_defaults_load() -> None:
@@ -640,6 +649,119 @@ def test_generate_component_tool_creates_react_component() -> None:
         assert any(path.endswith("src/components/HeroBanner.jsx") for path in result["created_paths"])
     finally:
         shutil.rmtree(target_dir, ignore_errors=True)
+
+
+def test_camofox_same_prompt_enforces_requested_repo_tool_before_support_tools(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+
+    async def fake_camofox_handler(args: dict[str, object]) -> dict[str, object]:
+        assert args.get("action") == "get_links"
+        assert args.get("url") == "https://www.reddit.com/"
+        return {
+            "ok": True,
+            "url": "https://www.reddit.com/",
+            "links": [
+                {
+                    "url": "https://www.reddit.com/r/test/comments/123/example_post/",
+                    "text": "Example post",
+                }
+            ],
+            "evidence_snippet": "Example post",
+        }
+
+    runtime.tools.register_tool(
+        ToolDefinition(
+            name="repo_camofox-browser_http_request",
+            description="Camoufox browser automation adapter",
+            handler=fake_camofox_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+                "required": ["action", "url"],
+            },
+            capabilities=["browser.automation"],
+        )
+    )
+    runtime.tools.policy.allowed_tool_names.add("repo_camofox-browser_http_request")
+
+    class SequenceAdapter:
+        model_id = "sequence"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                return ModelResponse(
+                    text="",
+                    model_id=self.model_id,
+                    tool_calls=[ToolCall(id="1", name="list_directory", arguments={"path": "."})],
+                )
+            if self.calls == 2:
+                return ModelResponse(
+                    text="",
+                    model_id=self.model_id,
+                    tool_calls=[
+                        ToolCall(
+                            id="2",
+                            name="repo_camofox_browser_http_request",
+                            arguments={"action": "get_links", "url": "https://www.reddit.com/"},
+                        )
+                    ],
+                )
+            if self.calls == 3:
+                return ModelResponse(
+                    text="",
+                    model_id=self.model_id,
+                    tool_calls=[
+                        ToolCall(
+                            id="3",
+                            name="append_file",
+                            arguments={
+                                "target_path": "reddit.txt",
+                                "content": "https://www.reddit.com/r/test/comments/123/example_post/",
+                            },
+                        )
+                    ],
+                )
+            if self.calls == 4:
+                return ModelResponse(
+                    text="",
+                    model_id=self.model_id,
+                    tool_calls=[ToolCall(id="4", name="read_file", arguments={"path": "reddit.txt"})],
+                )
+            return ModelResponse(
+                text=(
+                    "tools_used=[repo_camofox-browser_http_request, append_file, read_file]\n"
+                    "https://www.reddit.com/r/test/comments/123/example_post/"
+                ),
+                model_id=self.model_id,
+            )
+
+        def estimate_tokens(self, text: str) -> int:
+            return max(1, len(text) // 4)
+
+    runtime.models.adapters["sequence"] = SequenceAdapter()
+
+    result = asyncio.run(
+        runtime.orchestrator.run_reactive_task(
+            Task(
+                id="camofox-prompt-regression",
+                description=CAMOFOX_REDDIT_PROMPT,
+                input={"model_backend": "sequence"},
+            )
+        )
+    )
+
+    assert result.success is True
+    assert "repo_camofox-browser_http_request" in result.output["used_tools"]
+    assert "list_directory" not in result.output["used_tools"]
+    assert Path(tmp_path / "reddit.txt").read_text(encoding="utf-8").strip() == "https://www.reddit.com/r/test/comments/123/example_post/"
 
 
 def test_generate_route_tool_creates_react_route_and_test() -> None:
