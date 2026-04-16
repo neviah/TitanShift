@@ -117,16 +117,20 @@ class ToolRegistry:
         """Policy preview with empty args for UI/API listing."""
         return self.policy.evaluate_tool(tool, {})
 
-    async def execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def execute_tool(self, name: str, args: dict[str, Any], bypass_policy: bool = False) -> dict[str, Any]:
         tool = self.get_tool(name)
         if tool is None:
             self._emit_audit(name=name, status="denied", reason="tool_not_found", args=args)
             raise KeyError(f"Tool not found: {name}")
 
-        allowed, reason = self.policy.evaluate_tool(tool, args)
-        if not allowed:
-            self._emit_audit(name=name, status="denied", reason=reason, args=args)
-            raise PermissionError(f"Tool blocked by deny-all policy: {name}")
+        # Skip policy checks if bypass_policy is True (e.g., superpowered mode with approvals)
+        if not bypass_policy:
+            allowed, reason = self.policy.evaluate_tool(tool, args)
+            if not allowed:
+                self._emit_audit(name=name, status="denied", reason=reason, args=args)
+                raise PermissionError(f"Tool blocked by deny-all policy: {name}")
+        else:
+            reason = "bypassed_for_superpowered_mode"
 
         if tool.handler is None:
             self._emit_audit(name=name, status="allowed", reason="no_handler", args=args)

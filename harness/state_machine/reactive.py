@@ -352,6 +352,7 @@ class ReactiveStateMachine:
         # Inject available skills if skill registry is available
         if self.skills:
             workflow_mode = task.input.get("workflow_mode") if task.input else self.config.get("orchestrator.workflow_mode", "lightning")
+            is_superpowered = str(workflow_mode).lower() == "superpowered"
             skills_section = self.skills.format_for_system_prompt(workflow_mode)
             if skills_section:
                 system_parts.append("\n" + skills_section)
@@ -536,7 +537,8 @@ class ReactiveStateMachine:
                     )
                     continue
                 try:
-                    result = await self.tools.execute_tool(tc.name, tc.arguments)
+                    # Bypass policy checks in superpowered mode since it has approval gates
+                    result = await self.tools.execute_tool(tc.name, tc.arguments, bypass_policy=is_superpowered)
                     tool_result: dict[str, Any] | Any = result
                 except PermissionError as exc:
                     tool_errors.append(f"{tc.name}: {exc}")
@@ -545,7 +547,7 @@ class ReactiveStateMachine:
                             "url": f"https://duckduckgo.com/html/?q={quote_plus(task.description)}"
                         }
                         try:
-                            fallback = await self.tools.execute_tool("web_fetch", fallback_args)
+                            fallback = await self.tools.execute_tool("web_fetch", fallback_args, bypass_policy=is_superpowered)
                             tool_result = {
                                 "ok": True,
                                 "fallback": "web_fetch",
