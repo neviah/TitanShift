@@ -27,7 +27,7 @@ const STORAGE_KEY = 'titanshift-scheduler-concurrency'
 const POLL_INTERVAL = 5000 // 5 seconds
 
 export function SchedulerTaskProvider({ children }: { children: ReactNode }) {
-  const { workspace } = useWorkspace()
+  const { currentWorkspaceId } = useWorkspace()
   const { addToast } = useToast()
   const [currentTask, setCurrentTask] = useState<SchedulerTask | null>(null)
   const [taskHistory, setTaskHistory] = useState<SchedulerTask[]>([])
@@ -38,7 +38,7 @@ export function SchedulerTaskProvider({ children }: { children: ReactNode }) {
 
   // Fetch current running task
   const refreshTasks = async () => {
-    if (!workspace?.id) return
+    if (!currentWorkspaceId) return
 
     try {
       const response = await fetch('/tasks', {
@@ -88,7 +88,7 @@ export function SchedulerTaskProvider({ children }: { children: ReactNode }) {
     refreshTasks()
     const interval = setInterval(refreshTasks, POLL_INTERVAL)
     return () => clearInterval(interval)
-  }, [workspace?.id])
+  }, [currentWorkspaceId])
 
   const setConcurrencyMode = (mode: 'single-run' | 'parallel') => {
     setConcurrencyModeState(mode)

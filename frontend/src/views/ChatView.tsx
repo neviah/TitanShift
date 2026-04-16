@@ -49,9 +49,9 @@ export function ChatView() {
   const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending])
   const planTaskCount = useMemo(
     () => planTasksText.split('\n').map((line) => line.trim()).filter(Boolean).length,
-   
-  const isTaskQueueMode = concurrencyMode === 'single-run' && isTaskRunning [planTasksText],
+    [planTasksText],
   )
+  const isTaskQueueMode = concurrencyMode === 'single-run' && isTaskRunning
 
   useEffect(() => {
     let mounted = true
@@ -263,8 +263,8 @@ export function ChatView() {
   }
 
   return (
-    <diTaskRunningBanner />
-      <v className={styles.root}>
+    <div className={styles.root}>
+      <TaskRunningBanner />
       <div className={styles.topBar}>
         <div className={styles.topActions}>
           <button className={styles.promoteBtn} onClick={promoteCurrentSession}>Promote To Task</button>
