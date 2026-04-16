@@ -12,9 +12,9 @@
       }
     },
     "superpowered_mode": {
-      "require_spec_approval": true,
-      "require_plan_approval": true,
-      "require_task_reviews": true,
+      "require_spec_approval": false,
+      "require_plan_approval": false,
+      "require_task_reviews": false,
       "require_verification_before_done": true,
       "artifact_paths": {
         "specs_dir": "documents/specs",
@@ -41,7 +41,7 @@
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "",
-      "timeout_s": 5000,
+      "timeout_s": 45,
       "max_tokens": 4096,
       "temperature": 0.2
     }
@@ -100,9 +100,9 @@
   },
   "state_machine": {
     "default_budget": {
-      "max_steps": 1000,
-      "max_tokens": 85926,
-      "max_duration_ms": 2700000
+      "max_steps": 40,
+      "max_tokens": 12000,
+      "max_duration_ms": 120000
     }
   },
   "ingestion": {
