@@ -37,12 +37,16 @@ class ReactiveStateMachine:
             "web_search": "web_fetch",
             "search_web": "web_fetch",
             "browser_search": "web_fetch",
-            "web.browse": "web_fetch",
+            "web.browse": "web_browse",
+            "browser": "web_browse",
+            "browse_web": "web_browse",
             "file_write": "write_file",
             "write_workspace_file": "write_file",
             "save_file": "write_file",
             "mkdir": "create_directory",
             "create_folder": "create_directory",
+            "list_files": "list_directory",
+            "ls": "list_directory",
         }
         normalized = aliases.get(name, name)
         normalized = self._resolve_registered_tool_name(normalized)
@@ -104,7 +108,41 @@ class ReactiveStateMachine:
             if tool_name.lower() in text:
                 matched.add(tool_name)
 
+        # Repo-intake intent mapping for natural phrasing like "repo camofox tool".
+        if "repo" in text and "camofox" in text:
+            for tool_name in available:
+                lower_name = tool_name.lower()
+                if "repo_" in lower_name and "camofox" in lower_name:
+                    matched.add(tool_name)
+
+        # Heuristic intent mapping for common user phrasing that omits exact tool names.
+        if any(token in text for token in ["browser", "browse", "open website", "open the site", "navigate to"]):
+            if "web_browse" in available:
+                matched.add("web_browse")
+
+        if any(token in text for token in ["list files", "list the files", "check files", "show files"]):
+            if "list_directory" in available:
+                matched.add("list_directory")
+
         return sorted(matched)
+
+    def _detect_mandatory_tools(self, task_description: str) -> list[str]:
+        """Detect tools that the user explicitly instructed with 'use <tool>' phrasing."""
+        text = task_description.lower()
+        available = [tool.name for tool in self.tools.list_tools()]
+        mandatory: set[str] = set()
+
+        for tool_name in available:
+            lower_name = tool_name.lower()
+            # Explicit imperative patterns from user text.
+            if f"use {lower_name}" in text or f"use the {lower_name}" in text or f"{lower_name} tool" in text:
+                mandatory.add(tool_name)
+
+        # Common alias phrasing that should map to concrete tools.
+        if "list_files" in text and "list_directory" in available:
+            mandatory.add("list_directory")
+
+        return sorted(mandatory)
 
     def _build_active_tool_definitions(self, requested_tools: list[str], *, allow_support_tools: bool = True) -> list[dict[str, Any]]:
         """Build tool definitions, optionally narrowed when user explicitly requests tools."""
@@ -277,7 +315,9 @@ class ReactiveStateMachine:
 
         # System prompt
         requested_tools = self._detect_requested_tools(task.description)
+        mandatory_tools = self._detect_mandatory_tools(task.description)
         requested_canonical = {self._canonical_tool_name(name) for name in requested_tools}
+        mandatory_canonical = {self._canonical_tool_name(name) for name in mandatory_tools}
         requested_repo_tools = [name for name in requested_tools if name.startswith("repo_")]
         system_parts = [
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
@@ -296,6 +336,12 @@ class ReactiveStateMachine:
                 + ", ".join(requested_tools)
                 + ". You must attempt these requested tools before substituting alternatives. "
                 "Do not replace requested repo/browser tools with web_fetch unless requested tools fail."
+            )
+        if mandatory_tools:
+            system_parts.append(
+                "The user explicitly instructed these tools with imperative wording and they are mandatory to attempt: "
+                + ", ".join(mandatory_tools)
+                + ". Do not finalize until each mandatory tool has been attempted at least once."
             )
         if workspace_root:
             system_parts.append(
@@ -351,11 +397,18 @@ class ReactiveStateMachine:
 
             try:
                 used_requested_tools = [name for name in used_tools if self._canonical_tool_name(name) in requested_canonical]
+                used_mandatory_tools = [name for name in used_tools if self._canonical_tool_name(name) in mandatory_canonical]
                 active_tool_defs = None
-                # If there are explicitly requested repo/browser tools, narrow the tool set until they are used.
-                if requested_repo_tools and not used_requested_tools:
+                # If there are explicitly requested tools, narrow tool set until at least one is attempted.
+                if requested_tools and not used_requested_tools:
                     active_tool_defs = self._build_active_tool_definitions(
                         requested_tools,
+                        allow_support_tools=False,
+                    )
+                # If there are mandatory tools not yet attempted, keep model focused on mandatory set.
+                if (not requested_tools or used_requested_tools) and mandatory_tools and len(used_mandatory_tools) < len(mandatory_tools):
+                    active_tool_defs = self._build_active_tool_definitions(
+                        mandatory_tools,
                         allow_support_tools=False,
                     )
                 response = await asyncio.wait_for(
@@ -408,11 +461,24 @@ class ReactiveStateMachine:
             last_model_id = response.model_id
 
             if not response.tool_calls:
-                if requested_repo_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
+                if mandatory_tools:
+                    missing = [
+                        name for name in mandatory_tools
+                        if self._canonical_tool_name(name) not in {self._canonical_tool_name(t) for t in used_tools}
+                    ]
+                    if missing:
+                        correction = (
+                            "You must attempt all mandatory tools before finishing. Still missing: "
+                            + ", ".join(missing)
+                        )
+                        messages.append({"role": "user", "content": correction})
+                        total_tokens += model.estimate_tokens(correction)
+                        continue
+                if requested_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
                     correction = (
-                        "You must first attempt one of the explicitly requested repo/browser tools before using support tools or finishing. "
-                        + "Requested repo tools: "
-                        + ", ".join(requested_repo_tools)
+                        "You must first attempt at least one explicitly requested tool before finishing. "
+                        + "Requested tools: "
+                        + ", ".join(requested_tools)
                     )
                     messages.append({"role": "user", "content": correction})
                     total_tokens += model.estimate_tokens(correction)
@@ -427,11 +493,24 @@ class ReactiveStateMachine:
             # We therefore feed tool outputs back as plain user context for the next turn.
             tool_result_lines: list[str] = []
             normalized_tool_calls = [self._normalize_tool_call(raw_tc, task.description) for raw_tc in response.tool_calls]
-            if requested_repo_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
+            if requested_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
                 if not any(self._canonical_tool_name(tc.name) in requested_canonical for tc in normalized_tool_calls):
                     correction = (
-                        "Support tools alone are insufficient here. Attempt one explicitly requested repo/browser tool first: "
-                        + ", ".join(requested_repo_tools)
+                        "Support tools alone are insufficient here. Attempt at least one explicitly requested tool first: "
+                        + ", ".join(requested_tools)
+                    )
+                    messages.append({"role": "user", "content": correction})
+                    total_tokens += model.estimate_tokens(correction)
+                    continue
+            if (not requested_tools or any(self._canonical_tool_name(name) in requested_canonical for name in used_tools)) and mandatory_tools:
+                missing = [
+                    name for name in mandatory_tools
+                    if self._canonical_tool_name(name) not in {self._canonical_tool_name(t) for t in used_tools}
+                ]
+                if missing and not any(self._canonical_tool_name(tc.name) in {self._canonical_tool_name(m) for m in missing} for tc in normalized_tool_calls):
+                    correction = (
+                        "You must call the remaining mandatory tools before other actions. Remaining: "
+                        + ", ".join(missing)
                     )
                     messages.append({"role": "user", "content": correction})
                     total_tokens += model.estimate_tokens(correction)

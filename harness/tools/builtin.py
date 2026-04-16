@@ -1767,8 +1767,28 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         try:
             async with async_playwright() as pw:
                 browser = await pw.chromium.launch(headless=True)
-                page = await browser.new_page()
-                await page.goto(url, wait_until=wait_for, timeout=timeout_ms)
+                page = await browser.new_page(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    )
+                )
+
+                target_url = url
+                try:
+                    await page.goto(target_url, wait_until=wait_for, timeout=timeout_ms)
+                except Exception as first_exc:
+                    # Reddit sometimes blocks strict headless access; retry with old.reddit.com.
+                    if "reddit.com" in url and "old.reddit.com" not in url:
+                        fallback_url = (
+                            url.replace("://www.reddit.com", "://old.reddit.com")
+                            .replace("://reddit.com", "://old.reddit.com")
+                        )
+                        await page.goto(fallback_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                        target_url = fallback_url
+                    else:
+                        raise first_exc
 
                 if selector:
                     await page.wait_for_selector(selector, timeout=timeout_ms)
@@ -1782,7 +1802,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
 
                 content = await page.inner_text("body")
                 content = re.sub(r"\s+", " ", content).strip()
-                final_url = page.url
+                final_url = page.url or target_url
                 await browser.close()
         except Exception as exc:
             return {"ok": False, "error": str(exc), "url": url}
