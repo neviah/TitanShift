@@ -22,6 +22,7 @@ from harness.memory.graph.migration import (
     read_snapshot,
     write_snapshot,
 )
+from harness.model.adapter import ModelRegistry
 
 from harness.api.schemas import (
     EmergencyAnalyzeRequest,
@@ -174,6 +175,13 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     # Ensure startup runtime policies align with the initial active workspace root.
     _sync_runtime_workspace_root(workspace_root)
+
+    def _reload_model_registry() -> None:
+        """Refresh model adapters in-memory after config changes."""
+        runtime.models = ModelRegistry.from_config(runtime.config)
+        runtime.orchestrator.models = runtime.models
+        runtime.orchestrator.state_machine.models = runtime.models
+        runtime.health.set("models", "healthy", {"default": runtime.config.get("model.default_backend")})
 
     async def _scheduler_background_loop() -> None:
         interval_s = max(1.0, float(runtime.config.get("scheduler.auto_tick_interval_s", 1.0)))
@@ -3084,6 +3092,8 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.post("/config", response_model=ConfigUpdateResponse, dependencies=[Depends(require_admin_api_key)])
     async def update_config(body: ConfigUpdateRequest) -> ConfigUpdateResponse:
         runtime.config.set(body.key, body.value)
+        if body.key.startswith("model."):
+            _reload_model_registry()
         runtime.logger.log("CONFIG_UPDATED", {"key": body.key})
         return ConfigUpdateResponse(ok=True, key=body.key, value=runtime.config.get(body.key))
 

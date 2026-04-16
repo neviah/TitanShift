@@ -73,7 +73,9 @@ class CloudOpenAIAdapter:
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.default_model = default_model
+        self.default_model = str(default_model or "").strip()
+        self._auto_model = self.default_model.lower() in {"", "auto", "*"}
+        self._cached_auto_model: str | None = None
         self.timeout_s = timeout_s
         self.max_tokens = max(128, int(max_tokens))
         self.temperature = float(temperature)
@@ -174,6 +176,32 @@ class CloudOpenAIAdapter:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
+    async def _list_models(self, effective_timeout: float) -> list[str]:
+        models_url = f"{self.base_url}/models"
+        async with httpx.AsyncClient(timeout=effective_timeout) as client:
+            response = await client.get(models_url, headers=self._build_headers())
+            response.raise_for_status()
+        body = response.json()
+        items = body.get("data", []) if isinstance(body, dict) else []
+        out: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            model_id = str(item.get("id", "")).strip()
+            if model_id and model_id not in out:
+                out.append(model_id)
+        return out
+
+    async def _candidate_models(self, effective_timeout: float) -> list[str]:
+        if not self._auto_model:
+            return [self.default_model]
+
+        discovered = await self._list_models(effective_timeout)
+        if self._cached_auto_model and self._cached_auto_model in discovered:
+            ordered = [self._cached_auto_model] + [m for m in discovered if m != self._cached_auto_model]
+            return ordered
+        return discovered
+
     async def generate(self, request: ModelRequest) -> ModelResponse:
         # Build message list — prefer multi-turn messages if provided
         if request.messages is not None:
@@ -185,7 +213,6 @@ class CloudOpenAIAdapter:
             ]
 
         payload: dict[str, Any] = {
-            "model": self.default_model,
             "messages": messages,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -212,27 +239,57 @@ class CloudOpenAIAdapter:
         endpoint = f"{self.base_url}/chat/completions"
         effective_timeout = float(request.timeout_s) if request.timeout_s is not None else self.timeout_s
         try:
-            async with httpx.AsyncClient(timeout=effective_timeout) as client:
-                response = await client.post(endpoint, json=payload, headers=self._build_headers())
-                response.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise RuntimeError(
-                f"{self.provider_name} timed out while generating a response. "
-                f"Endpoint: {endpoint}. Timeout: {effective_timeout}s"
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            body = exc.response.text if exc.response is not None else ""
-            body_snippet = re.sub(r"\s+", " ", body).strip()[:400]
-            raise RuntimeError(
-                f"{self.provider_name} rejected chat request "
-                f"({exc.response.status_code if exc.response is not None else 'unknown'}). "
-                f"Endpoint: {endpoint}. Response: {body_snippet or 'no response body'}"
-            ) from exc
+            candidates = await self._candidate_models(effective_timeout)
         except Exception as exc:
             raise RuntimeError(
-                f"{self.provider_name} request failed. Ensure the endpoint is reachable at {endpoint}. "
-                f"Cause: {exc}"
+                f"{self.provider_name} could not discover models from {self.base_url}/models. Cause: {exc}"
             ) from exc
+
+        if not candidates:
+            raise RuntimeError(
+                f"{self.provider_name} has no available models. Ensure at least one model is loaded."
+            )
+
+        response: httpx.Response | None = None
+        last_error: Exception | None = None
+        for candidate in candidates:
+            payload["model"] = candidate
+            try:
+                async with httpx.AsyncClient(timeout=effective_timeout) as client:
+                    response = await client.post(endpoint, json=payload, headers=self._build_headers())
+                    response.raise_for_status()
+                if self._auto_model:
+                    self._cached_auto_model = candidate
+                break
+            except httpx.TimeoutException as exc:
+                last_error = RuntimeError(
+                    f"{self.provider_name} timed out while generating a response. "
+                    f"Endpoint: {endpoint}. Timeout: {effective_timeout}s"
+                )
+                if not self._auto_model:
+                    raise last_error from exc
+            except httpx.HTTPStatusError as exc:
+                body = exc.response.text if exc.response is not None else ""
+                body_snippet = re.sub(r"\s+", " ", body).strip()[:400]
+                last_error = RuntimeError(
+                    f"{self.provider_name} rejected chat request "
+                    f"({exc.response.status_code if exc.response is not None else 'unknown'}). "
+                    f"Endpoint: {endpoint}. Model: {candidate}. Response: {body_snippet or 'no response body'}"
+                )
+                if not self._auto_model:
+                    raise last_error from exc
+            except Exception as exc:
+                last_error = RuntimeError(
+                    f"{self.provider_name} request failed. Ensure the endpoint is reachable at {endpoint}. "
+                    f"Cause: {exc}"
+                )
+                if not self._auto_model:
+                    raise last_error from exc
+
+        if response is None:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError(f"{self.provider_name} failed to produce a response.")
 
         body = response.json()
         choice0 = body.get("choices", [{}])[0]
@@ -313,7 +370,7 @@ class ModelRegistry:
     @classmethod
     def from_config(cls, cfg: ConfigManager) -> "ModelRegistry":
         lmstudio_base_url = cfg.get("model.lmstudio.base_url", "http://127.0.0.1:1234/v1")
-        lmstudio_model = cfg.get("model.lmstudio.model", "local-model")
+        lmstudio_model = cfg.get("model.lmstudio.model", cfg.get("model.lmstudio.model_id", "local-model"))
         lmstudio_timeout = float(cfg.get("model.lmstudio.timeout_s", 45.0))
         lmstudio_max_tokens = int(cfg.get("model.lmstudio.max_tokens", 2048))
         lmstudio_temperature = float(cfg.get("model.lmstudio.temperature", 0.2))
@@ -364,7 +421,7 @@ def check_lmstudio_health(cfg: ConfigManager) -> dict[str, Any]:
     """Performs endpoint check, model list check, and tiny inference check."""
 
     base_url = str(cfg.get("model.lmstudio.base_url", "http://127.0.0.1:1234/v1")).rstrip("/")
-    model_id = str(cfg.get("model.lmstudio.model", "local-model"))
+    model_id = str(cfg.get("model.lmstudio.model", cfg.get("model.lmstudio.model_id", "local-model"))).strip()
     timeout_s = float(cfg.get("model.lmstudio.timeout_s", 45.0))
 
     models_url = f"{base_url}/models"
@@ -375,6 +432,8 @@ def check_lmstudio_health(cfg: ConfigManager) -> dict[str, Any]:
         models_resp.raise_for_status()
         models_body = models_resp.json()
         listed_ids = [m.get("id", "") for m in models_body.get("data", [])]
+        if model_id.lower() in {"", "auto", "*"} and listed_ids:
+            model_id = str(listed_ids[0])
         model_present = model_id in listed_ids
 
         payload = {
