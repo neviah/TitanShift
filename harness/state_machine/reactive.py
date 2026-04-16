@@ -104,13 +104,6 @@ class ReactiveStateMachine:
             if tool_name.lower() in text:
                 matched.add(tool_name)
 
-        # Intent aliases for repo-intake generated camofox tools
-        if "camofox" in text:
-            for tool_name in available:
-                lower_name = tool_name.lower()
-                if "camofox" in lower_name and lower_name.startswith("repo_"):
-                    matched.add(tool_name)
-
         return sorted(matched)
 
     def _build_active_tool_definitions(self, requested_tools: list[str], *, allow_support_tools: bool = True) -> list[dict[str, Any]]:
@@ -177,7 +170,7 @@ class ReactiveStateMachine:
         if isinstance(meta, dict):
             screenshot_metadata.update(meta)
 
-        is_browser_tool = lower_name == "web_fetch" or "camofox" in lower_name
+        is_browser_tool = lower_name == "web_fetch"
         if not is_browser_tool and not final_url and not evidence and not screenshot_metadata:
             return None
 
