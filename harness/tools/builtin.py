@@ -1746,3 +1746,78 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             },
         )
     )
+
+    async def web_browse_handler(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            from playwright.async_api import async_playwright  # type: ignore[import]
+        except ImportError:
+            return {"ok": False, "error": "playwright is not installed. Run: pip install playwright && playwright install chromium"}
+
+        url = str(args.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            return {"ok": False, "error": "url must start with http:// or https://"}
+
+        selector = str(args.get("selector") or "").strip() or None
+        wait_for = str(args.get("wait_for") or "load")
+        timeout_ms = int(args.get("timeout_ms", 30000))
+        max_chars = int(args.get("max_chars", 12000))
+        screenshot = bool(args.get("screenshot", False))
+
+        screenshot_path: str | None = None
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                page = await browser.new_page()
+                await page.goto(url, wait_until=wait_for, timeout=timeout_ms)
+
+                if selector:
+                    await page.wait_for_selector(selector, timeout=timeout_ms)
+
+                if screenshot:
+                    import tempfile
+                    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                    screenshot_path = tmp.name
+                    tmp.close()
+                    await page.screenshot(path=screenshot_path, full_page=False)
+
+                content = await page.inner_text("body")
+                content = re.sub(r"\s+", " ", content).strip()
+                final_url = page.url
+                await browser.close()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "url": url}
+
+        return {
+            "ok": True,
+            "url": url,
+            "final_url": final_url,
+            "content": content[:max_chars],
+            "truncated": len(content) > max_chars,
+            "screenshot_path": screenshot_path,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="web_browse",
+            description=(
+                "Browse a URL using a real headless Chromium browser (Playwright). "
+                "Use this for JavaScript-heavy pages, SPAs, or when web_fetch returns empty/broken content. "
+                "Returns the visible page text after JS execution. Optionally waits for a CSS selector and captures a screenshot."
+            ),
+            needs_network=True,
+            capabilities=["browser.chromium", "js.execute", "web.scrape", "screenshot"],
+            handler=web_browse_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Full URL to navigate to (http:// or https://)"},
+                    "selector": {"type": "string", "description": "Optional CSS selector to wait for before extracting content"},
+                    "wait_for": {"type": "string", "description": "Page load event to wait for: load (default), domcontentloaded, networkidle"},
+                    "timeout_ms": {"type": "integer", "description": "Navigation timeout in milliseconds (default 30000)"},
+                    "max_chars": {"type": "integer", "description": "Maximum characters of page text to return (default 12000)"},
+                    "screenshot": {"type": "boolean", "description": "Whether to capture a PNG screenshot (default false)"},
+                },
+                "required": ["url"],
+            },
+        )
+    )
