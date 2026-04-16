@@ -1404,9 +1404,8 @@ def create_app(workspace_root: Path) -> FastAPI:
     repo_tool_adapters = _load_repo_tool_adapters()
     repo_intake_manifests = _load_repo_intake_manifests()
     for adapter_record in list(repo_tool_adapters.values()):
-        # Skip Camofox tools - they require special browser implementation that has been removed
-        repo_name = str(adapter_record.get("repo_name", "")).lower()
-        if "camofox" in repo_name:
+        # Skip adapters marked as blocked (e.g. Camofox requires browser dep not available)
+        if str(adapter_record.get("status", "ready")).lower() == "blocked":
             continue
         _register_generated_repo_tool(adapter_record)
         tool_name = str(adapter_record.get("tool_name", "")).strip()

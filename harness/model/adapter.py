@@ -143,6 +143,48 @@ class CloudOpenAIAdapter:
                 lines = [line.strip() for line in text.splitlines() if line.strip()]
                 segments.extend([line for line in lines if line.lower().startswith('tool_call') or 'call:' in line.lower()])
 
+        # Also check for GLM/DeepSeek2-style XML tool calls: <tool_name>...</tool_name>
+        # where args are either inner <key>value</key> elements or plain text
+        known_tool_names = set()
+        xml_tool_calls: list[ToolCall] = []
+        xml_seen: set[tuple[str, str]] = set()
+        xml_index = 1000
+        for xml_match in re.finditer(
+            r'<([a-zA-Z][a-zA-Z0-9_-]+)>(.*?)</\1>',
+            text,
+            re.DOTALL,
+        ):
+            tool_candidate = xml_match.group(1)
+            # Skip common HTML/XML tags that are not tool calls
+            if tool_candidate.lower() in {
+                'p', 'div', 'span', 'b', 'i', 'ul', 'li', 'ol', 'a', 'br', 'hr',
+                'h1', 'h2', 'h3', 'h4', 'h5', 'strong', 'em', 'code', 'pre',
+                'tool_call', 'path', 'url', 'query', 'command', 'input',
+            }:
+                continue
+            inner = xml_match.group(2).strip()
+            # Parse inner <key>value</key> pairs as args
+            inner_pairs = re.findall(r'<([a-zA-Z][a-zA-Z0-9_-]*)>(.*?)</\1>', inner, re.DOTALL)
+            if inner_pairs:
+                args: dict[str, Any] = {k: v.strip() for k, v in inner_pairs}
+            else:
+                # Plain text content — use as first positional arg based on common patterns
+                plain = inner.strip()
+                if not plain:
+                    continue
+                args = {'path': plain} if 'file' in tool_candidate.lower() or 'read' in tool_candidate.lower() or 'write' in tool_candidate.lower() else {'input': plain}
+            normalized = tool_candidate.replace('-', '_')
+            key = (normalized, str(sorted(args.items())))
+            if key not in xml_seen:
+                xml_seen.add(key)
+                known_tool_names.add(normalized)
+                xml_tool_calls.append(ToolCall(
+                    id=f'xml_call_{xml_index}',
+                    name=normalized,
+                    arguments=args,
+                ))
+                xml_index += 1
+
         tool_calls: list[ToolCall] = []
         seen: set[tuple[str, str]] = set()
         for index, segment in enumerate(segments):
@@ -165,6 +207,10 @@ class CloudOpenAIAdapter:
                 name=normalized_name,
                 arguments=self._parse_loose_arguments(raw_args),
             ))
+        # Merge XML-style calls; prefer call:-style if same tool already found
+        for xtc in xml_tool_calls:
+            if xtc.name not in {tc.name for tc in tool_calls}:
+                tool_calls.append(xtc)
         return tool_calls
 
     def _build_headers(self) -> dict[str, str]:
