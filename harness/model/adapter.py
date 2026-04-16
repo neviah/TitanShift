@@ -312,8 +312,9 @@ class CloudOpenAIAdapter:
                     f"{self.provider_name} timed out while generating a response. "
                     f"Endpoint: {endpoint}. Timeout: {effective_timeout}s"
                 )
-                if not self._auto_model:
-                    raise last_error from exc
+                # Always raise on timeout — all candidates hit the same loaded model, so
+                # retrying other candidates with the same timeout won't help and wastes time.
+                raise last_error from exc
             except httpx.HTTPStatusError as exc:
                 body = exc.response.text if exc.response is not None else ""
                 body_snippet = re.sub(r"\s+", " ", body).strip()[:400]
