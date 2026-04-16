@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ChatSessionsProvider } from './contexts/ChatSessionsContext'
 import { WorkspaceProvider } from './contexts/WorkspaceContext'
 import { TaskDraftsProvider } from './contexts/TaskDraftsContext'
 import { SchedulerTaskProvider } from './contexts/SchedulerTaskContext'
 import { ToastProvider } from './contexts/ToastContext'
+import { fetchConfig } from './api/client'
 import { TriPane } from './components/layout/TriPane'
 import { LeftPane } from './components/layout/LeftPane'
 import { CenterPane } from './components/layout/CenterPane'
@@ -16,6 +17,17 @@ import type { NavTab } from './types/nav'
 import styles from './App.module.css'
 
 function Shell() {
+  // Pre-load config on startup so settings persist across refresh/restart.
+  useEffect(() => {
+    void (async () => {
+      try {
+        await fetchConfig()
+      } catch {
+        // Ignore preload errors; page can still render and retry naturally.
+      }
+    })()
+  }, [])
+
   const [activeTab, setActiveTab] = useState<NavTab>('chat')
   const [activeLeftSection, setActiveLeftSection] = useState<NavTab>('chat')
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
@@ -59,19 +71,8 @@ function Shell() {
           right={<RightPane />}
         />
       </div>
-      import { useEffect } from 'react'
     </div>
   )
-        // Pre-load config on startup so settings persist
-        useEffect(() => {
-          void (async () => {
-            try {
-              await fetchConfig()
-            } catch {
-              // Continue anyway
-            }
-          })()
-        }, [])
 }
 
 function App() {
