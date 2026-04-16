@@ -59,8 +59,19 @@ function Shell() {
           right={<RightPane />}
         />
       </div>
+      import { useEffect } from 'react'
     </div>
   )
+        // Pre-load config on startup so settings persist
+        useEffect(() => {
+          void (async () => {
+            try {
+              await fetchConfig()
+            } catch {
+              // Continue anyway
+            }
+          })()
+        }, [])
 }
 
 function App() {

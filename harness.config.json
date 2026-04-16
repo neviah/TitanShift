@@ -101,7 +101,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 1000,
-      "max_tokens": 2555,
+      "max_tokens": 85926,
       "max_duration_ms": 2700000
     }
   },
