@@ -459,3 +459,29 @@
   cursor: not-allowed;
   box-shadow: none;
 }
+
+.sendActions {
+  display: flex;
+  gap: 6px;
+  align-self: flex-end;
+  flex-wrap: wrap;
+}
+
+.sendBtnQueue {
+  background: rgb(168, 85, 247);
+}
+
+.sendBtnQueue:hover {
+  background: rgb(192, 132, 250);
+}
+
+.sendBtnSecondary {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.sendBtnSecondary:disabled {
+  opacity: 0.5;
+}

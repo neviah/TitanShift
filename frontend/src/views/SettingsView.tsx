@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchConfig, updateConfig } from '../api/client'
+import { useSchedulerTask } from '../contexts/SchedulerTaskContext'
 import styles from './SettingsView.module.css'
 import { Save, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
 import { MarketOverview } from './dashboard/MarketOverview'
@@ -37,6 +38,7 @@ export function SettingsView() {
   const [error, setError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [dirty, setDirty] = useState<Record<string, unknown>>({})
+  const { concurrencyMode, setConcurrencyMode } = useSchedulerTask()
 
   async function loadConfig() {
     setLoading(true)
@@ -227,6 +229,23 @@ export function SettingsView() {
                 onChange={(v) => patchLocal('orchestrator.enable_subagents', v)}
               />
             </Field>
+
+          {/* ── Scheduler ── */}
+          <Section title="Scheduler">
+            <Field label="Concurrency mode">
+              <select
+                className={styles.select}
+                value={concurrencyMode}
+                onChange={(e) => setConcurrencyMode(e.target.value as 'single-run' | 'parallel')}
+              >
+                <option value="single-run">Single-Run (queue new tasks)</option>
+                <option value="parallel">Parallel (run tasks concurrently)</option>
+              </select>
+            </Field>
+            <p className={styles.fieldHint}>
+              Single-run waits for tasks to complete before running new ones. Parallel allows multiple tasks to run simultaneously.
+            </p>
+          </Section>
           </Section>
 
           {/* ── Budget ── */}

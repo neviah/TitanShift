@@ -3,12 +3,15 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { ChatSessionsProvider } from './contexts/ChatSessionsContext'
 import { WorkspaceProvider } from './contexts/WorkspaceContext'
 import { TaskDraftsProvider } from './contexts/TaskDraftsContext'
+import { SchedulerTaskProvider } from './contexts/SchedulerTaskContext'
+import { ToastProvider } from './contexts/ToastContext'
 import { TriPane } from './components/layout/TriPane'
 import { LeftPane } from './components/layout/LeftPane'
 import { CenterPane } from './components/layout/CenterPane'
 import { RightPane } from './components/layout/RightPane'
 import { TopBar } from './components/layout/TopBar'
 import { HeartbeatTrail } from './components/layout/HeartbeatTrail'
+import { ToastContainer } from './components/layout/ToastContainer'
 import type { NavTab } from './types/nav'
 import styles from './App.module.css'
 
@@ -63,13 +66,18 @@ function Shell() {
 function App() {
   return (
     <ThemeProvider>
-      <WorkspaceProvider>
-        <ChatSessionsProvider>
-          <TaskDraftsProvider>
-            <Shell />
-          </TaskDraftsProvider>
-        </ChatSessionsProvider>
-      </WorkspaceProvider>
+      <ToastProvider>
+        <WorkspaceProvider>
+          <SchedulerTaskProvider>
+            <ChatSessionsProvider>
+              <TaskDraftsProvider>
+                <Shell />
+                <ToastContainer />
+              </TaskDraftsProvider>
+            </ChatSessionsProvider>
+          </SchedulerTaskProvider>
+        </WorkspaceProvider>
+      </ToastProvider>
     </ThemeProvider>
   )
 }

@@ -3,7 +3,9 @@ import { ChevronDown, ChevronUp, Copy, RotateCcw } from 'lucide-react'
 import { approveArtifact, fetchArtifacts, fetchConfig, revokeArtifactApproval, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
+import { useSchedulerTask } from '../contexts/SchedulerTaskContext'
 import { StatusIndicator } from '../components/StatusIndicator'
+import { TaskRunningBanner } from '../components/layout/TaskRunningBanner'
 import { usePolling } from '../hooks/usePolling'
 import styles from './ChatView.module.css'
 
@@ -32,6 +34,7 @@ export function ChatView() {
   const [artifactBusy, setArtifactBusy] = useState(false)
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
+  const { concurrencyMode, isTaskRunning } = useSchedulerTask()
   const { data: artifactsData, refresh: refreshArtifacts } = usePolling(fetchArtifacts, { interval: 15000 })
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -46,7 +49,8 @@ export function ChatView() {
   const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending])
   const planTaskCount = useMemo(
     () => planTasksText.split('\n').map((line) => line.trim()).filter(Boolean).length,
-    [planTasksText],
+   
+  const isTaskQueueMode = concurrencyMode === 'single-run' && isTaskRunning [planTasksText],
   )
 
   useEffect(() => {
@@ -259,7 +263,8 @@ export function ChatView() {
   }
 
   return (
-    <div className={styles.root}>
+    <diTaskRunningBanner />
+      <v className={styles.root}>
       <div className={styles.topBar}>
         <div className={styles.topActions}>
           <button className={styles.promoteBtn} onClick={promoteCurrentSession}>Promote To Task</button>
@@ -423,9 +428,30 @@ export function ChatView() {
             }
           }}
         />
-        <button className={styles.sendBtn} title="Send" onClick={() => void send()} disabled={!canSend}>
-          {sending ? '...' : '▶'}
-        </button>
+        <div className={styles.sendActions}>
+          {isTaskQueueMode && input.trim().length > 0 ? (
+            <>
+              <button
+                className={`${styles.sendBtn} ${styles.sendBtnQueue}`}
+                title="Queue message while task is running"
+                onClick={() => void send()}
+              >
+                Queue
+              </button>
+              <button
+                className={`${styles.sendBtn} ${styles.sendBtnSecondary}`}
+                title="Run in parallel (concurrency mode off)"
+                disabled
+              >
+                Parallel Off
+              </button>
+            </>
+          ) : (
+            <button className={styles.sendBtn} title="Send" onClick={() => void send()} disabled={!canSend}>
+              {sending ? '...' : '▶'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className={styles.dockBar}>

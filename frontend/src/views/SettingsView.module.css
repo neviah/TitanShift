@@ -133,6 +133,13 @@
   align-items: center;
 }
 
+.fieldHint {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 14px 10px 14px;
+  margin-top: -8px;
+}
+
 /* Select */
 .select {
   background: var(--bg-overlay);
