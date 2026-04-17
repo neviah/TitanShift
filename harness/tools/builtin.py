@@ -771,7 +771,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         version = str(args.get("version", "")).strip()
         if not version:
             raise ValueError("version is required")
-        output_path = str(args.get("output_path", f"RELEASE_NOTES_{version}.md")).strip()
+        output_path = str(args.get("output_path", f"release_notes/RELEASE_NOTES_{version}.md")).strip()
         max_commits = int(args.get("max_commits", 25))
         dry_run = bool(args.get("dry_run", False))
 
