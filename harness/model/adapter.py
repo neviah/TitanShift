@@ -244,9 +244,15 @@ class CloudOpenAIAdapter:
 
         discovered = await self._list_models(effective_timeout)
         if self._cached_auto_model and self._cached_auto_model in discovered:
-            ordered = [self._cached_auto_model] + [m for m in discovered if m != self._cached_auto_model]
-            return ordered
-        return discovered
+            # Reuse the last known-good model and avoid probing alternatives.
+            return [self._cached_auto_model]
+
+        # Auto mode should still pick one model, but never fan out across all listed models.
+        # This prevents N x timeout behavior when providers expose many model IDs.
+        if discovered:
+            self._cached_auto_model = discovered[0]
+            return [discovered[0]]
+        return []
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
         # Build message list — prefer multi-turn messages if provided
