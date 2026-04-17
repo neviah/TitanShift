@@ -12,8 +12,14 @@ class BudgetOverride(BaseModel):
     max_duration_ms: int | None = Field(default=None, ge=1)
 
 
+class ChatHistoryMessage(BaseModel):
+    role: str  # 'user' | 'assistant'
+    content: str
+
+
 class ChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
+    history: list[ChatHistoryMessage] | None = None
     model_backend: str | None = None
     budget: BudgetOverride | None = None
     workflow_mode: str | None = None

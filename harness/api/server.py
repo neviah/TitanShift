@@ -2590,6 +2590,10 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_input["plan_approved"] = body.plan_approved
         if body.plan_tasks is not None:
             task_input["plan_tasks"] = body.plan_tasks
+        if body.history:
+            task_input["conversation_history"] = [
+                {"role": m.role, "content": m.content} for m in body.history
+            ]
 
         # Merge persistently stored approvals when the request doesn't override them
         stored_approvals = _load_approvals()

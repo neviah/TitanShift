@@ -157,8 +157,14 @@ export interface AgentSummary {
 
 // ---- Chat ----
 
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export interface ChatRequest {
   prompt: string
+  history?: ChatHistoryMessage[]
   model_backend?: string
   workflow_mode?: 'lightning' | 'superpowered'
   spec_approved?: boolean

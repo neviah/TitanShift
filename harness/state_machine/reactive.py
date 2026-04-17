@@ -369,10 +369,8 @@ class ReactiveStateMachine:
             tool_defs = narrowed_tools
 
         # Multi-turn message history
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": task.description},
-        ]
+        conversation_history: list[dict[str, Any]] = task.input.get("conversation_history", []) if task.input else []
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
 
         used_tools: list[str] = []
         tool_errors: list[str] = []
@@ -386,6 +384,16 @@ class ReactiveStateMachine:
         last_model_id = model.model_id
         total_tokens = model.estimate_tokens(task.description)
         response = None
+
+        # Prepend prior conversation turns so the model has full context
+        for prior in conversation_history:
+            role = prior.get("role", "user")
+            content = prior.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+                total_tokens += model.estimate_tokens(content)
+
+        messages.append({"role": "user", "content": task.description})
 
         for step in range(budget["max_steps"]):
             if total_tokens > budget["max_tokens"]:

@@ -124,8 +124,16 @@ export function ChatView() {
           .filter(Boolean)
           .map((title) => ({ title }))
         : []
+      // Build conversation history from prior messages in this session (exclude
+      // the user message we just appended so it becomes the live `prompt`).
+      const priorMessages = messages.slice(0, -1).map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.text,
+      }))
+
       const result = await sendChat({
         prompt: text,
+        ...(priorMessages.length > 0 ? { history: priorMessages } : {}),
         ...(preferredBackend ? { model_backend: preferredBackend } : {}),
         workflow_mode: workflowMode,
         ...(workflowMode === 'superpowered'
