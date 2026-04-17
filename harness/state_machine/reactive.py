@@ -492,6 +492,7 @@ class ReactiveStateMachine:
         test_failure_summary: list[str] = []
         test_failed_count: int | None = None
         patch_summaries: list[str] = []
+        context_provenance: list[dict[str, Any]] = []
         created_paths: list[str] = []
         updated_paths: list[str] = []
         artifacts: list[dict[str, Any]] = []
@@ -726,6 +727,20 @@ class ReactiveStateMachine:
                     if summary and str(summary).strip():
                         patch_summaries.append(str(summary).strip())
 
+                if tc.name == "read_context" and isinstance(tool_result, dict):
+                    prov_items = tool_result.get("provenance")
+                    if isinstance(prov_items, list):
+                        context_provenance.extend(
+                            item for item in prov_items if isinstance(item, dict)
+                        )
+
+                if tc.name == "apply_wiring" and isinstance(tool_result, dict):
+                    wiring_summaries = tool_result.get("patch_summaries")
+                    if isinstance(wiring_summaries, list):
+                        patch_summaries.extend(
+                            str(s).strip() for s in wiring_summaries if str(s).strip()
+                        )
+
                 tool_content = json.dumps(tool_result, default=str)
 
                 total_tokens += model.estimate_tokens(tool_content)
@@ -795,6 +810,7 @@ class ReactiveStateMachine:
                 "created_paths": deduped_created_paths,
                 "updated_paths": deduped_updated_paths,
                 "patch_summaries": list(dict.fromkeys(patch_summaries)),
+                "context_provenance": context_provenance,
                 "artifacts": deduped_artifacts,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),

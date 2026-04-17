@@ -253,6 +253,12 @@ export interface TaskDetail extends TaskSummary {
   output: Record<string, unknown>
 }
 
+export interface ContextProvenanceItem {
+  path: string
+  lines_read: number
+  purpose: string
+}
+
 export interface RunArtifact {
   artifact_id: string
   kind: string

@@ -2679,6 +2679,609 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
+    # ── index_project ─────────────────────────────────────────────────────────
+
+    _INDEX_IGNORE_DIRS: frozenset[str] = frozenset({
+        ".git", "node_modules", ".venv", "venv", "__pycache__", ".harness",
+        "dist", "build", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+        "titantshift_harness.egg-info", ".eggs",
+    })
+
+    def _classify_file_kind(rel_str: str, name: str, suffix: str) -> str:
+        nl = "/" + rel_str.lower().replace("\\", "/")
+        if re.search(r"(^/tests?/|/tests?/|/__tests__/|test_[^/]+\.py$|[^/]+\.(test|spec)\.[tj]sx?$)", nl):
+            return "test"
+        if name in {"package.json", "pyproject.toml", "requirements.txt", "pipfile", "setup.py", "setup.cfg"}:
+            return "dependency_manifest"
+        if re.search(r"/(routes?|pages?|views?)/", nl):
+            return "route"
+        if re.search(r"/components?/", nl):
+            return "component"
+        if re.search(r"/(services?|clients?|hooks?)/", nl):
+            return "service"
+        if suffix in {"tsx", "jsx"}:
+            return "component"
+        if suffix in {"json", "toml", "yaml", "yml", "ini", "cfg", "env"}:
+            return "config"
+        if suffix in {"md", "txt", "rst"}:
+            return "doc"
+        if suffix in {"css", "scss", "less"}:
+            return "style"
+        return "module"
+
+    async def index_project_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_root = args.get("root_path") or "."
+        max_files = max(1, int(args.get("max_files") or 500))
+        workspace = _resolve_workspace_path(str(raw_root))
+        index_file = workspace / ".harness" / "project_index.json"
+        indexed: list[dict[str, Any]] = []
+        skipped = 0
+
+        for path in sorted(workspace.rglob("*")):
+            if not path.is_file():
+                continue
+            parts_set = set(path.relative_to(workspace).parts)
+            if parts_set & _INDEX_IGNORE_DIRS:
+                continue
+            if len(indexed) >= max_files:
+                skipped += 1
+                continue
+            try:
+                rel = str(path.relative_to(workspace)).replace("\\", "/")
+                kind = _classify_file_kind(rel, path.name.lower(), path.suffix.lstrip(".").lower())
+                indexed.append({"path": rel, "kind": kind, "size_bytes": path.stat().st_size})
+            except Exception:
+                skipped += 1
+
+        kind_counts: dict[str, int] = {}
+        for item in indexed:
+            kind_counts[item["kind"]] = kind_counts.get(item["kind"], 0) + 1
+
+        index_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "workspace": str(workspace),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "total_files": len(indexed),
+            "by_kind": kind_counts,
+            "files": indexed,
+        }
+        index_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return {
+            "ok": True,
+            "workspace": str(workspace),
+            "total_files_indexed": len(indexed),
+            "skipped": skipped,
+            "by_kind": kind_counts,
+            "index_file": str(index_file.relative_to(workspace)).replace("\\", "/"),
+            "updated_paths": [str(index_file)],
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="index_project",
+            description=(
+                "Walk the workspace directory tree, classify every file by kind "
+                "(component, route, service, module, test, config, style, doc, dependency_manifest), "
+                "and write a project_index.json to .harness/. "
+                "Run this before read_context or propose_wiring to enable file discovery."
+            ),
+            handler=index_project_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root_path": {"type": "string", "description": "Workspace root to index (default '.')"},
+                    "max_files": {"type": "integer", "description": "Max files to index (default 500)"},
+                },
+            },
+        )
+    )
+
+    # ── read_context ──────────────────────────────────────────────────────────
+
+    _READ_CONTEXT_TOKEN_LIMIT = 32_000
+    _READ_CONTEXT_CHARS_PER_TOKEN = 4
+
+    async def read_context_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_paths = args.get("paths") or []
+        query = str(args.get("query") or "").strip()
+        token_budget = min(int(args.get("token_budget") or 8_000), _READ_CONTEXT_TOKEN_LIMIT)
+        root_raw = args.get("root_path") or "."
+        workspace = _resolve_workspace_path(str(root_raw))
+        char_budget = token_budget * _READ_CONTEXT_CHARS_PER_TOKEN
+
+        # Resolve explicit paths first; if none given, try project index
+        candidates: list[str] = []
+        if isinstance(raw_paths, list) and raw_paths:
+            candidates = [str(p).strip() for p in raw_paths if str(p).strip()]
+        else:
+            index_file = workspace / ".harness" / "project_index.json"
+            if index_file.exists():
+                try:
+                    idx = json.loads(index_file.read_text(encoding="utf-8"))
+                    all_files: list[dict[str, Any]] = idx.get("files", [])
+                    if query:
+                        words = [w for w in re.split(r"\W+", query.lower()) if w]
+
+                        def _score(item: dict[str, Any]) -> int:
+                            p = item.get("path", "").lower()
+                            return sum(1 for w in words if w in p)
+
+                        all_files = sorted(all_files, key=_score, reverse=True)
+                    candidates = [
+                        item["path"] for item in all_files
+                        if item.get("kind") not in {"doc", "config"}
+                    ][:50]
+                except Exception:
+                    pass
+
+        files_out: list[dict[str, Any]] = []
+        total_chars = 0
+        truncated = False
+
+        for rel_path in candidates:
+            if total_chars >= char_budget:
+                truncated = True
+                break
+            abs_path = (
+                Path(rel_path).resolve()
+                if Path(rel_path).is_absolute()
+                else workspace / rel_path
+            )
+            if not abs_path.is_file():
+                continue
+            try:
+                content = abs_path.read_text(encoding="utf-8", errors="replace")
+                remaining = char_budget - total_chars
+                clipped = content[:remaining]
+                was_clipped = len(content) > remaining
+                tokens_est = len(clipped) // _READ_CONTEXT_CHARS_PER_TOKEN
+                total_chars += len(clipped)
+                files_out.append({
+                    "path": str(abs_path.relative_to(workspace)).replace("\\", "/"),
+                    "content": clipped,
+                    "lines_read": clipped.count("\n") + 1,
+                    "tokens_estimate": tokens_est,
+                    "truncated": was_clipped,
+                    "purpose": "context",
+                })
+                if was_clipped:
+                    truncated = True
+            except Exception:
+                continue
+
+        return {
+            "ok": True,
+            "files": files_out,
+            "total_files_read": len(files_out),
+            "total_tokens_estimate": total_chars // _READ_CONTEXT_CHARS_PER_TOKEN,
+            "token_budget": token_budget,
+            "truncated": truncated,
+            "provenance": [
+                {"path": f["path"], "lines_read": f["lines_read"], "purpose": f["purpose"]}
+                for f in files_out
+            ],
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="read_context",
+            description=(
+                "Token-budgeted multi-file reader for planner/reviewer context. "
+                "Reads one or more workspace files, respects a token budget, "
+                "and returns file contents with provenance metadata. "
+                "If no paths are given, auto-selects relevant files from the project index "
+                "(requires index_project to have run first). "
+                "Use this before generating code that touches multiple files."
+            ),
+            handler=read_context_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "description": "Workspace-relative file paths to read. Omit to auto-select from project index.",
+                        "items": {"type": "string"},
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query to rank relevant files from the project index",
+                    },
+                    "token_budget": {
+                        "type": "integer",
+                        "description": "Max tokens to return in total (default 8000, max 32000)",
+                    },
+                    "root_path": {"type": "string", "description": "Workspace root (default '.')"},
+                },
+            },
+        )
+    )
+
+    # ── propose_wiring ────────────────────────────────────────────────────────
+
+    def _detect_framework(workspace_path: Path) -> str:
+        """Heuristically detect the primary frontend/backend framework."""
+        pkg_paths = list(workspace_path.glob("**/package.json"))
+        for pkg_path in pkg_paths:
+            if any(p in _INDEX_IGNORE_DIRS for p in pkg_path.relative_to(workspace_path).parts):
+                continue
+            try:
+                pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
+                deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+                if "react" in deps:
+                    return "vite-react"
+            except Exception:
+                pass
+        if (workspace_path / "harness").is_dir() or (workspace_path / "pyproject.toml").exists():
+            return "fastapi"
+        return "unknown"
+
+    def _find_file_by_pattern(workspace_path: Path, *patterns: str) -> Path | None:
+        """Return the first existing file matching any of the glob patterns."""
+        for pat in patterns:
+            for m in sorted(workspace_path.glob(pat)):
+                if m.is_file():
+                    return m
+        return None
+
+    def _infer_symbol_name(component_path: str) -> str:
+        """Derive a PascalCase component/class name from a file path."""
+        stem = Path(component_path).stem
+        for sfx in (".page", ".view", ".component", ".screen", ".module"):
+            if stem.lower().endswith(sfx):
+                stem = stem[: -len(sfx)]
+                break
+        parts = re.split(r"[-_\s]+", stem)
+        return "".join(p.capitalize() for p in parts if p)
+
+    async def propose_wiring_handler(args: dict[str, Any]) -> dict[str, Any]:
+        component_path = str(args.get("component_path") or "").strip()
+        if not component_path:
+            return {"ok": False, "error": "component_path is required"}
+        framework_arg = str(args.get("framework") or "auto").strip().lower()
+        component_name = (
+            str(args.get("component_name") or "").strip() or _infer_symbol_name(component_path)
+        )
+        route_path_arg = str(args.get("route_path") or "").strip()
+        root_raw = args.get("root_path") or "."
+        workspace = _resolve_workspace_path(str(root_raw))
+        framework = framework_arg if framework_arg != "auto" else _detect_framework(workspace)
+        provenance: list[dict[str, str]] = []
+        proposals: list[dict[str, Any]] = []
+
+        if framework == "vite-react":
+            router_file = _find_file_by_pattern(
+                workspace,
+                "src/App.tsx", "src/App.jsx",
+                "frontend/src/App.tsx", "frontend/src/App.jsx",
+                "src/router.tsx", "src/router.jsx",
+                "frontend/src/router.tsx",
+            )
+            if router_file:
+                try:
+                    router_rel = str(router_file.relative_to(workspace)).replace("\\", "/")
+                    comp_abs = (
+                        Path(component_path).resolve()
+                        if Path(component_path).is_absolute()
+                        else workspace / component_path
+                    )
+                    rel_import = os.path.relpath(
+                        comp_abs.with_suffix(""), router_file.parent
+                    ).replace("\\", "/")
+                    if not rel_import.startswith("."):
+                        rel_import = "./" + rel_import
+                    effective_route = route_path_arg or "/" + component_name.lower()
+                    provenance.append({"path": router_rel, "purpose": "router_entry_file"})
+                    proposals.append({
+                        "file": router_rel,
+                        "description": (
+                            f"Import {component_name} and add a <Route> element in {router_rel}"
+                        ),
+                        "patch_type": "insert_import_and_route",
+                        "component_name": component_name,
+                        "import_line": f"import {{ {component_name} }} from '{rel_import}';",
+                        "route_element": (
+                            f'<Route path="{effective_route}" element={{<{component_name} />}} />'
+                        ),
+                        "manual_instruction": (
+                            f"1. Add near imports in {router_rel}: "
+                            f"import {{ {component_name} }} from '{rel_import}';\n"
+                            f"2. Add inside your <Routes> block: "
+                            f'<Route path="{effective_route}" element={{<{component_name} />}} />'
+                        ),
+                    })
+                except Exception as exc:
+                    proposals.append({
+                        "file": "src/App.tsx",
+                        "description": f"Could not resolve router file: {exc}",
+                        "patch_type": "manual",
+                    })
+
+            barrel = _find_file_by_pattern(
+                workspace,
+                "src/index.ts", "src/index.tsx",
+                "frontend/src/index.ts",
+            )
+            if barrel:
+                try:
+                    barrel_rel = str(barrel.relative_to(workspace)).replace("\\", "/")
+                    comp_abs = (
+                        Path(component_path).resolve()
+                        if Path(component_path).is_absolute()
+                        else workspace / component_path
+                    )
+                    rel_import = os.path.relpath(
+                        comp_abs.with_suffix(""), barrel.parent
+                    ).replace("\\", "/")
+                    if not rel_import.startswith("."):
+                        rel_import = "./" + rel_import
+                    provenance.append({"path": barrel_rel, "purpose": "barrel_export_file"})
+                    proposals.append({
+                        "file": barrel_rel,
+                        "description": f"Re-export {component_name} from barrel index",
+                        "patch_type": "append_export",
+                        "component_name": component_name,
+                        "export_line": f"export {{ {component_name} }} from '{rel_import}';",
+                        "manual_instruction": (
+                            f"Append to {barrel_rel}: "
+                            f"export {{ {component_name} }} from '{rel_import}';"
+                        ),
+                    })
+                except Exception:
+                    pass
+
+        elif framework == "fastapi":
+            main_file = _find_file_by_pattern(
+                workspace,
+                "harness/api/server.py", "app/main.py", "main.py", "app/app.py",
+            )
+            rel_component = component_path.replace("\\", "/")
+            module_dotpath = Path(rel_component).with_suffix("").as_posix().replace("/", ".")
+            router_varname = Path(rel_component).stem.lower() + "_router"
+            if main_file:
+                main_rel = str(main_file.relative_to(workspace)).replace("\\", "/")
+                provenance.append({"path": main_rel, "purpose": "fastapi_app_entry"})
+                proposals.append({
+                    "file": main_rel,
+                    "description": (
+                        f"Import {router_varname} from {module_dotpath} "
+                        f"and register with app.include_router()"
+                    ),
+                    "patch_type": "insert_router",
+                    "component_name": component_name,
+                    "import_line": f"from {module_dotpath} import router as {router_varname}",
+                    "include_line": (
+                        f'app.include_router({router_varname}, '
+                        f'prefix="/{Path(rel_component).stem.lower()}")'
+                    ),
+                    "manual_instruction": (
+                        f"1. Add near imports in {main_rel}: "
+                        f"from {module_dotpath} import router as {router_varname}\n"
+                        f"2. After app is created: "
+                        f'app.include_router({router_varname}, '
+                        f'prefix="/{Path(rel_component).stem.lower()}")'
+                    ),
+                })
+        else:
+            proposals.append({
+                "file": component_path,
+                "description": f"Unknown framework '{framework}' — manual wiring required.",
+                "patch_type": "manual",
+                "manual_instruction": (
+                    "Add this file to your app's routing or module registry manually."
+                ),
+            })
+
+        provenance.append({"path": component_path, "purpose": "component_being_wired"})
+        return {
+            "ok": True,
+            "framework": framework,
+            "component_name": component_name,
+            "component_path": component_path,
+            "proposals": proposals,
+            "provenance": provenance,
+            "note": (
+                "Use apply_wiring to automatically apply these proposals, "
+                "or follow manual_instruction for each."
+            ),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="propose_wiring",
+            description=(
+                "Analyse the project structure and propose the minimal wiring changes needed "
+                "to register a new component, route, or router module into the app entry point. "
+                "Supports vite-react (App.tsx routing) and fastapi (include_router). "
+                "Returns structured proposals with manual_instruction for each change "
+                "and provenance of source files used. Run apply_wiring to execute the proposals."
+            ),
+            handler=propose_wiring_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "component_path": {
+                        "type": "string",
+                        "description": "Workspace-relative path of the new component/router file to wire in",
+                    },
+                    "framework": {
+                        "type": "string",
+                        "description": "vite-react | fastapi | auto (default auto)",
+                    },
+                    "component_name": {
+                        "type": "string",
+                        "description": "Symbol name override (default: derived from filename)",
+                    },
+                    "route_path": {
+                        "type": "string",
+                        "description": "URL path for the new route (e.g. /dashboard). Defaults to /componentname",
+                    },
+                    "root_path": {"type": "string", "description": "Workspace root (default '.')"},
+                },
+                "required": ["component_path"],
+            },
+        )
+    )
+
+    # ── apply_wiring ──────────────────────────────────────────────────────────
+
+    async def apply_wiring_handler(args: dict[str, Any]) -> dict[str, Any]:
+        proposals = args.get("proposals")
+        if not isinstance(proposals, list) or not proposals:
+            return {"ok": False, "error": "proposals must be a non-empty list (output of propose_wiring)"}
+        dry_run = bool(args.get("dry_run", False))
+        root_raw = args.get("root_path") or "."
+        workspace = _resolve_workspace_path(str(root_raw))
+
+        applied: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        updated_paths: list[str] = []
+        patch_summaries: list[str] = []
+
+        for proposal in proposals:
+            if not isinstance(proposal, dict):
+                skipped.append({"proposal": str(proposal), "reason": "not a dict"})
+                continue
+            patch_type = str(proposal.get("patch_type") or "manual")
+            target_file = str(proposal.get("file") or "").strip()
+            if not target_file:
+                skipped.append({"proposal": str(proposal), "reason": "no file specified"})
+                continue
+            target_path = (
+                Path(target_file).resolve()
+                if Path(target_file).is_absolute()
+                else workspace / target_file
+            )
+            if patch_type == "manual":
+                skipped.append({
+                    "file": target_file,
+                    "reason": "manual patch_type — requires human action",
+                    "instruction": proposal.get("manual_instruction", ""),
+                })
+                continue
+            if not target_path.is_file():
+                skipped.append({"file": target_file, "reason": "target file does not exist"})
+                continue
+            try:
+                current = target_path.read_text(encoding="utf-8")
+            except Exception as exc:
+                skipped.append({"file": target_file, "reason": f"read error: {exc}"})
+                continue
+
+            updated = current
+            cname = str(proposal.get("component_name") or "")
+
+            if patch_type == "insert_import_and_route":
+                import_line = str(proposal.get("import_line") or "")
+                route_element = str(proposal.get("route_element") or "")
+                if import_line and import_line not in updated:
+                    last_pos = max(updated.rfind("\nimport "), updated.rfind("\nfrom "))
+                    if last_pos >= 0:
+                        eol = updated.find("\n", last_pos + 1)
+                        insert_at = eol + 1 if eol >= 0 else len(updated)
+                    else:
+                        insert_at = 0
+                    updated = updated[:insert_at] + import_line + "\n" + updated[insert_at:]
+                if route_element and route_element not in updated:
+                    for closing_tag in ("</Routes>", "</Switch>"):
+                        pos = updated.rfind(closing_tag)
+                        if pos >= 0:
+                            line_start = updated.rfind("\n", 0, pos) + 1
+                            indent = ""
+                            for ch in updated[line_start:pos]:
+                                if ch in (" ", "\t"):
+                                    indent += ch
+                                else:
+                                    break
+                            updated = (
+                                updated[:pos]
+                                + indent + "  " + route_element + "\n"
+                                + updated[pos:]
+                            )
+                            break
+
+            elif patch_type == "append_export":
+                export_line = str(proposal.get("export_line") or "")
+                if export_line and export_line not in updated:
+                    updated = updated.rstrip("\n") + "\n" + export_line + "\n"
+
+            elif patch_type == "insert_router":
+                import_line = str(proposal.get("import_line") or "")
+                include_line = str(proposal.get("include_line") or "")
+                if import_line and import_line not in updated:
+                    last_pos = max(updated.rfind("\nimport "), updated.rfind("\nfrom "))
+                    if last_pos >= 0:
+                        eol = updated.find("\n", last_pos + 1)
+                        insert_at = eol + 1 if eol >= 0 else len(updated)
+                    else:
+                        insert_at = 0
+                    updated = updated[:insert_at] + import_line + "\n" + updated[insert_at:]
+                if include_line and include_line not in updated:
+                    for anchor in ("app = FastAPI", "app = APIRouter", "app.include_router"):
+                        pos = updated.rfind(anchor)
+                        if pos >= 0:
+                            eol = updated.find("\n", pos)
+                            insert_at = eol + 1 if eol >= 0 else len(updated)
+                            updated = updated[:insert_at] + include_line + "\n" + updated[insert_at:]
+                            break
+                    else:
+                        updated = updated.rstrip("\n") + "\n" + include_line + "\n"
+
+            else:
+                skipped.append({"file": target_file, "reason": f"unknown patch_type: {patch_type}"})
+                continue
+
+            if updated != current:
+                if not dry_run:
+                    target_path.write_text(updated, encoding="utf-8")
+                applied.append({"file": target_file, "patch_type": patch_type, "dry_run": dry_run})
+                updated_paths.append(str(target_path))
+                patch_summaries.append(
+                    f"Wired {cname or target_file} into {target_file} ({patch_type})"
+                )
+            else:
+                skipped.append({"file": target_file, "reason": "no changes needed (already wired)"})
+
+        return {
+            "ok": True,
+            "applied_count": len(applied),
+            "skipped_count": len(skipped),
+            "applied": applied,
+            "skipped": skipped,
+            "updated_paths": list(dict.fromkeys(updated_paths)),
+            "patch_summaries": patch_summaries,
+            "dry_run": dry_run,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="apply_wiring",
+            description=(
+                "Apply the proposals returned by propose_wiring. "
+                "Modifies target files in-place: inserts import statements, adds route elements, "
+                "registers FastAPI routers, and appends barrel exports. "
+                "Supports dry_run to preview changes without writing. "
+                "Returns applied/skipped counts, updated_paths, and patch_summaries."
+            ),
+            handler=apply_wiring_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "proposals": {
+                        "type": "array",
+                        "description": "List of proposal objects from propose_wiring (or manually constructed)",
+                        "items": {"type": "object"},
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "Preview changes without writing files (default false)",
+                    },
+                    "root_path": {"type": "string", "description": "Workspace root (default '.')"},
+                },
+                "required": ["proposals"],
+            },
+        )
+    )
+
     async def web_fetch_handler(args: dict[str, Any]) -> dict[str, Any]:
         url = str(args.get("url", "")).strip()
         if not url:

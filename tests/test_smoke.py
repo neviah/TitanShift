@@ -355,6 +355,128 @@ def test_install_dependencies_auto_detects_npm() -> None:
     assert "npm" in result["command"]
 
 
+# ── Phase 3: Multi-File Context + Auto-Wire ───────────────────────────────────
+
+def test_index_project_classifies_files() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "index_project",
+            {"root_path": "."},
+        )
+    )
+    assert result["ok"] is True
+    assert result["total_files_indexed"] > 0
+    by_kind = result["by_kind"]
+    assert isinstance(by_kind, dict)
+    # Workspace has Python modules and config files
+    assert "module" in by_kind or "config" in by_kind
+    # Index file should be produced
+    index_path = Path(".harness") / "project_index.json"
+    assert index_path.exists()
+    idx = json.loads(index_path.read_text(encoding="utf-8"))
+    assert idx["total_files"] == result["total_files_indexed"]
+
+
+def test_read_context_reads_explicit_paths() -> None:
+    # Create a small test file for deterministic read
+    test_file = Path(".harness") / "test-phase3-context.txt"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.write_text("hello context world\n", encoding="utf-8")
+
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "read_context",
+            {"paths": [".harness/test-phase3-context.txt"], "token_budget": 100},
+        )
+    )
+    assert result["ok"] is True
+    assert result["total_files_read"] == 1
+    files = result["files"]
+    assert len(files) == 1
+    assert "hello context world" in files[0]["content"]
+    assert len(result["provenance"]) == 1
+    assert result["provenance"][0]["purpose"] == "context"
+
+
+def test_read_context_respects_token_budget() -> None:
+    # Write a file larger than a tiny budget to verify truncation
+    test_file = Path(".harness") / "test-phase3-bigfile.txt"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    # 100 chars * 10 lines = 1000 chars > 10-token budget (40 chars)
+    test_file.write_text("x" * 100 + "\n" * 10, encoding="utf-8")
+
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "read_context",
+            {"paths": [".harness/test-phase3-bigfile.txt"], "token_budget": 10},
+        )
+    )
+    assert result["ok"] is True
+    assert result["truncated"] is True
+    assert result["total_tokens_estimate"] <= 10
+
+
+def test_propose_wiring_vite_react_returns_proposals() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "propose_wiring",
+            {
+                "component_path": "frontend/src/views/Dashboard.tsx",
+                "framework": "vite-react",
+                "component_name": "Dashboard",
+                "route_path": "/dashboard",
+            },
+        )
+    )
+    assert result["ok"] is True
+    assert result["framework"] == "vite-react"
+    assert result["component_name"] == "Dashboard"
+    # Should include at least one proposal referencing App.tsx
+    proposals = result["proposals"]
+    assert isinstance(proposals, list)
+    assert len(proposals) > 0
+    assert any("App" in str(p.get("file", "")) or "router" in str(p.get("file", "")) for p in proposals)
+    # Provenance should reference the component being wired
+    provenance = result["provenance"]
+    assert any(p["path"] == "frontend/src/views/Dashboard.tsx" for p in provenance)
+
+
+def test_apply_wiring_dry_run_no_file_writes() -> None:
+    # Create a minimal App.tsx with Routes block for the wiring engine to target
+    app_tsx = Path(".harness") / "test-phase3-App.tsx"
+    app_tsx.parent.mkdir(parents=True, exist_ok=True)
+    app_tsx.write_text(
+        "import React from 'react';\n\nfunction App() {\n  return (\n    <Routes>\n    </Routes>\n  );\n}\n",
+        encoding="utf-8",
+    )
+    original = app_tsx.read_text(encoding="utf-8")
+
+    runtime = build_runtime(Path(".").resolve())
+    proposals = [
+        {
+            "file": ".harness/test-phase3-App.tsx",
+            "patch_type": "insert_import_and_route",
+            "component_name": "Dash",
+            "import_line": "import { Dash } from './views/Dash';",
+            "route_element": '<Route path="/dash" element={<Dash />} />',
+        }
+    ]
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "apply_wiring",
+            {"proposals": proposals, "dry_run": True},
+        )
+    )
+    assert result["ok"] is True
+    assert result["dry_run"] is True
+    # File must be unchanged
+    assert app_tsx.read_text(encoding="utf-8") == original
+
+
 def test_chat_budget_override_returns_error_state() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app, normalize_runtime=False)

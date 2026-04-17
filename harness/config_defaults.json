@@ -90,7 +90,13 @@
       "lint_and_fix",
       "version_bump",
       "generate_release_notes",
-      "tag_and_publish_release"
+      "tag_and_publish_release",
+      "patch_file",
+      "install_dependencies",
+      "index_project",
+      "read_context",
+      "propose_wiring",
+      "apply_wiring"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [
@@ -128,6 +134,10 @@
       "yaml_edit",
       "patch_file",
       "install_dependencies",
+      "index_project",
+      "read_context",
+      "propose_wiring",
+      "apply_wiring",
       "init_project",
       "generate_component",
       "generate_route",
