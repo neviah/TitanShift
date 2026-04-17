@@ -1427,8 +1427,7 @@ def test_emergency_diagnosis_for_policy_blocked_skill_execution() -> None:
     assert assigned.status_code == 200
 
     runtime.tools.policy.allowed_tool_names.clear()
-        runtime.tools.policy.deny_all_by_default = True
-        runtime.tools.policy.allowed_tool_names.add("safe_shell_command")
+    runtime.tools.policy.deny_all_by_default = True
     blocked = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
         json={"input": {"command": "python --version"}},
@@ -3601,6 +3600,8 @@ def test_roles_templates_endpoint_returns_superpowered_roles() -> None:
 
 def test_chat_superpowered_blocks_without_required_approvals() -> None:
     app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
     client = TestClient(app)
     approvals_path = Path(".harness/approvals.json")
     original_approvals: str | None = None
@@ -3645,6 +3646,9 @@ def test_chat_superpowered_blocks_without_required_approvals() -> None:
 def test_chat_superpowered_review_loop_attaches_review_result() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_task_reviews", True)
     client = TestClient(app)
 
     response = client.post(
@@ -3727,6 +3731,9 @@ def test_artifact_lifecycle_approve_and_revoke() -> None:
 def test_workflow_metrics_endpoint_reports_lightning_and_superpowered() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("orchestrator.enable_subagents", True)
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
+    app.state.runtime.config.set("orchestrator.superpowered_mode.require_task_reviews", True)
     client = TestClient(app)
 
     lightning = client.post(
