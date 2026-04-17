@@ -169,6 +169,19 @@ class TaskDetail(TaskSummary):
     output: dict
 
 
+class ArtifactRecord(BaseModel):
+    artifact_id: str
+    kind: str
+    path: str
+    mime_type: str
+    title: str
+    summary: str
+    generator: str
+    backend: str
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    preview: dict[str, Any] | None = None
+
+
 class WorkspaceTreeNode(BaseModel):
     name: str
     path: str

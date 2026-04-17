@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import re
 import shlex
+import hashlib
+from html import escape
 from datetime import datetime, timezone
 from typing import Any
 
@@ -700,6 +702,164 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "overwrite": {"type": "boolean", "description": "Whether existing route files may be replaced; defaults to false"},
                 },
                 "required": ["framework", "route_path", "target_path"],
+            },
+        )
+    )
+
+    async def generate_report_handler(args: dict[str, Any]) -> dict[str, Any]:
+        title = str(args.get("title") or "Generated Report").strip() or "Generated Report"
+        output_format = str(args.get("format") or "markdown").strip().lower()
+        raw_target_path = str(args.get("target_path") or "outputs/reports").strip()
+        overwrite = bool(args.get("overwrite", False))
+        summary = str(args.get("summary") or "").strip()
+        sections = args.get("sections") or []
+        if not isinstance(sections, list):
+            raise ValueError("sections must be an array when provided")
+        if output_format not in {"markdown", "html"}:
+            raise ValueError("format must be one of: markdown, html")
+
+        normalized_sections: list[dict[str, str]] = []
+        for index, item in enumerate(sections, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"sections[{index - 1}] must be an object with heading/body fields")
+            heading = str(item.get("heading") or f"Section {index}").strip() or f"Section {index}"
+            body = str(item.get("body") or "").strip()
+            normalized_sections.append({"heading": heading, "body": body})
+
+        request_payload = {
+            "title": title,
+            "format": output_format,
+            "summary": summary,
+            "sections": normalized_sections,
+            "template": args.get("template"),
+            "data": args.get("data"),
+        }
+        request_hash = hashlib.sha256(
+            json.dumps(request_payload, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:12]
+
+        safe_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "report"
+        extension = "md" if output_format == "markdown" else "html"
+        filename = f"{safe_title}-{request_hash}.{extension}"
+        target_dir = _resolve_workspace_path(raw_target_path)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = (target_dir / filename).resolve()
+        existed_before = target.exists()
+        if existed_before and not overwrite:
+            raise ValueError(f"target report already exists and overwrite=false: {target}")
+
+        generated_at = datetime.now(timezone.utc).isoformat()
+        if output_format == "markdown":
+            markdown_lines = [f"# {title}", ""]
+            if summary:
+                markdown_lines.extend([summary, ""])
+            markdown_lines.append(f"_Generated at {generated_at}_")
+            for section in normalized_sections:
+                markdown_lines.extend(["", f"## {section['heading']}", "", section["body"]])
+            content = "\n".join(markdown_lines).strip() + "\n"
+            mime_type = "text/markdown"
+            kind = "document.markdown"
+        else:
+            section_html = "".join(
+                [
+                    (
+                        "<section class=\"report-section\">"
+                        f"<h2>{escape(section['heading'])}</h2>"
+                        f"<p>{escape(section['body'])}</p>"
+                        "</section>"
+                    )
+                    for section in normalized_sections
+                ]
+            )
+            summary_html = f"<p class=\"summary\">{escape(summary)}</p>" if summary else ""
+            content = (
+                "<!doctype html>\n"
+                "<html lang=\"en\">\n"
+                "  <head>\n"
+                "    <meta charset=\"UTF-8\" />\n"
+                "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+                f"    <title>{escape(title)}</title>\n"
+                "    <style>\n"
+                "      :root { font-family: 'Times New Roman', Georgia, serif; color: #1b1e23; }\n"
+                "      body { margin: 2.2rem auto; max-width: 760px; line-height: 1.55; padding: 0 1.2rem; }\n"
+                "      h1 { margin-bottom: 0.5rem; }\n"
+                "      .summary { font-size: 1.05rem; color: #2f3c4d; }\n"
+                "      .meta { color: #6a7280; font-size: 0.9rem; }\n"
+                "      .report-section { margin-top: 1.4rem; }\n"
+                "      .report-section h2 { margin-bottom: 0.5rem; }\n"
+                "      .report-section p { white-space: pre-wrap; }\n"
+                "    </style>\n"
+                "  </head>\n"
+                "  <body>\n"
+                f"    <h1>{escape(title)}</h1>\n"
+                f"    {summary_html}\n"
+                f"    <p class=\"meta\">Generated at {escape(generated_at)}</p>\n"
+                f"    {section_html}\n"
+                "  </body>\n"
+                "</html>\n"
+            )
+            mime_type = "text/html"
+            kind = "document.html"
+
+        target.write_text(content, encoding="utf-8")
+        normalized_path = str(target).replace("\\", "/")
+        artifact = {
+            "artifact_id": request_hash,
+            "kind": kind,
+            "path": normalized_path,
+            "mime_type": mime_type,
+            "title": title,
+            "summary": summary or f"Generated {output_format} report",
+            "generator": "generate_report",
+            "backend": "document_backend",
+            "provenance": {
+                "request_hash": request_hash,
+                "generated_at": generated_at,
+                "output_format": output_format,
+                "section_count": len(normalized_sections),
+            },
+            "preview": {
+                "safe_inline": True,
+            },
+        }
+        return {
+            "ok": True,
+            "title": title,
+            "format": output_format,
+            "path": normalized_path,
+            "created_paths": [] if existed_before else [normalized_path],
+            "updated_paths": [normalized_path] if existed_before else [],
+            "artifacts": [artifact],
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_report",
+            description="Generate a deterministic markdown or HTML report from structured input and emit artifact metadata.",
+            handler=generate_report_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Report title"},
+                    "summary": {"type": "string", "description": "Optional report summary paragraph"},
+                    "format": {"type": "string", "description": "markdown | html"},
+                    "target_path": {"type": "string", "description": "Output directory path"},
+                    "template": {"type": "string", "description": "Optional template identifier for reproducibility metadata"},
+                    "data": {"type": "object", "description": "Optional structured source data for reproducibility metadata"},
+                    "sections": {
+                        "type": "array",
+                        "description": "Ordered report sections",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "heading": {"type": "string"},
+                                "body": {"type": "string"},
+                            },
+                        },
+                    },
+                    "overwrite": {"type": "boolean", "description": "Whether to overwrite an existing target file"},
+                },
+                "required": ["title", "format", "sections"],
             },
         )
     )

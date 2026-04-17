@@ -15,6 +15,7 @@ from urllib.parse import quote_plus, urlparse
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 
 from harness.memory.graph.migration import (
     export_from_neo4j,
@@ -2787,6 +2788,55 @@ def create_app(workspace_root: Path) -> FastAPI:
         except UnicodeDecodeError:
             content = target.read_text(encoding="utf-8", errors="replace")
         return WorkspaceFileResponse(path=str(path).replace('\\', '/'), content=content[:200000])
+
+    @app.get("/artifacts/run/{task_id}/{artifact_id}/preview", dependencies=[Depends(require_read_api_key)])
+    async def artifact_run_preview(task_id: str, artifact_id: str) -> FileResponse:
+        root = _active_workspace["root"]
+        artifact_dir = (root / ".titantshift" / "artifacts" / task_id / artifact_id).resolve()
+        if not artifact_dir.exists() or not artifact_dir.is_dir():
+            raise HTTPException(status_code=404, detail="Artifact not found")
+
+        metadata_path = (artifact_dir / "artifact.json").resolve()
+        output_candidates = sorted(artifact_dir.glob("output.*"))
+        if not output_candidates:
+            raise HTTPException(status_code=404, detail="Artifact output not found")
+        output_path = output_candidates[0].resolve()
+
+        mime_type = "application/octet-stream"
+        if metadata_path.exists() and metadata_path.is_file():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8", errors="replace"))
+                parsed = str(metadata.get("mime_type") or "").strip()
+                if parsed:
+                    mime_type = parsed
+            except Exception:
+                pass
+
+        safe_inline_mimes = {
+            "text/markdown",
+            "text/html",
+            "application/pdf",
+            "image/svg+xml",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+        }
+        if mime_type.lower() not in safe_inline_mimes:
+            raise HTTPException(status_code=400, detail="Artifact mime type is not preview-safe")
+
+        return FileResponse(path=output_path, media_type=mime_type, filename=output_path.name)
+
+    @app.get("/artifacts/run/{task_id}/{artifact_id}/download", dependencies=[Depends(require_read_api_key)])
+    async def artifact_run_download(task_id: str, artifact_id: str) -> FileResponse:
+        root = _active_workspace["root"]
+        artifact_dir = (root / ".titantshift" / "artifacts" / task_id / artifact_id).resolve()
+        if not artifact_dir.exists() or not artifact_dir.is_dir():
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        output_candidates = sorted(artifact_dir.glob("output.*"))
+        if not output_candidates:
+            raise HTTPException(status_code=404, detail="Artifact output not found")
+        output_path = output_candidates[0].resolve()
+        return FileResponse(path=output_path, filename=output_path.name)
 
     @app.get("/logs", response_model=LogQueryResponse, dependencies=[Depends(require_read_api_key)])
     async def get_logs(

@@ -13,6 +13,44 @@ function readRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+type RunArtifact = {
+  artifact_id: string
+  kind: string
+  path: string
+  mime_type: string
+  title: string
+  summary: string
+  generator: string
+  backend: string
+  provenance: Record<string, unknown>
+  preview: Record<string, unknown> | null
+}
+
+function readArtifactArray(value: unknown): RunArtifact[] {
+  if (!Array.isArray(value)) return []
+  const rows: RunArtifact[] = []
+  for (const item of value) {
+    const row = readRecord(item)
+    if (!row) continue
+    const artifact_id = String(row.artifact_id ?? '').trim()
+    const path = String(row.path ?? '').trim()
+    if (!artifact_id || !path) continue
+    rows.push({
+      artifact_id,
+      kind: String(row.kind ?? ''),
+      path,
+      mime_type: String(row.mime_type ?? 'application/octet-stream'),
+      title: String(row.title ?? artifact_id),
+      summary: String(row.summary ?? ''),
+      generator: String(row.generator ?? ''),
+      backend: String(row.backend ?? ''),
+      provenance: readRecord(row.provenance) ?? {},
+      preview: readRecord(row.preview),
+    })
+  }
+  return rows
+}
+
 export function CurrentRunTab() {
   const { data: tasks, loading, error } = usePolling(fetchTasks, { interval: 5000 })
   const newestTask = useMemo(() => {
@@ -89,6 +127,47 @@ export function CurrentRunTab() {
                   {readStringArray(taskDetail?.output?.updated_paths).map((pathValue, index) => (
                     <p key={`${pathValue}-${index}`} className={styles.hint}>{pathValue}</p>
                   ))}
+                </div>
+              </div>
+            )}
+            {readArtifactArray(taskDetail?.output?.artifacts).length > 0 && (
+              <div className={styles.toolsBlock}>
+                <span className={styles.rowLabel}>Artifacts</span>
+                <div className={styles.list}>
+                  {readArtifactArray(taskDetail?.output?.artifacts).map((artifact) => {
+                    const previewUrl = typeof artifact.preview?.url === 'string'
+                      ? String(artifact.preview.url)
+                      : `/artifacts/run/${encodeURIComponent(newestTask.task_id)}/${encodeURIComponent(artifact.artifact_id)}/preview`
+                    const downloadUrl = `/artifacts/run/${encodeURIComponent(newestTask.task_id)}/${encodeURIComponent(artifact.artifact_id)}/download`
+                    const lowerMime = artifact.mime_type.toLowerCase()
+                    const canImagePreview = lowerMime.startsWith('image/')
+                    const canFramePreview = lowerMime === 'text/html' || lowerMime === 'application/pdf' || lowerMime === 'text/markdown'
+                    return (
+                      <div key={artifact.artifact_id} className={styles.artifactCard}>
+                        <div className={styles.artifactHeaderRow}>
+                          <p className={styles.artifactTitle}>{artifact.title}</p>
+                          <div className={styles.inlineBadges}>
+                            <span className="badge badge-dim">{artifact.kind}</span>
+                            <span className="badge badge-ok">{artifact.mime_type}</span>
+                          </div>
+                        </div>
+                        {artifact.summary.length > 0 && <p className={styles.hint}>{artifact.summary}</p>}
+                        <p className={`${styles.hint} ${styles.artifactPath}`}>{artifact.path}</p>
+                        <div className={styles.inlineBadges}>
+                          {artifact.generator.length > 0 && <span className="badge badge-dim">tool: {artifact.generator}</span>}
+                          {artifact.backend.length > 0 && <span className="badge badge-dim">backend: {artifact.backend}</span>}
+                          <a className={styles.artifactLink} href={previewUrl} target="_blank" rel="noreferrer">Preview</a>
+                          <a className={styles.artifactLink} href={downloadUrl} target="_blank" rel="noreferrer">Download</a>
+                        </div>
+                        {canImagePreview && (
+                          <img className={styles.artifactImagePreview} src={previewUrl} alt={artifact.title} loading="lazy" />
+                        )}
+                        {canFramePreview && (
+                          <iframe className={styles.artifactFramePreview} src={previewUrl} title={`preview-${artifact.artifact_id}`} />
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}

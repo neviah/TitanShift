@@ -253,6 +253,22 @@ export interface TaskDetail extends TaskSummary {
   output: Record<string, unknown>
 }
 
+export interface RunArtifact {
+  artifact_id: string
+  kind: string
+  path: string
+  mime_type: string
+  title: string
+  summary: string
+  generator: string
+  backend: string
+  provenance: Record<string, unknown>
+  preview: {
+    url?: string
+    safe_inline?: boolean
+  } | null
+}
+
 export interface TaskTemplate {
   template_id: string
   name: string

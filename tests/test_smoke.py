@@ -156,6 +156,60 @@ def test_builtin_shell_command_tool_registered() -> None:
     assert tool is not None
 
 
+def test_generate_report_tool_emits_artifact_metadata() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "generate_report",
+            {
+                "title": "Artifact Smoke",
+                "format": "markdown",
+                "target_path": "tmp/artifact-smoke",
+                "sections": [
+                    {"heading": "Overview", "body": "hello world"},
+                    {"heading": "Details", "body": "deterministic output"},
+                ],
+                "overwrite": True,
+            },
+        )
+    )
+
+    assert result["ok"] is True
+    artifacts = result.get("artifacts")
+    assert isinstance(artifacts, list)
+    assert len(artifacts) == 1
+    artifact = artifacts[0]
+    assert artifact["generator"] == "generate_report"
+    assert artifact["backend"] == "document_backend"
+    assert artifact["mime_type"] == "text/markdown"
+    assert Path(artifact["path"]).exists()
+
+
+def test_artifact_preview_endpoint_serves_safe_artifact() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app, normalize_runtime=False)
+    root = Path(".").resolve()
+    artifact_dir = root / ".titantshift" / "artifacts" / "task-preview-smoke" / "artifact-preview-smoke"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    output_path = artifact_dir / "output.md"
+    output_path.write_text("# Preview Smoke\n", encoding="utf-8")
+    (artifact_dir / "artifact.json").write_text(
+        json.dumps(
+            {
+                "artifact_id": "artifact-preview-smoke",
+                "mime_type": "text/markdown",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    response = client.get("/artifacts/run/task-preview-smoke/artifact-preview-smoke/preview")
+    assert response.status_code == 200
+    assert "text/markdown" in response.headers.get("content-type", "")
+    assert "Preview Smoke" in response.text
+
+
 def test_chat_budget_override_returns_error_state() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app, normalize_runtime=False)

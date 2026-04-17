@@ -12,9 +12,9 @@
       }
     },
     "superpowered_mode": {
-      "require_spec_approval": false,
-      "require_plan_approval": false,
-      "require_task_reviews": false,
+      "require_spec_approval": true,
+      "require_plan_approval": true,
+      "require_task_reviews": true,
       "require_verification_before_done": true,
       "artifact_paths": {
         "specs_dir": "documents/specs",

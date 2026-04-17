@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+from pathlib import Path
+from datetime import datetime, timezone
 from urllib.parse import quote_plus
 from typing import Any
 
@@ -214,6 +217,123 @@ class ReactiveStateMachine:
             proof["screenshot_metadata"] = screenshot_metadata
         return proof
 
+    @staticmethod
+    def _artifact_extension(path: Path, mime_type: str) -> str:
+        suffix = path.suffix.lower().lstrip(".")
+        if suffix:
+            return suffix
+        fallback = {
+            "text/markdown": "md",
+            "text/html": "html",
+            "application/pdf": "pdf",
+            "image/svg+xml": "svg",
+            "image/png": "png",
+            "image/jpeg": "jpg",
+            "image/webp": "webp",
+        }
+        return fallback.get(mime_type.lower(), "bin")
+
+    @staticmethod
+    def _normalize_artifact_id(raw: str) -> str:
+        safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in raw.lower())
+        safe = safe.strip("-")
+        return safe or "artifact"
+
+    def _persist_tool_artifacts(
+        self,
+        *,
+        task_id: str,
+        workspace_root: Path,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        tool_result: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        raw_artifacts = tool_result.get("artifacts")
+        if not isinstance(raw_artifacts, list) or not raw_artifacts:
+            return [], []
+
+        safe_inline_mimes = {
+            "text/markdown",
+            "text/html",
+            "application/pdf",
+            "image/svg+xml",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+        }
+        run_root = (workspace_root / ".titantshift" / "artifacts" / task_id).resolve()
+        persisted: list[dict[str, Any]] = []
+        created_paths: list[str] = []
+
+        for index, row in enumerate(raw_artifacts):
+            if not isinstance(row, dict):
+                continue
+            raw_path = str(row.get("path") or "").strip()
+            if not raw_path:
+                continue
+            source_path = Path(raw_path)
+            if not source_path.is_absolute():
+                source_path = (workspace_root / source_path).resolve()
+            if not source_path.exists() or not source_path.is_file():
+                continue
+
+            mime_type = str(row.get("mime_type") or "application/octet-stream").strip() or "application/octet-stream"
+            generated_id = str(row.get("artifact_id") or f"{tool_name}-{index + 1}")
+            artifact_id = self._normalize_artifact_id(generated_id)
+            artifact_dir = (run_root / artifact_id).resolve()
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+
+            ext = self._artifact_extension(source_path, mime_type)
+            output_path = (artifact_dir / f"output.{ext}").resolve()
+            shutil.copy2(source_path, output_path)
+            created_paths.append(str(output_path).replace("\\", "/"))
+
+            inputs_path = (artifact_dir / "inputs.json").resolve()
+            inputs_path.write_text(
+                json.dumps(
+                    {
+                        "tool_name": tool_name,
+                        "arguments": tool_args,
+                        "source_artifact": row,
+                    },
+                    indent=2,
+                    default=str,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            created_paths.append(str(inputs_path).replace("\\", "/"))
+
+            preview: dict[str, Any] | None = None
+            if mime_type.lower() in safe_inline_mimes:
+                preview = {
+                    "url": f"/artifacts/run/{task_id}/{artifact_id}/preview",
+                    "safe_inline": True,
+                }
+
+            record: dict[str, Any] = {
+                "artifact_id": artifact_id,
+                "kind": str(row.get("kind") or "document"),
+                "path": str(output_path).replace("\\", "/"),
+                "mime_type": mime_type,
+                "title": str(row.get("title") or artifact_id),
+                "summary": str(row.get("summary") or "Generated artifact"),
+                "generator": str(row.get("generator") or tool_name),
+                "backend": str(row.get("backend") or "unknown"),
+                "provenance": {
+                    **(row.get("provenance") if isinstance(row.get("provenance"), dict) else {}),
+                    "task_id": task_id,
+                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                },
+                "preview": preview,
+            }
+            artifact_meta_path = (artifact_dir / "artifact.json").resolve()
+            artifact_meta_path.write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
+            created_paths.append(str(artifact_meta_path).replace("\\", "/"))
+            persisted.append(record)
+
+        return persisted, created_paths
+
     def _narrow_tools_by_skill_recommendation(
         self,
         all_tool_defs: list[dict[str, Any]],
@@ -373,10 +493,12 @@ class ReactiveStateMachine:
         test_failed_count: int | None = None
         created_paths: list[str] = []
         updated_paths: list[str] = []
+        artifacts: list[dict[str, Any]] = []
         final_text = ""
         last_model_id = model.model_id
         total_tokens = model.estimate_tokens(task.description)
         response = None
+        workspace_root_path = Path(str(workspace_root or ".")).resolve()
 
         # Prepend prior conversation turns so the model has full context
         for prior in conversation_history:
@@ -578,6 +700,17 @@ class ReactiveStateMachine:
                     updated = tool_result.get("updated_paths")
                     if isinstance(updated, list):
                         updated_paths.extend(str(path) for path in updated if str(path).strip())
+                    persisted_artifacts, artifact_created_paths = self._persist_tool_artifacts(
+                        task_id=task.id,
+                        workspace_root=workspace_root_path,
+                        tool_name=tc.name,
+                        tool_args=tc.arguments,
+                        tool_result=tool_result,
+                    )
+                    if persisted_artifacts:
+                        artifacts.extend(persisted_artifacts)
+                    if artifact_created_paths:
+                        created_paths.extend(artifact_created_paths)
 
                 if tc.name == "run_tests" and isinstance(tool_result, dict):
                     failure_rows = tool_result.get("failure_summary")
@@ -627,6 +760,15 @@ class ReactiveStateMachine:
         latest_browser_proof = browser_proofs[-1] if browser_proofs else None
         deduped_created_paths = list(dict.fromkeys(created_paths))
         deduped_updated_paths = list(dict.fromkeys(updated_paths))
+        deduped_artifacts: list[dict[str, Any]] = []
+        seen_artifact_ids: set[str] = set()
+        for artifact in artifacts:
+            artifact_id = str(artifact.get("artifact_id") or "").strip()
+            if artifact_id and artifact_id in seen_artifact_ids:
+                continue
+            if artifact_id:
+                seen_artifact_ids.add(artifact_id)
+            deduped_artifacts.append(artifact)
 
         return TaskResult(
             task_id=task.id,
@@ -646,6 +788,7 @@ class ReactiveStateMachine:
                 "test_failed_count": test_failed_count,
                 "created_paths": deduped_created_paths,
                 "updated_paths": deduped_updated_paths,
+                "artifacts": deduped_artifacts,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
         )

@@ -93,6 +93,61 @@
   color: var(--text-muted);
 }
 
+.artifactCard {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: color-mix(in oklab, var(--bg-elevated) 90%, transparent);
+}
+
+.artifactHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.artifactTitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.artifactPath {
+  word-break: break-word;
+}
+
+.artifactLink {
+  font-size: 11px;
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.artifactLink:hover {
+  text-decoration: underline;
+}
+
+.artifactImagePreview {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-canvas);
+}
+
+.artifactFramePreview {
+  width: 100%;
+  min-height: 220px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-canvas);
+}
+
 @keyframes runPulse {
   0% {
     transform: scale(0.88);

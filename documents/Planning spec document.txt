@@ -1,5 +1,5 @@
-**Planning spec document**
 
+,**Planning spec document**
 ### Universal Harness Specification v1.0  
 *(High‑level architecture + phases, ready for Copilot to scaffold from)*  
 

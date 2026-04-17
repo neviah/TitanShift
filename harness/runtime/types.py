@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, TypedDict
 
 
 class EventType(str, Enum):
@@ -38,3 +38,21 @@ class TaskResult:
     output: dict[str, Any]
     success: bool = True
     error: str | None = None
+
+
+class ArtifactPreview(TypedDict, total=False):
+    url: str
+    safe_inline: bool
+
+
+class ArtifactRecord(TypedDict):
+    artifact_id: str
+    kind: str
+    path: str
+    mime_type: str
+    title: str
+    summary: str
+    generator: str
+    backend: str
+    provenance: dict[str, Any]
+    preview: ArtifactPreview | None
