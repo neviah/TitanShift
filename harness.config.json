@@ -60,6 +60,8 @@
     "allowed_tool_names": [
       "shell_command",
       "web_fetch",
+      "web_browse",
+      "get_location",
       "create_directory",
       "write_file",
       "append_file",
@@ -101,7 +103,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 40,
-      "max_tokens": 12000,
+      "max_tokens": 2555,
       "max_duration_ms": 600000
     }
   },

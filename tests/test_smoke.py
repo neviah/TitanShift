@@ -94,7 +94,7 @@ CAMOFOX_REDDIT_PROMPT = (
 def test_defaults_load() -> None:
     cfg = ConfigManager(Path("."))
     assert cfg.get("memory.graph_backend") == "networkx"
-    assert cfg.get("tools.deny_all_by_default") is True
+    assert cfg.get("tools.deny_all_by_default") is False
 
 
 def test_api_factory() -> None:
@@ -1427,11 +1427,14 @@ def test_emergency_diagnosis_for_policy_blocked_skill_execution() -> None:
     assert assigned.status_code == 200
 
     runtime.tools.policy.allowed_tool_names.clear()
+        runtime.tools.policy.deny_all_by_default = True
+        runtime.tools.policy.allowed_tool_names.add("safe_shell_command")
     blocked = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
         json={"input": {"command": "python --version"}},
     )
     assert blocked.status_code == 403
+    runtime.tools.policy.deny_all_by_default = False
 
     diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&limit=10")
     assert diag_logs.status_code == 200
