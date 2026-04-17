@@ -108,13 +108,6 @@ class ReactiveStateMachine:
             if tool_name.lower() in text:
                 matched.add(tool_name)
 
-        # Repo-intake intent mapping for natural phrasing like "repo camofox tool".
-        if "repo" in text and "camofox" in text:
-            for tool_name in available:
-                lower_name = tool_name.lower()
-                if "repo_" in lower_name and "camofox" in lower_name:
-                    matched.add(tool_name)
-
         # Heuristic intent mapping for common user phrasing that omits exact tool names.
         if any(token in text for token in ["browser", "browse", "open website", "open the site", "navigate to"]):
             if "web_browse" in available:
