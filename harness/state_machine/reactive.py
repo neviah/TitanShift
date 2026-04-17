@@ -491,6 +491,7 @@ class ReactiveStateMachine:
         browser_proofs: list[dict[str, Any]] = []
         test_failure_summary: list[str] = []
         test_failed_count: int | None = None
+        patch_summaries: list[str] = []
         created_paths: list[str] = []
         updated_paths: list[str] = []
         artifacts: list[dict[str, Any]] = []
@@ -720,6 +721,11 @@ class ReactiveStateMachine:
                     if isinstance(failed_count, int):
                         test_failed_count = max(test_failed_count or 0, failed_count)
 
+                if tc.name == "patch_file" and isinstance(tool_result, dict):
+                    summary = tool_result.get("patch_summary")
+                    if summary and str(summary).strip():
+                        patch_summaries.append(str(summary).strip())
+
                 tool_content = json.dumps(tool_result, default=str)
 
                 total_tokens += model.estimate_tokens(tool_content)
@@ -788,6 +794,7 @@ class ReactiveStateMachine:
                 "test_failed_count": test_failed_count,
                 "created_paths": deduped_created_paths,
                 "updated_paths": deduped_updated_paths,
+                "patch_summaries": list(dict.fromkeys(patch_summaries)),
                 "artifacts": deduped_artifacts,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),

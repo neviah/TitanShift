@@ -210,6 +210,151 @@ def test_artifact_preview_endpoint_serves_safe_artifact() -> None:
     assert "Preview Smoke" in response.text
 
 
+def test_read_file_tool_returns_line_range_and_stats() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    # Write a temp file inside the allowed workspace
+    workspace_tmp = Path(".harness/test-phase2-read.txt")
+    workspace_tmp.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        workspace_tmp.write_text("".join(f"line {i}\n" for i in range(1, 21)), encoding="utf-8")
+
+        # Full read
+        result = asyncio.run(
+            runtime.tools.execute_tool("read_file", {"path": str(workspace_tmp)})
+        )
+        assert result["ok"] is True
+        assert result["total_lines"] == 20
+        assert result["total_bytes"] > 0
+        assert result["encoding_used"] == "utf-8"
+        assert result["truncated"] is False
+
+        # Line-range read
+        result2 = asyncio.run(
+            runtime.tools.execute_tool(
+                "read_file", {"path": str(workspace_tmp), "start_line": 5, "end_line": 8}
+            )
+        )
+        assert result2["start_line"] == 5
+        assert result2["end_line"] == 8
+        content = result2["content"]
+        assert "line 5" in content
+        assert "line 8" in content
+        assert "line 4" not in content
+        assert "line 9" not in content
+    finally:
+        workspace_tmp.unlink(missing_ok=True)
+
+
+def test_patch_file_tool_applies_unified_diff() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    target = Path(".harness/test-phase2-patch.txt")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("alpha\nbeta\ngamma\ndelta\n", encoding="utf-8")
+    try:
+        patch = (
+            "--- a/target.txt\n"
+            "+++ b/target.txt\n"
+            "@@ -1,4 +1,4 @@\n"
+            " alpha\n"
+            "-beta\n"
+            "+BETA\n"
+            " gamma\n"
+            " delta\n"
+        )
+
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "patch_file", {"target_path": str(target), "patch": patch}
+            )
+        )
+
+        assert result["ok"] is True
+        assert result["hunks_applied"] == 1
+        assert result["hunks_rejected"] == 0
+        assert result["dry_run"] is False
+        assert "BETA" in target.read_text(encoding="utf-8")
+        assert "beta" not in target.read_text(encoding="utf-8")
+        assert result["updated_paths"] != []
+        assert result["patch_summary"].startswith("applied 1 hunk")
+    finally:
+        target.unlink(missing_ok=True)
+
+
+def test_patch_file_tool_dry_run_does_not_write() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    target = Path(".harness/test-phase2-patch-dry.txt")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    original = "hello\nworld\n"
+    target.write_text(original, encoding="utf-8")
+    try:
+        patch = (
+            "--- a/dry.txt\n"
+            "+++ b/dry.txt\n"
+            "@@ -1,2 +1,2 @@\n"
+            "-hello\n"
+            "+HELLO\n"
+            " world\n"
+        )
+
+        result = asyncio.run(
+            runtime.tools.execute_tool(
+                "patch_file", {"target_path": str(target), "patch": patch, "dry_run": True}
+            )
+        )
+
+        assert result["ok"] is True
+        assert result["dry_run"] is True
+        assert result["hunks_applied"] == 1
+        assert target.read_text(encoding="utf-8") == original  # unchanged
+        assert result["updated_paths"] == []
+        assert result["bytes_written"] == 0
+    finally:
+        target.unlink(missing_ok=True)
+
+
+def test_install_dependencies_dry_run_returns_command() -> None:
+    runtime = build_runtime(Path(".").resolve())
+
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "install_dependencies",
+            {
+                "package_manager": "pip",
+                "packages": ["requests", "httpx"],
+                "dry_run": True,
+            },
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["dry_run"] is True
+    assert result["package_manager"] == "pip"
+    assert "requests" in result["command"]
+    assert "httpx" in result["command"]
+    assert result["created_paths"] == []
+    assert result["updated_paths"] == []
+
+
+def test_install_dependencies_auto_detects_npm() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    # frontend/ has package.json so npm should be auto-detected
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "install_dependencies",
+            {
+                "package_manager": "auto",
+                "packages": ["is-odd"],
+                "dry_run": True,
+                "target_path": "frontend",
+            },
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["package_manager"] == "npm"
+    assert "npm" in result["command"]
+
+
 def test_chat_budget_override_returns_error_state() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app, normalize_runtime=False)

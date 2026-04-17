@@ -1951,6 +1951,9 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
+    _READ_FILE_MAX_CHARS_HARD_LIMIT = 48_000
+    _SUPPORTED_ENCODINGS = {"utf-8", "utf-8-sig", "latin-1", "ascii"}
+
     async def read_file_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw_path = str(args.get("path") or args.get("target_path") or "").strip()
         if not raw_path:
@@ -1958,25 +1961,76 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         target = _resolve_workspace_path(raw_path)
         if not target.exists() or not target.is_file():
             raise ValueError(f"file not found: {target}")
-        max_chars = int(args.get("max_chars", 12000))
-        content = target.read_text(encoding="utf-8", errors="replace")
+
+        # Encoding
+        raw_enc = str(args.get("encoding") or "utf-8").strip().lower().replace("_", "-")
+        if raw_enc not in _SUPPORTED_ENCODINGS:
+            raise ValueError(f"encoding must be one of: {', '.join(sorted(_SUPPORTED_ENCODINGS))}")
+        encoding_used = raw_enc
+
+        # Read raw bytes for stats
+        raw_bytes = target.read_bytes()
+        total_bytes = len(raw_bytes)
+        try:
+            full_text = raw_bytes.decode(encoding_used, errors="replace")
+        except LookupError:
+            full_text = raw_bytes.decode("utf-8", errors="replace")
+            encoding_used = "utf-8"
+
+        all_lines = full_text.splitlines(keepends=True)
+        total_lines = len(all_lines)
+
+        # Line-range bounds
+        raw_start = args.get("start_line")
+        raw_end = args.get("end_line")
+        start_line: int = max(1, int(raw_start)) if raw_start is not None else 1
+        end_line: int = min(total_lines, int(raw_end)) if raw_end is not None else total_lines
+
+        if start_line > total_lines:
+            start_line = total_lines
+        if end_line < start_line:
+            end_line = start_line
+
+        selected = all_lines[start_line - 1 : end_line]
+        windowed_text = "".join(selected)
+
+        # Character cap
+        max_chars = min(
+            max(1, int(args.get("max_chars", _READ_FILE_MAX_CHARS_HARD_LIMIT))),
+            _READ_FILE_MAX_CHARS_HARD_LIMIT,
+        )
+        truncated_chars = len(windowed_text) > max_chars
+        content = windowed_text[:max_chars]
+
         return {
             "ok": True,
             "path": str(target).replace("\\", "/"),
-            "content": content[:max_chars],
-            "truncated": len(content) > max_chars,
+            "content": content,
+            "start_line": start_line,
+            "end_line": end_line,
+            "total_lines": total_lines,
+            "total_bytes": total_bytes,
+            "encoding_used": encoding_used,
+            "truncated": truncated_chars,
         }
 
     tools.register_tool(
         ToolDefinition(
             name="read_file",
-            description="Read a text file from the allowed workspace. Use this before edits to inspect existing content.",
+            description=(
+                "Read a text file from the allowed workspace. "
+                "Supports line-range selection (start_line/end_line), encoding selection, "
+                "and a hard cap of 48 000 chars. Use this before edits to inspect existing content."
+            ),
             handler=read_file_handler,
             parameters={
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
-                    "max_chars": {"type": "integer", "description": "Max characters to return (default 12000)"},
+                    "start_line": {"type": "integer", "description": "1-based start line (default 1)"},
+                    "end_line": {"type": "integer", "description": "1-based end line inclusive (default: last line)"},
+                    "max_chars": {"type": "integer", "description": "Character cap (default and max: 48000)"},
+                    "encoding": {"type": "string", "description": "utf-8 | utf-8-sig | latin-1 | ascii (default utf-8)"},
                 },
                 "required": ["path"],
             },
@@ -2322,6 +2376,304 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "framework": {"type": "string", "description": "auto | python | npm"},
                     "fix": {"type": "boolean", "description": "Apply automatic fixes when supported"},
                     "cwd": {"type": "string", "description": "Optional working directory"},
+                },
+            },
+        )
+    )
+
+    # ── patch_file ────────────────────────────────────────────────────────────
+
+    def _apply_unified_patch(original_lines: list[str], patch_text: str) -> tuple[list[str], int, int, list[str]]:
+        """Apply a unified-diff patch to a list of lines.
+
+        Returns (result_lines, hunks_applied, hunks_rejected, rejection_details).
+        Lines should NOT include trailing newlines for matching, but the result
+        preserves whatever endings were already in original_lines.
+        """
+        import re as _re
+
+        HUNK_HEADER = _re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+        class _Hunk:
+            def __init__(self, src_start: int, src_count: int, lines: list[str]) -> None:
+                self.src_start = src_start  # 1-based
+                self.src_count = src_count
+                self.lines = lines  # raw diff lines starting with ' ', '+', '-'
+
+        # ── Parse patch into hunks ──────────────────────────────────────────
+        hunks: list[_Hunk] = []
+        current_hunk_lines: list[str] = []
+        current_src_start = 0
+        current_src_count = 0
+        in_hunk = False
+        for raw_line in patch_text.splitlines():
+            m = HUNK_HEADER.match(raw_line)
+            if m:
+                if current_hunk_lines:
+                    hunks.append(_Hunk(current_src_start, current_src_count, current_hunk_lines))
+                    current_hunk_lines = []
+                in_hunk = True
+                current_src_start = int(m.group(1))
+                current_src_count = int(m.group(2)) if m.group(2) is not None else 1
+                continue
+            if in_hunk and raw_line and raw_line[0] in (" ", "+", "-"):
+                current_hunk_lines.append(raw_line)
+        if current_hunk_lines:
+            hunks.append(_Hunk(current_src_start, current_src_count, current_hunk_lines))
+
+        if not hunks:
+            return original_lines, 0, 1, ["patch contains no recognisable hunks"]
+
+        # ── Strip line endings from originals for context matching ──────────
+        stripped_originals = [ln.rstrip("\r\n") for ln in original_lines]
+
+        result = list(original_lines)
+        offset = 0
+        hunks_applied = 0
+        hunks_rejected = 0
+        rejection_details: list[str] = []
+
+        for hunk in hunks:
+            ctx_before = [ln[1:] for ln in hunk.lines if ln[0] == " "]
+            removals = [ln[1:] for ln in hunk.lines if ln[0] == "-"]
+            # Expected source block = context + removals in order
+            expected: list[str] = []
+            for ln in hunk.lines:
+                if ln[0] in (" ", "-"):
+                    expected.append(ln[1:])
+
+            # Locate expected block starting near hunk's declared src line
+            # (adjusting by accumulated offset from prior hunks)
+            anchor = hunk.src_start - 1 + offset  # 0-based
+            search_start = max(0, anchor - 5)
+            search_end = min(len(stripped_originals), anchor + max(10, len(expected) + 5))
+            found_at = -1
+            for i in range(search_start, search_end):
+                candidate = stripped_originals[i : i + len(expected)]
+                if candidate == expected:
+                    found_at = i
+                    break
+
+            if found_at == -1:
+                hunks_rejected += 1
+                rejection_details.append(
+                    f"hunk @@ -{hunk.src_start},{hunk.src_count} @@: context not found near line {anchor + 1}"
+                )
+                continue
+
+            # Build replacement block
+            replacement: list[str] = []
+            for ln in hunk.lines:
+                if ln[0] == " ":
+                    # Preserve original ending
+                    orig_idx = found_at + expected.index(ln[1:])
+                    replacement.append(result[orig_idx])
+                elif ln[0] == "+":
+                    replacement.append(ln[1:] + "\n")
+                # "-" lines are dropped
+
+            result[found_at : found_at + len(expected)] = replacement
+            stripped_originals[found_at : found_at + len(expected)] = [r.rstrip("\r\n") for r in replacement]
+            offset += len(replacement) - len(expected)
+            hunks_applied += 1
+
+        return result, hunks_applied, hunks_rejected, rejection_details
+
+    async def patch_file_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(args.get("target_path") or args.get("path") or "").strip()
+        patch_text = str(args.get("patch") or "").strip()
+        dry_run = bool(args.get("dry_run", False))
+        allow_creation = bool(args.get("allow_creation", False))
+
+        if not raw_path:
+            raise ValueError("target_path is required")
+        if not patch_text:
+            raise ValueError("patch is required and must be a non-empty unified diff string")
+
+        target = _resolve_workspace_path(raw_path)
+        if target.exists() and target.is_dir():
+            raise ValueError(f"target_path points to a directory: {target}")
+        if not target.exists() and not allow_creation:
+            raise ValueError(f"target file does not exist and allow_creation=false: {target}")
+
+        if target.exists():
+            original_text = target.read_text(encoding="utf-8", errors="replace")
+        else:
+            original_text = ""
+
+        original_lines = original_text.splitlines(keepends=True)
+        line_count_before = len(original_lines)
+
+        result_lines, hunks_applied, hunks_rejected, rejection_details = _apply_unified_patch(original_lines, patch_text)
+        line_count_after = len(result_lines)
+        created = not target.exists()
+
+        if hunks_rejected > 0 and hunks_applied == 0:
+            raise ValueError(
+                f"patch could not be applied: all {hunks_rejected} hunk(s) rejected. "
+                + "; ".join(rejection_details)
+            )
+
+        result_text = "".join(result_lines)
+        normalized_path = str(target).replace("\\", "/")
+
+        if not dry_run:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(result_text, encoding="utf-8")
+
+        summary = (
+            f"applied {hunks_applied} hunk(s) to {normalized_path}"
+            + (f" ({hunks_rejected} rejected)" if hunks_rejected else "")
+        )
+
+        return {
+            "ok": True,
+            "path": normalized_path,
+            "dry_run": dry_run,
+            "hunks_applied": hunks_applied,
+            "hunks_rejected": hunks_rejected,
+            "rejection_details": rejection_details,
+            "line_count_before": line_count_before,
+            "line_count_after": line_count_after,
+            "bytes_written": len(result_text.encode("utf-8")) if not dry_run else 0,
+            "created": created and not dry_run,
+            "patch_summary": summary,
+            "created_paths": [normalized_path] if created and not dry_run else [],
+            "updated_paths": [normalized_path] if not created and not dry_run else [],
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="patch_file",
+            description=(
+                "Apply a unified diff patch to a file in the workspace. "
+                "Locates each hunk by context lines, applies additions and removals, "
+                "and reports applied vs rejected hunks. Supports dry_run to preview changes."
+            ),
+            handler=patch_file_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "patch": {"type": "string", "description": "Unified diff string (output of git diff or diff -u)"},
+                    "dry_run": {"type": "boolean", "description": "Preview the patched result without writing (default false)"},
+                    "allow_creation": {"type": "boolean", "description": "Create the file if it does not yet exist (default false)"},
+                },
+                "required": ["target_path", "patch"],
+            },
+        )
+    )
+
+    # ── install_dependencies ──────────────────────────────────────────────────
+
+    async def install_dependencies_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_pm = str(args.get("package_manager") or "auto").strip().lower()
+        packages: list[str] = []
+        raw_pkgs = args.get("packages")
+        if isinstance(raw_pkgs, list):
+            packages = [str(p).strip() for p in raw_pkgs if str(p).strip()]
+        dev = bool(args.get("dev", False))
+        raw_cwd = args.get("target_path") or args.get("cwd")
+        cwd: str | None = str(raw_cwd).strip() if raw_cwd else None
+        dry_run = bool(args.get("dry_run", False))
+
+        if raw_pm not in {"auto", "pip", "npm"}:
+            raise ValueError("package_manager must be one of: auto, pip, npm")
+
+        resolved_pm = raw_pm
+        if resolved_pm == "auto":
+            search_root = _resolve_workspace_path(cwd) if cwd else execution.default_cwd
+            resolved_pm = "npm" if (search_root / "package.json").exists() else "pip"
+
+        # Build command
+        if resolved_pm == "npm":
+            if packages:
+                cmd_args = ["install"] + packages
+                if dev:
+                    cmd_args.append("--save-dev")
+            else:
+                cmd_args = ["install"]
+            command = "npm"
+            lockfile = "package-lock.json"
+        else:  # pip
+            if packages:
+                cmd_args = ["-m", "pip", "install"] + packages
+            else:
+                cmd_args = ["-m", "pip", "install", "-r", "requirements.txt"]
+            command = "python"
+            lockfile = "requirements.txt"
+
+        full_command = " ".join([command] + cmd_args)
+
+        if dry_run:
+            return {
+                "ok": True,
+                "dry_run": True,
+                "package_manager": resolved_pm,
+                "command": full_command,
+                "packages": packages,
+                "dev": dev,
+                "note": f"dry_run=true — no packages installed. Would run: {full_command}",
+                "created_paths": [],
+                "updated_paths": [],
+            }
+
+        try:
+            result = await execution.run_command(command, *cmd_args, cwd=cwd)
+        except ExecutionDeniedError as exc:
+            return {
+                "ok": False,
+                "error": str(exc),
+                "package_manager": resolved_pm,
+                "command": full_command,
+                "packages": packages,
+                "created_paths": [],
+                "updated_paths": [],
+            }
+
+        # Detect lockfile/requirements changes
+        updated_paths: list[str] = []
+        if result.returncode == 0:
+            search_root = _resolve_workspace_path(cwd) if cwd else execution.default_cwd
+            lf = (search_root / lockfile).resolve()
+            if lf.exists():
+                updated_paths.append(str(lf).replace("\\", "/"))
+
+        return {
+            "ok": result.returncode == 0,
+            "package_manager": resolved_pm,
+            "command": full_command,
+            "packages": packages,
+            "dev": dev,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "truncated": result.truncated,
+            "created_paths": [],
+            "updated_paths": updated_paths,
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="install_dependencies",
+            description=(
+                "Install packages using pip or npm. Auto-detects package manager from workspace layout. "
+                "If packages list is omitted, runs a clean install from the existing lock/requirements file. "
+                "Supports dry_run to preview the command without running it."
+            ),
+            handler=install_dependencies_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "package_manager": {"type": "string", "description": "auto | pip | npm (default auto)"},
+                    "packages": {
+                        "type": "array",
+                        "description": "Package names to install. Omit to install from lockfile.",
+                        "items": {"type": "string"},
+                    },
+                    "dev": {"type": "boolean", "description": "Install as dev dependency (npm --save-dev only)"},
+                    "target_path": {"type": "string", "description": "Working directory to run install in (optional)"},
+                    "dry_run": {"type": "boolean", "description": "Preview install command without executing (default false)"},
                 },
             },
         )
