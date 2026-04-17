@@ -6,11 +6,14 @@ Test service lifecycle management and telemetry integration.
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from harness.runtime.service_manager import ServiceManager, ServiceLaunchConfig
 from harness.runtime.telemetry import TelemetryCollector, RunTelemetry
 
 
-async def test_service_manager():
+@pytest.mark.anyio
+async def test_service_manager() -> None:
     """Test service manager initialization and status tracking."""
     print("\n=== Testing Service Manager ===")
     manager = ServiceManager()

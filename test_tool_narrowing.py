@@ -6,16 +6,17 @@ from pathlib import Path
 from harness.state_machine.reactive import ReactiveStateMachine
 from harness.runtime.config import ConfigManager
 from harness.model.adapter import ModelRegistry
-from harness.tools.registry import ToolRegistry
+from harness.tools.registry import PermissionPolicy, ToolRegistry
 from harness.skills.registry import SkillRegistry
 from harness.tools.definitions import ToolDefinition
 
 
 def test_tool_narrowing_stage_1_exact_match():
     """Test Stage 1: Exact skill match from required_tools."""
-    config = ConfigManager(Path("d:/Projects/TitantShift"))
-    models = ModelRegistry(config)
-    tools = ToolRegistry()
+    config = ConfigManager(Path(".").resolve())
+    models = ModelRegistry.from_config(config)
+    policy = PermissionPolicy.from_config(config, Path(".").resolve())
+    tools = ToolRegistry(policy)
     skills = SkillRegistry()
     
     # Register test tools
@@ -59,9 +60,10 @@ def test_tool_narrowing_stage_1_exact_match():
 
 def test_tool_narrowing_stage_2_keyword_match():
     """Test Stage 2: Keyword surface match on tool capabilities."""
-    config = ConfigManager(Path("d:/Projects/TitantShift"))
-    models = ModelRegistry(config)
-    tools = ToolRegistry()
+    config = ConfigManager(Path(".").resolve())
+    models = ModelRegistry.from_config(config)
+    policy = PermissionPolicy.from_config(config, Path(".").resolve())
+    tools = ToolRegistry(policy)
     skills = SkillRegistry()
     
     # Register test tools with various capabilities
@@ -97,9 +99,10 @@ def test_tool_narrowing_stage_2_keyword_match():
 
 def test_tool_narrowing_fallback():
     """Test fallback when no narrowing is applied."""
-    config = ConfigManager(Path("d:/Projects/TitantShift"))
-    models = ModelRegistry(config)
-    tools = ToolRegistry()
+    config = ConfigManager(Path(".").resolve())
+    models = ModelRegistry.from_config(config)
+    policy = PermissionPolicy.from_config(config, Path(".").resolve())
+    tools = ToolRegistry(policy)
     skills = SkillRegistry()
     
     # Register test tools without special configuration
