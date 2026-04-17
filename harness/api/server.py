@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import io
 import json
 import os
 import re
 import shlex
 import uuid
+import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TypeVar
@@ -15,7 +17,7 @@ from urllib.parse import quote_plus, urlparse
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from harness.memory.graph.migration import (
     export_from_neo4j,
@@ -2837,6 +2839,47 @@ def create_app(workspace_root: Path) -> FastAPI:
             raise HTTPException(status_code=404, detail="Artifact output not found")
         output_path = output_candidates[0].resolve()
         return FileResponse(path=output_path, filename=output_path.name)
+
+    @app.get("/artifacts/run/{task_id}/bundle", dependencies=[Depends(require_read_api_key)])
+    async def artifact_run_bundle(task_id: str) -> StreamingResponse:
+        root = _active_workspace["root"]
+        run_dir = (root / ".titantshift" / "artifacts" / task_id).resolve()
+        if not run_dir.exists() or not run_dir.is_dir():
+            raise HTTPException(status_code=404, detail="No artifacts found for this task")
+
+        buf = io.BytesIO()
+        manifest: dict[str, Any] = {
+            "task_id": task_id,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "artifacts": [],
+        }
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for artifact_dir in sorted(run_dir.iterdir()):
+                if not artifact_dir.is_dir():
+                    continue
+                prefix = artifact_dir.name
+                meta_path = (artifact_dir / "artifact.json").resolve()
+                if meta_path.exists() and meta_path.is_file():
+                    try:
+                        meta = json.loads(meta_path.read_text(encoding="utf-8", errors="replace"))
+                        manifest["artifacts"].append(meta)
+                    except Exception:
+                        pass
+                    zf.write(meta_path, f"{prefix}/artifact.json")
+                inputs_path = (artifact_dir / "inputs.json").resolve()
+                if inputs_path.exists() and inputs_path.is_file():
+                    zf.write(inputs_path, f"{prefix}/inputs.json")
+                for output_file in sorted(artifact_dir.glob("output.*")):
+                    zf.write(output_file.resolve(), f"{prefix}/{output_file.name}")
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2, default=str))
+        buf.seek(0)
+        safe_task_id = task_id[:16].replace("-", "")
+        filename = f"artifacts-{safe_task_id}.zip"
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get("/logs", response_model=LogQueryResponse, dependencies=[Depends(require_read_api_key)])
     async def get_logs(

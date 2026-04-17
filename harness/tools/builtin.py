@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -860,6 +861,480 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "overwrite": {"type": "boolean", "description": "Whether to overwrite an existing target file"},
                 },
                 "required": ["title", "format", "sections"],
+            },
+        )
+    )
+
+    # ── Chart helpers ────────────────────────────────────────────────────────
+
+    def _svg_bar_chart(title: str, data: list[dict], width: int, height: int, color: str) -> str:
+        ml, mr, mt, mb = 55, 20, 48, 58
+        pw = width - ml - mr
+        ph = height - mt - mb
+        n = len(data)
+        if n == 0:
+            return f'<?xml version="1.0" encoding="UTF-8"?><svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg"><rect width="{width}" height="{height}" fill="#f8fafc" rx="8"/><text x="{width//2}" y="{height//2}" text-anchor="middle" font-family="system-ui" fill="#94a3b8">No data</text></svg>'
+        max_val = max(float(d.get("value", 0)) for d in data)
+        if max_val <= 0:
+            max_val = 1.0
+        bar_slot = pw / n
+        bar_w = bar_slot * 0.65
+        bar_off = bar_slot * 0.175
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+            f'<rect width="{width}" height="{height}" fill="#f8fafc" rx="8"/>',
+            f'<text x="{width/2:.1f}" y="30" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="600" fill="#1e293b">{escape(title)}</text>',
+        ]
+        for gi in range(5):
+            gy = mt + ph * gi / 4
+            gv = max_val * (1 - gi / 4)
+            lines.append(f'<line x1="{ml}" y1="{gy:.1f}" x2="{ml + pw}" y2="{gy:.1f}" stroke="#e2e8f0" stroke-width="1"/>')
+            lines.append(f'<text x="{ml - 5}" y="{gy + 4:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#94a3b8">{gv:.0f}</text>')
+        for i, d in enumerate(data):
+            val = float(d.get("value", 0))
+            bh = max(1.0, ph * val / max_val)
+            bx = ml + i * bar_slot + bar_off
+            by = mt + ph - bh
+            lines.append(f'<rect x="{bx:.1f}" y="{by:.1f}" width="{bar_w:.1f}" height="{bh:.1f}" fill="{color}" rx="3" opacity="0.88"/>')
+            vlbl = f"{val:.0f}"
+            lines.append(f'<text x="{bx + bar_w / 2:.1f}" y="{by - 4:.1f}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="{color}" font-weight="600">{escape(vlbl)}</text>')
+            xlbl = escape(str(d.get("label", i + 1)))
+            lines.append(f'<text x="{bx + bar_w / 2:.1f}" y="{mt + ph + 16:.1f}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#475569">{xlbl}</text>')
+        lines.append(f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + ph}" stroke="#cbd5e1" stroke-width="1.5"/>')
+        lines.append(f'<line x1="{ml}" y1="{mt + ph}" x2="{ml + pw}" y2="{mt + ph}" stroke="#cbd5e1" stroke-width="1.5"/>')
+        lines.append('</svg>')
+        return '\n'.join(lines)
+
+    def _svg_line_chart(title: str, data: list[dict], width: int, height: int, color: str) -> str:
+        ml, mr, mt, mb = 55, 20, 48, 58
+        pw = width - ml - mr
+        ph = height - mt - mb
+        n = len(data)
+        if n == 0:
+            return f'<?xml version="1.0" encoding="UTF-8"?><svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg"><rect width="{width}" height="{height}" fill="#f8fafc" rx="8"/><text x="{width//2}" y="{height//2}" text-anchor="middle" font-family="system-ui" fill="#94a3b8">No data</text></svg>'
+        max_val = max(float(d.get("value", 0)) for d in data)
+        if max_val <= 0:
+            max_val = 1.0
+        pts = []
+        for i, d in enumerate(data):
+            val = float(d.get("value", 0))
+            x = ml + (i / max(n - 1, 1)) * pw
+            y = mt + ph - (val / max_val) * ph
+            pts.append((x, y, d))
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+            f'<rect width="{width}" height="{height}" fill="#f8fafc" rx="8"/>',
+            f'<text x="{width/2:.1f}" y="30" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="600" fill="#1e293b">{escape(title)}</text>',
+        ]
+        for gi in range(5):
+            gy = mt + ph * gi / 4
+            gv = max_val * (1 - gi / 4)
+            lines.append(f'<line x1="{ml}" y1="{gy:.1f}" x2="{ml + pw}" y2="{gy:.1f}" stroke="#e2e8f0" stroke-width="1"/>')
+            lines.append(f'<text x="{ml - 5}" y="{gy + 4:.1f}" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#94a3b8">{gv:.0f}</text>')
+        area_pts = f"{ml:.1f},{mt + ph:.1f} " + " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in pts) + f" {ml + pw:.1f},{mt + ph:.1f}"
+        lines.append(f'<polygon points="{area_pts}" fill="{color}" opacity="0.10"/>')
+        poly_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in pts)
+        lines.append(f'<polyline points="{poly_pts}" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>')
+        for x, y, d in pts:
+            lines.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{color}" stroke="#f8fafc" stroke-width="2"/>')
+            xlbl = escape(str(d.get("label", "")))
+            lines.append(f'<text x="{x:.1f}" y="{mt + ph + 16:.1f}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#475569">{xlbl}</text>')
+        lines.append(f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + ph}" stroke="#cbd5e1" stroke-width="1.5"/>')
+        lines.append(f'<line x1="{ml}" y1="{mt + ph}" x2="{ml + pw}" y2="{mt + ph}" stroke="#cbd5e1" stroke-width="1.5"/>')
+        lines.append('</svg>')
+        return '\n'.join(lines)
+
+    def _svg_pie_chart(title: str, data: list[dict], width: int, height: int) -> str:
+        palette = ["#4f9cf4", "#f4a24f", "#4ff4a2", "#f44f9c", "#a24ff4", "#64d4a0", "#f46f4f", "#4fa2f4", "#c4f44f", "#f44fa2"]
+        legend_w = 150
+        chart_w = width - legend_w
+        cx = chart_w // 2
+        mt = 50
+        cy = (height - mt) // 2 + mt
+        r = min(cx - 20, (height - mt) // 2 - 20)
+        total = sum(float(d.get("value", 0)) for d in data)
+        if total <= 0:
+            total = 1.0
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">',
+            f'<rect width="{width}" height="{height}" fill="#f8fafc" rx="8"/>',
+            f'<text x="{width/2:.1f}" y="30" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="600" fill="#1e293b">{escape(title)}</text>',
+        ]
+        angle = -math.pi / 2
+        for i, d in enumerate(data):
+            val = float(d.get("value", 0))
+            sweep = (val / total) * 2 * math.pi
+            if sweep < 0.001:
+                continue
+            x1 = cx + r * math.cos(angle)
+            y1 = cy + r * math.sin(angle)
+            x2 = cx + r * math.cos(angle + sweep)
+            y2 = cy + r * math.sin(angle + sweep)
+            large = 1 if sweep > math.pi else 0
+            clr = palette[i % len(palette)]
+            lines.append(f'<path d="M {cx:.1f} {cy:.1f} L {x1:.2f} {y1:.2f} A {r} {r} 0 {large} 1 {x2:.2f} {y2:.2f} Z" fill="{clr}" stroke="#f8fafc" stroke-width="2"/>')
+            angle += sweep
+        lx = width - legend_w + 12
+        for i, d in enumerate(data):
+            clr = palette[i % len(palette)]
+            ly = mt + i * 22
+            if ly > height - 20:
+                break
+            val = float(d.get("value", 0))
+            pct = val / total * 100
+            lbl = escape(str(d.get("label", i + 1)))
+            lines.append(f'<rect x="{lx}" y="{ly}" width="12" height="12" fill="{clr}" rx="2"/>')
+            lines.append(f'<text x="{lx + 17}" y="{ly + 10}" font-family="system-ui,sans-serif" font-size="11" fill="#334155">{lbl} ({pct:.0f}%)</text>')
+        lines.append('</svg>')
+        return '\n'.join(lines)
+
+    async def generate_chart_handler(args: dict[str, Any]) -> dict[str, Any]:
+        title = str(args.get("title") or "Chart").strip() or "Chart"
+        chart_type = str(args.get("chart_type") or "bar").strip().lower()
+        raw_data = args.get("data") or []
+        output_format = str(args.get("format") or "svg").strip().lower()
+        raw_target_path = str(args.get("target_path") or "outputs/charts").strip()
+        overwrite = bool(args.get("overwrite", False))
+        width = max(200, int(args.get("width") or 620))
+        height = max(120, int(args.get("height") or 380))
+        color = str(args.get("color") or "#4f9cf4").strip() or "#4f9cf4"
+
+        if chart_type not in {"bar", "line", "pie"}:
+            raise ValueError("chart_type must be one of: bar, line, pie")
+        if output_format not in {"svg", "html"}:
+            raise ValueError("format must be one of: svg, html")
+        if not isinstance(raw_data, list):
+            raise ValueError("data must be an array of {label, value} objects")
+
+        data_rows: list[dict] = []
+        for item in raw_data:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            try:
+                value = float(item.get("value", 0))
+            except (TypeError, ValueError):
+                value = 0.0
+            data_rows.append({"label": label, "value": value})
+
+        if chart_type == "bar":
+            svg_content = _svg_bar_chart(title, data_rows, width, height, color)
+        elif chart_type == "line":
+            svg_content = _svg_line_chart(title, data_rows, width, height, color)
+        else:
+            svg_content = _svg_pie_chart(title, data_rows, width, height)
+
+        import hashlib as _hlib
+        request_payload = {"title": title, "chart_type": chart_type, "data": data_rows, "width": width, "height": height, "color": color}
+        request_hash = _hlib.sha256(json.dumps(request_payload, sort_keys=True, default=str).encode()).hexdigest()[:12]
+        safe_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "chart"
+
+        if output_format == "svg":
+            final_content = svg_content
+            mime_type = "image/svg+xml"
+            kind = f"chart.{chart_type}.svg"
+            ext = "svg"
+        else:
+            final_content = (
+                "<!doctype html>\n<html lang=\"en\">\n  <head>\n"
+                "    <meta charset=\"UTF-8\" />\n"
+                f"    <title>{escape(title)}</title>\n"
+                "    <style>body{margin:0;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh}</style>\n"
+                "  </head>\n  <body>\n"
+                f"    {svg_content}\n"
+                "  </body>\n</html>\n"
+            )
+            mime_type = "text/html"
+            kind = f"chart.{chart_type}.html"
+            ext = "html"
+
+        filename = f"{safe_title}-{request_hash}.{ext}"
+        target_dir = _resolve_workspace_path(raw_target_path)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = (target_dir / filename).resolve()
+        existed_before = target.exists()
+        if existed_before and not overwrite:
+            raise ValueError(f"target chart already exists and overwrite=false: {target}")
+
+        target.write_text(final_content, encoding="utf-8")
+        normalized_path = str(target).replace("\\", "/")
+        generated_at = datetime.now(timezone.utc).isoformat()
+        artifact = {
+            "artifact_id": request_hash,
+            "kind": kind,
+            "path": normalized_path,
+            "mime_type": mime_type,
+            "title": title,
+            "summary": f"{chart_type.capitalize()} chart with {len(data_rows)} data points",
+            "generator": "generate_chart",
+            "backend": "chart_backend",
+            "provenance": {
+                "request_hash": request_hash,
+                "generated_at": generated_at,
+                "chart_type": chart_type,
+                "data_points": len(data_rows),
+                "output_format": output_format,
+            },
+            "preview": {"safe_inline": True},
+        }
+        return {
+            "ok": True,
+            "title": title,
+            "chart_type": chart_type,
+            "format": output_format,
+            "path": normalized_path,
+            "data_points": len(data_rows),
+            "created_paths": [] if existed_before else [normalized_path],
+            "updated_paths": [normalized_path] if existed_before else [],
+            "artifacts": [artifact],
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_chart",
+            description="Generate a deterministic SVG or HTML chart (bar, line, pie) from structured tabular data and emit artifact metadata.",
+            handler=generate_chart_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Chart title"},
+                    "chart_type": {"type": "string", "description": "bar | line | pie"},
+                    "data": {
+                        "type": "array",
+                        "description": "Array of {label, value} data points",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "value": {"type": "number"},
+                            },
+                        },
+                    },
+                    "format": {"type": "string", "description": "svg | html"},
+                    "target_path": {"type": "string", "description": "Output directory path"},
+                    "width": {"type": "integer", "description": "SVG width in pixels (default 620)"},
+                    "height": {"type": "integer", "description": "SVG height in pixels (default 380)"},
+                    "color": {"type": "string", "description": "Primary color hex for bar/line charts (default #4f9cf4)"},
+                    "overwrite": {"type": "boolean", "description": "Whether to overwrite an existing target file"},
+                },
+                "required": ["title", "chart_type", "data", "format"],
+            },
+        )
+    )
+
+    # ── SVG asset helpers ─────────────────────────────────────────────────────
+
+    def _svg_badge(label: str, value: str, label_color: str, value_color: str, height: int) -> str:
+        label_w = max(30, len(label) * 7 + 16)
+        value_w = max(30, len(value) * 7 + 16)
+        total_w = label_w + value_w
+        lx = label_w / 2
+        vx = label_w + value_w / 2
+        hy = height / 2 + 1
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<svg width="{total_w}" height="{height}" viewBox="0 0 {total_w} {height}" xmlns="http://www.w3.org/2000/svg" role="img">\n'
+            '  <linearGradient id="gs" x2="0" y2="100%">'
+            '<stop offset="0" stop-color="#fff" stop-opacity=".15"/>'
+            '<stop offset="1" stop-opacity=".15"/>'
+            '</linearGradient>\n'
+            f'  <clipPath id="cr"><rect width="{total_w}" height="{height}" rx="4" fill="#fff"/></clipPath>\n'
+            '  <g clip-path="url(#cr)">\n'
+            f'    <rect width="{label_w}" height="{height}" fill="{label_color}"/>\n'
+            f'    <rect x="{label_w}" width="{value_w}" height="{height}" fill="{value_color}"/>\n'
+            f'    <rect width="{total_w}" height="{height}" fill="url(#gs)"/>\n'
+            '  </g>\n'
+            f'  <text x="{lx:.1f}" y="{hy + 1:.1f}" text-anchor="middle" font-family="DejaVu Sans,Verdana,sans-serif" font-size="11" fill="#010101" fill-opacity=".25">{escape(label)}</text>\n'
+            f'  <text x="{lx:.1f}" y="{hy:.1f}" text-anchor="middle" font-family="DejaVu Sans,Verdana,sans-serif" font-size="11" fill="#fff">{escape(label)}</text>\n'
+            f'  <text x="{vx:.1f}" y="{hy + 1:.1f}" text-anchor="middle" font-family="DejaVu Sans,Verdana,sans-serif" font-size="11" fill="#010101" fill-opacity=".25">{escape(value)}</text>\n'
+            f'  <text x="{vx:.1f}" y="{hy:.1f}" text-anchor="middle" font-family="DejaVu Sans,Verdana,sans-serif" font-size="11" fill="#fff">{escape(value)}</text>\n'
+            '</svg>'
+        )
+
+    _ICON_PATHS: dict[str, str] = {
+        "check": '<circle cx="24" cy="24" r="22" fill="{color}"/><polyline points="12,24 21,33 36,14" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
+        "circle": '<circle cx="24" cy="24" r="22" fill="{color}"/>',
+        "info": '<circle cx="24" cy="24" r="22" fill="{color}"/><rect x="22" y="20" width="4" height="14" rx="2" fill="#fff"/><circle cx="24" cy="14" r="3" fill="#fff"/>',
+        "warning": '<polygon points="24,4 44,42 4,42" fill="{color}" stroke="{color}" stroke-linejoin="round"/><rect x="22" y="18" width="4" height="12" rx="2" fill="#fff"/><circle cx="24" cy="36" r="3" fill="#fff"/>',
+        "star": '<polygon points="24,4 29,19 45,19 32,28 37,44 24,35 11,44 16,28 3,19 19,19" fill="{color}"/>',
+        "cross": '<circle cx="24" cy="24" r="22" fill="{color}"/><line x1="14" y1="14" x2="34" y2="34" stroke="#fff" stroke-width="4" stroke-linecap="round"/><line x1="34" y1="14" x2="14" y2="34" stroke="#fff" stroke-width="4" stroke-linecap="round"/>',
+        "bolt": '<polygon points="28,4 14,26 24,26 20,44 34,22 24,22" fill="{color}"/>',
+        "user": '<circle cx="24" cy="16" r="9" fill="{color}"/><path d="M4,44 C4,30 44,30 44,44" fill="{color}"/>',
+        "gear": '<circle cx="24" cy="24" r="8" fill="#fff" stroke="{color}" stroke-width="3"/><circle cx="24" cy="24" r="22" fill="none" stroke="{color}" stroke-width="7" stroke-dasharray="8 6"/>',
+        "arrow": '<polygon points="12,20 28,20 28,12 40,24 28,36 28,28 12,28" fill="{color}"/>',
+    }
+
+    def _svg_icon(icon_type: str, color: str, size: int) -> str:
+        path_tpl = _ICON_PATHS.get(icon_type, _ICON_PATHS["circle"])
+        path_svg = path_tpl.replace("{color}", color)
+        scale = size / 48
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<svg width="{size}" height="{size}" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img">\n'
+            f'  <g transform="scale({scale:.4f})">{path_svg}</g>\n'
+            '</svg>'
+        )
+
+    def _svg_diagram(steps: list[dict], direction: str, title: str) -> str:
+        is_horiz = direction.lower() in {"horizontal", "h"}
+        box_w, box_h = (140, 44) if is_horiz else (180, 44)
+        gap = 48
+        n = len(steps)
+        if n == 0:
+            return '<?xml version="1.0" encoding="UTF-8"?><svg width="200" height="80" xmlns="http://www.w3.org/2000/svg"><text x="100" y="44" text-anchor="middle" font-family="system-ui" fill="#94a3b8">No steps</text></svg>'
+        arrow_size = 16
+        if is_horiz:
+            total_w = n * box_w + (n - 1) * gap + 40
+            total_h = box_h + 80
+        else:
+            total_w = box_w + 60
+            total_h = n * box_h + (n - 1) * gap + 80
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            f'<svg width="{total_w}" height="{total_h}" viewBox="0 0 {total_w} {total_h}" xmlns="http://www.w3.org/2000/svg">',
+            f'<rect width="{total_w}" height="{total_h}" fill="#f8fafc" rx="8"/>',
+            f'<text x="{total_w/2:.1f}" y="28" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="600" fill="#1e293b">{escape(title)}</text>',
+        ]
+        for i, step in enumerate(steps):
+            label = escape(str(step.get("label") or f"Step {i + 1}"))
+            if is_horiz:
+                bx = 20 + i * (box_w + gap)
+                by = 44
+            else:
+                bx = 30
+                by = 44 + i * (box_h + gap)
+            cx = bx + box_w / 2
+            cy = by + box_h / 2
+            lines.append(f'<rect x="{bx}" y="{by}" width="{box_w}" height="{box_h}" rx="6" fill="#4f9cf4" opacity="0.9"/>')
+            lines.append(f'<text x="{cx:.1f}" y="{cy + 5:.1f}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="600" fill="#fff">{label}</text>')
+            if i < n - 1:
+                if is_horiz:
+                    ax1 = bx + box_w
+                    ay1 = by + box_h / 2
+                    ax2 = ax1 + gap - arrow_size
+                    lines.append(f'<line x1="{ax1}" y1="{ay1:.1f}" x2="{ax2}" y2="{ay1:.1f}" stroke="#94a3b8" stroke-width="2"/>')
+                    lines.append(f'<polygon points="{ax2},{ay1 - 5:.1f} {ax2 + arrow_size},{ay1:.1f} {ax2},{ay1 + 5:.1f}" fill="#94a3b8"/>')
+                else:
+                    ax1 = bx + box_w / 2
+                    ay1 = by + box_h
+                    ay2 = ay1 + gap - arrow_size
+                    lines.append(f'<line x1="{ax1:.1f}" y1="{ay1}" x2="{ax1:.1f}" y2="{ay2}" stroke="#94a3b8" stroke-width="2"/>')
+                    lines.append(f'<polygon points="{ax1 - 5:.1f},{ay2} {ax1:.1f},{ay2 + arrow_size} {ax1 + 5:.1f},{ay2}" fill="#94a3b8"/>')
+        lines.append('</svg>')
+        return '\n'.join(lines)
+
+    async def generate_svg_asset_handler(args: dict[str, Any]) -> dict[str, Any]:
+        kind = str(args.get("kind") or "badge").strip().lower()
+        title = str(args.get("title") or kind).strip() or kind
+        raw_target_path = str(args.get("target_path") or "outputs/assets").strip()
+        overwrite = bool(args.get("overwrite", False))
+
+        if kind not in {"badge", "icon", "diagram", "custom"}:
+            raise ValueError("kind must be one of: badge, icon, diagram, custom")
+
+        generated_at = datetime.now(timezone.utc).isoformat()
+        if kind == "badge":
+            label = str(args.get("label") or "label").strip() or "label"
+            value = str(args.get("value") or "value").strip() or "value"
+            label_color = str(args.get("label_color") or "#555").strip() or "#555"
+            value_color = str(args.get("value_color") or "#4f9cf4").strip() or "#4f9cf4"
+            badge_height = max(16, int(args.get("height") or 20))
+            svg_content = _svg_badge(label, value, label_color, value_color, badge_height)
+            summary = f"Badge: {label} | {value}"
+        elif kind == "icon":
+            icon_type = str(args.get("icon_type") or "circle").strip().lower()
+            if icon_type not in _ICON_PATHS:
+                icon_type = "circle"
+            color = str(args.get("color") or "#4f9cf4").strip() or "#4f9cf4"
+            size = max(16, int(args.get("size") or 48))
+            svg_content = _svg_icon(icon_type, color, size)
+            summary = f"Icon: {icon_type} at {size}px"
+        elif kind == "diagram":
+            raw_steps = args.get("steps") or []
+            if not isinstance(raw_steps, list):
+                raise ValueError("steps must be an array when kind=diagram")
+            steps = [{"label": str(s.get("label") or f"Step {i + 1}")} for i, s in enumerate(raw_steps) if isinstance(s, dict)]
+            direction = str(args.get("direction") or "horizontal").strip().lower()
+            svg_content = _svg_diagram(steps, direction, title)
+            summary = f"Diagram with {len(steps)} steps"
+        else:
+            raw_markup = str(args.get("markup") or "").strip()
+            if not raw_markup:
+                raise ValueError("markup is required when kind=custom")
+            svg_content = raw_markup
+            summary = "Custom SVG asset"
+
+        import hashlib as _hlib
+        request_hash = _hlib.sha256((title + kind + svg_content[:200]).encode()).hexdigest()[:12]
+        safe_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "asset"
+        filename = f"{safe_title}-{request_hash}.svg"
+        target_dir = _resolve_workspace_path(raw_target_path)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = (target_dir / filename).resolve()
+        existed_before = target.exists()
+        if existed_before and not overwrite:
+            raise ValueError(f"target SVG asset already exists and overwrite=false: {target}")
+
+        target.write_text(svg_content, encoding="utf-8")
+        normalized_path = str(target).replace("\\", "/")
+        artifact = {
+            "artifact_id": request_hash,
+            "kind": f"asset.svg.{kind}",
+            "path": normalized_path,
+            "mime_type": "image/svg+xml",
+            "title": title,
+            "summary": summary,
+            "generator": "generate_svg_asset",
+            "backend": "vector_backend",
+            "provenance": {
+                "request_hash": request_hash,
+                "generated_at": generated_at,
+                "kind": kind,
+            },
+            "preview": {"safe_inline": True},
+        }
+        return {
+            "ok": True,
+            "title": title,
+            "kind": kind,
+            "path": normalized_path,
+            "created_paths": [] if existed_before else [normalized_path],
+            "updated_paths": [normalized_path] if existed_before else [],
+            "artifacts": [artifact],
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_svg_asset",
+            description="Generate a deterministic SVG asset (badge, icon, diagram, or custom markup) and emit artifact metadata.",
+            handler=generate_svg_asset_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "description": "badge | icon | diagram | custom"},
+                    "title": {"type": "string", "description": "Asset title for metadata"},
+                    "target_path": {"type": "string", "description": "Output directory path"},
+                    "label": {"type": "string", "description": "Left label text (badge only)"},
+                    "value": {"type": "string", "description": "Right value text (badge only)"},
+                    "label_color": {"type": "string", "description": "Left section background color (badge only, default #555)"},
+                    "value_color": {"type": "string", "description": "Right section background color (badge only, default #4f9cf4)"},
+                    "height": {"type": "integer", "description": "Badge height in px (badge only, default 20)"},
+                    "icon_type": {"type": "string", "description": "check | circle | info | warning | star | cross | bolt | user | gear | arrow (icon only)"},
+                    "color": {"type": "string", "description": "Icon fill color hex (icon only, default #4f9cf4)"},
+                    "size": {"type": "integer", "description": "Icon size in px (icon only, default 48)"},
+                    "steps": {
+                        "type": "array",
+                        "description": "Ordered step objects for diagram kind",
+                        "items": {"type": "object", "properties": {"label": {"type": "string"}}},
+                    },
+                    "direction": {"type": "string", "description": "horizontal | vertical flow direction for diagrams"},
+                    "markup": {"type": "string", "description": "Raw SVG markup (custom kind only)"},
+                    "overwrite": {"type": "boolean", "description": "Whether to overwrite an existing target file"},
+                },
+                "required": ["kind", "title"],
             },
         )
     )

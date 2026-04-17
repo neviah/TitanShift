@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef, type ReactNode 
 import { useWorkspace } from './WorkspaceContext'
 import { useToast } from './ToastContext'
 import { fetchTasks } from '../api/client'
+import type { TaskSummary } from '../api/types'
 
 export interface SchedulerTask {
   id: string
@@ -42,10 +43,19 @@ export function SchedulerTaskProvider({ children }: { children: ReactNode }) {
     if (!currentWorkspaceId) return
 
     try {
-      const tasks = await fetchTasks()
-      if (Array.isArray(tasks)) {
+      const rawTasks = await fetchTasks()
+      if (Array.isArray(rawTasks)) {
+        // Map TaskSummary (task_id) → SchedulerTask (id)
+        const tasks: SchedulerTask[] = rawTasks.map((t: TaskSummary) => ({
+          id: t.task_id,
+          status: (t.status as SchedulerTask['status']) || 'pending',
+          description: t.description,
+          created_at: t.created_at,
+          updated_at: t.completed_at ?? t.started_at ?? t.created_at,
+        }))
+
         // Find the most recent running or just-completed task
-        const sortedTasks = tasks.sort(
+        const sortedTasks = [...tasks].sort(
           (a: SchedulerTask, b: SchedulerTask) =>
             new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
         )
