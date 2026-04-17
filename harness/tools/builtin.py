@@ -1841,3 +1841,50 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             },
         )
     )
+
+    async def get_location_handler(args: dict[str, Any]) -> dict[str, Any]:
+        """Return approximate geolocation of the server's public IP using ip-api.com (free, no key)."""
+        timeout_s = float(args.get("timeout_s", 8))
+        try:
+            async with httpx.AsyncClient(timeout=timeout_s) as client:
+                resp = await client.get("http://ip-api.com/json/?fields=status,message,country,regionName,city,zip,lat,lon,timezone,isp,query")
+            data = resp.json()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        if data.get("status") != "success":
+            return {"ok": False, "error": data.get("message", "ip-api.com returned non-success status"), "raw": data}
+
+        return {
+            "ok": True,
+            "ip": data.get("query"),
+            "city": data.get("city"),
+            "region": data.get("regionName"),
+            "country": data.get("country"),
+            "zip": data.get("zip"),
+            "latitude": data.get("lat"),
+            "longitude": data.get("lon"),
+            "timezone": data.get("timezone"),
+            "isp": data.get("isp"),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="get_location",
+            description=(
+                "Return the approximate geographic location (city, region, country, lat/lon, timezone) "
+                "of the server's public IP address. Uses ip-api.com — no API key required. "
+                "Useful when the user asks 'where am I', 'what city am I in', or wants weather for their current location."
+            ),
+            needs_network=True,
+            capabilities=["geo.ip", "location.city", "location.country"],
+            handler=get_location_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "timeout_s": {"type": "number", "description": "Request timeout in seconds (default 8)"},
+                },
+                "required": [],
+            },
+        )
+    )

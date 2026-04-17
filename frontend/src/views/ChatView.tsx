@@ -395,6 +395,11 @@ export function ChatView() {
                   </div>
                 </div>
                 <p className={styles.msgText}>{m.text}</p>
+                {m.timestamp && (
+                  <p className={styles.msgTime}>
+                    {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                )}
               </div>
             ))}
           </div>

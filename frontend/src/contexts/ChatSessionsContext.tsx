@@ -4,6 +4,7 @@ import { useWorkspace } from './WorkspaceContext'
 export interface ChatMessage {
   role: 'user' | 'assistant'
   text: string
+  timestamp?: string
 }
 
 export interface ChatSession {
@@ -192,11 +193,12 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   }
 
   function appendMessage(message: ChatMessage) {
+    const stamped: ChatMessage = { ...message, timestamp: message.timestamp ?? new Date().toISOString() }
     setStore((prev) => {
       const state = prev.byWorkspace[workspaceScopeKey] ?? prev.byWorkspace[currentWorkspaceId] ?? createWorkspaceState()
       const updated = state.sessions.map((session) => {
         if (session.id !== state.currentSessionId) return session
-        const messages = [...session.messages, message]
+        const messages = [...session.messages, stamped]
         const title = session.title === 'New Chat' && message.role === 'user'
           ? message.text.trim().slice(0, 36) || 'New Chat'
           : session.title
