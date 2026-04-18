@@ -19,8 +19,9 @@ from urllib.parse import quote_plus, urlparse
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
+from harness.api.audit import render_audit_text, run_audit
 from harness.memory.graph.migration import (
     export_from_neo4j,
     import_to_neo4j,
@@ -63,6 +64,7 @@ from harness.api.schemas import (
     ConfigUpdateResponse,
     GraphifyRequest,
     GraphifyResponse,
+    HarnessAuditResponse,
     IngestionDedupeEntry,
     IngestionDedupeLogResponse,
     IngestionStatsResponse,
@@ -5721,6 +5723,28 @@ def create_app(workspace_root: Path) -> FastAPI:
                 "checked_at": datetime.now(timezone.utc).isoformat(),
             },
         )
+
+    @app.get("/harness-audit", response_model=HarnessAuditResponse, dependencies=[Depends(require_admin_api_key)])
+    async def harness_audit(category: str | None = None, format: str = "json") -> HarnessAuditResponse | PlainTextResponse:
+        selected_categories: set[str] | None = None
+        if category:
+            selected_categories = {item.strip().lower() for item in category.split(",") if item.strip()}
+            invalid = selected_categories.difference({"config", "auth", "tools", "memory", "eval", "scale"})
+            if invalid:
+                raise HTTPException(status_code=400, detail=f"Unknown audit categories: {', '.join(sorted(invalid))}")
+
+        report = run_audit(
+            runtime,
+            workspace_root=workspace_root,
+            key_store=_key_store,
+            run_queue=_run_queue,
+            categories=selected_categories,
+        )
+        if format == "text":
+            return PlainTextResponse(render_audit_text(report))
+        if format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'text'")
+        return HarnessAuditResponse.model_validate(report)
 
     # ── /metrics (Prometheus text format) ────────────────────────────────────
     @app.get("/metrics")

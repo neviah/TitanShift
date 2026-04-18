@@ -4220,6 +4220,38 @@ def test_health_endpoint_includes_rollback_and_cancellation_entries() -> None:
     assert "cancellation" in health_items
 
 
+def test_harness_audit_endpoint_returns_expected_shape() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.get("/harness-audit")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["audit_version"] == "1.0"
+    assert body["harness_version"] == "0.3.5"
+    assert body["eval_readiness"] in {"ready", "partial", "not_ready"}
+    assert body["risk_level"] in {"low", "medium", "high", "critical"}
+    assert isinstance(body["reliability_score"], int)
+    assert isinstance(body["categories"], dict)
+    assert {"config", "auth", "tools", "memory", "eval", "scale"}.issubset(body["categories"].keys())
+    assert isinstance(body["summary"], str)
+
+
+def test_harness_audit_endpoint_supports_category_filter_and_text_format() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.get("/harness-audit?category=config,eval&format=text")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    body = response.text
+    assert "[config]" in body
+    assert "[eval]" in body
+    assert "[auth]" not in body
+
+
 
 def test_run_history_export_endpoint_writes_file() -> None:
     app = create_app(Path(".").resolve())

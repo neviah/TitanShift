@@ -1009,6 +1009,30 @@ class ApiKeyRotateResponse(BaseModel):
     new_key: str
 
 
+class AuditFinding(BaseModel):
+    id: str
+    severity: str
+    title: str
+    detail: str
+    remediation: str
+
+
+class AuditCategoryReport(BaseModel):
+    score: int = Field(ge=0, le=100)
+    findings: list[AuditFinding] = Field(default_factory=list)
+
+
+class HarnessAuditResponse(BaseModel):
+    audit_version: str
+    generated_at: str
+    harness_version: str
+    reliability_score: int = Field(ge=0, le=100)
+    eval_readiness: str
+    risk_level: str
+    categories: dict[str, AuditCategoryReport] = Field(default_factory=dict)
+    summary: str
+
+
 
 class ArtifactCleanupResponse(BaseModel):
     ok: bool
