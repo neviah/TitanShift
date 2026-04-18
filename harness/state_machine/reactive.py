@@ -543,6 +543,21 @@ class ReactiveStateMachine:
         allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
         llm_call_index = 0
 
+        # ── SessionStart hook ──────────────────────────────────────────────
+        if self.hooks is not None:
+            try:
+                await self.hooks.emit(HookPayload(
+                    event="SessionStart",
+                    data={
+                        "task_id": task.id,
+                        "tenant_id": tenant_id,
+                        "description": task.description,
+                        "budget": budget,
+                    },
+                ))
+            except Exception:
+                pass
+
         # Prepend prior conversation turns so the model has full context
         for prior in conversation_history:
             role = prior.get("role", "user")
@@ -741,6 +756,23 @@ class ReactiveStateMachine:
                         f"Tool-like skill call `{tc.name}` with {json.dumps(tc.arguments)} was converted into guidance: {tool_content}"
                     )
                     continue
+                # ── PreToolUse hook ───────────────────────────────────────
+                if self.hooks is not None:
+                    try:
+                        await self.hooks.emit(HookPayload(
+                            event="PreToolUse",
+                            data={
+                                "task_id": task.id,
+                                "tenant_id": tenant_id,
+                                "tool": tc.name,
+                                "arguments": tc.arguments,
+                                "step": step,
+                                "call_index": call_index,
+                            },
+                        ))
+                    except Exception:
+                        pass
+
                 try:
                     # Bypass policy checks in superpowered mode since it has approval gates
                     result = await self.tools.execute_tool(
@@ -842,6 +874,23 @@ class ReactiveStateMachine:
                             str(s).strip() for s in wiring_summaries if str(s).strip()
                         )
 
+                # ── PostToolUse hook ──────────────────────────────────────
+                if self.hooks is not None:
+                    try:
+                        await self.hooks.emit(HookPayload(
+                            event="PostToolUse",
+                            data={
+                                "task_id": task.id,
+                                "tenant_id": tenant_id,
+                                "tool": tc.name,
+                                "arguments": tc.arguments,
+                                "result": tool_result if isinstance(tool_result, dict) else {"raw": str(tool_result)},
+                                "step": step,
+                            },
+                        ))
+                    except Exception:
+                        pass
+
                 tool_content = json.dumps(tool_result, default=str)
 
                 total_tokens += model.estimate_tokens(tool_content)
@@ -891,6 +940,22 @@ class ReactiveStateMachine:
             if artifact_id:
                 seen_artifact_ids.add(artifact_id)
             deduped_artifacts.append(artifact)
+
+        # ── Stop hook ─────────────────────────────────────────────────────
+        if self.hooks is not None:
+            try:
+                await self.hooks.emit(HookPayload(
+                    event="Stop",
+                    data={
+                        "task_id": task.id,
+                        "tenant_id": tenant_id,
+                        "success": bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
+                        "response": final_text,
+                        "used_tools": used_tools,
+                    },
+                ))
+            except Exception:
+                pass
 
         return TaskResult(
             task_id=task.id,
@@ -1007,6 +1072,21 @@ class ReactiveStateMachine:
         llm_call_index = 0
         last_diff: str = ""  # last patch/replace diff captured for PreviewPanel
 
+        # ── SessionStart hook ──────────────────────────────────────────────
+        if self.hooks is not None:
+            try:
+                await self.hooks.emit(HookPayload(
+                    event="SessionStart",
+                    data={
+                        "task_id": task.id,
+                        "tenant_id": tenant_id,
+                        "description": task.description,
+                        "budget": budget,
+                    },
+                ))
+            except Exception:
+                pass
+
         try:
             for step in range(budget["max_steps"]):
                 if total_tokens > budget["max_tokens"]:
@@ -1101,6 +1181,23 @@ class ReactiveStateMachine:
                         tool_result_lines.append(f"Tool `{tc.name}` returned: {tool_content}")
                         yield {"type": "tool_result", "step": step, "tool": tc.name, "ok": True, "summary": "skill-like call redirected"}
                         continue
+                    # ── PreToolUse hook ──────────────────────────────────────
+                    if self.hooks is not None:
+                        try:
+                            await self.hooks.emit(HookPayload(
+                                event="PreToolUse",
+                                data={
+                                    "task_id": task.id,
+                                    "tenant_id": tenant_id,
+                                    "tool": tc.name,
+                                    "arguments": tc.arguments,
+                                    "step": step,
+                                    "call_index": call_index,
+                                },
+                            ))
+                        except Exception:
+                            pass
+
                     try:
                         tool_result: Any = await self.tools.execute_tool(
                             tc.name,
@@ -1175,6 +1272,23 @@ class ReactiveStateMachine:
                         condensed += " ...[truncated]"
                     tool_result_lines.append(f"Tool `{tc.name}` called with {json.dumps(tc.arguments)} returned: {condensed}")
 
+                    # ── PostToolUse hook ─────────────────────────────────────
+                    if self.hooks is not None:
+                        try:
+                            await self.hooks.emit(HookPayload(
+                                event="PostToolUse",
+                                data={
+                                    "task_id": task.id,
+                                    "tenant_id": tenant_id,
+                                    "tool": tc.name,
+                                    "arguments": tc.arguments,
+                                    "result": tool_result if isinstance(tool_result, dict) else {"raw": str(tool_result)},
+                                    "step": step,
+                                },
+                            ))
+                        except Exception:
+                            pass
+
                     ok_flag = isinstance(tool_result, dict) and tool_result.get("ok", True) is not False
                     # Include diff in tool_result events for patch-capable tools
                     tool_diff = ""
@@ -1201,6 +1315,21 @@ class ReactiveStateMachine:
         except Exception as exc:
             yield {"type": "error", "message": str(exc)}
             return
+
+        # ── Stop hook ─────────────────────────────────────────────────────
+        if self.hooks is not None:
+            try:
+                await self.hooks.emit(HookPayload(
+                    event="Stop",
+                    data={
+                        "task_id": task.id,
+                        "success": bool(final_text and not final_text.startswith("[Agent reached")),
+                        "response": final_text,
+                        "used_tools": used_tools,
+                    },
+                ))
+            except Exception:
+                pass
 
         yield {
             "type": "done",

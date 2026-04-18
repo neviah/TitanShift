@@ -110,7 +110,8 @@
       "officecli_view_document",
       "officecli_set_properties",
       "officecli_merge_template",
-      "officecli_batch"
+      "officecli_batch",
+      "last30days_research"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [
@@ -167,7 +168,8 @@
       "officecli_view_document",
       "officecli_set_properties",
       "officecli_merge_template",
-      "officecli_batch"
+      "officecli_batch",
+      "last30days_research"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo", "officecli"]
