@@ -179,10 +179,13 @@ export interface ChatRequest {
   }
 }
 
+/** A single server-sent event from the /chat/stream endpoint */
+export interface StreamEvent {
+  type: 'start' | 'step' | 'tool_result' | 'text_delta' | 'done' | 'error' | 'eof' | string
+  [key: string]: unknown
+}
+
 export interface ChatResponse {
-  success: boolean
-  response: string
-  model: string
   mode: string
   workflow_mode?: string | null
   missing_approvals?: string[] | null

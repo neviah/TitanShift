@@ -6,7 +6,10 @@ import { useTaskDrafts } from '../contexts/TaskDraftsContext'
 import { useSchedulerTask } from '../contexts/SchedulerTaskContext'
 import { StatusIndicator } from '../components/StatusIndicator'
 import { TaskRunningBanner } from '../components/layout/TaskRunningBanner'
+import { RunTimeline } from '../components/RunTimeline'
+import { PreviewPanel } from '../components/PreviewPanel'
 import { usePolling } from '../hooks/usePolling'
+import { useTaskStream } from '../hooks/useTaskStream'
 import styles from './ChatView.module.css'
 
 const VISUAL_STATE_KEY = 'titanshift-workflow-visual-state'
@@ -32,6 +35,9 @@ export function ChatView() {
   const [workflowPanelOpen, setWorkflowPanelOpen] = useState(true)
   const [artifactDockOpen, setArtifactDockOpen] = useState(false)
   const [artifactBusy, setArtifactBusy] = useState(false)
+  const [liveRun, setLiveRun] = useState(false)
+  const [timelineOpen, setTimelineOpen] = useState(true)
+  const { state: streamState, startStream, cancelStream } = useTaskStream()
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
   const { concurrencyMode, isTaskRunning } = useSchedulerTask()
@@ -124,6 +130,27 @@ export function ChatView() {
     setError(null)
     setWorkflowPhase('routing')
 
+    // ── Live Run (streaming) path ────────────────────────────────────────────
+    if (liveRun) {
+      const requestBody: Record<string, unknown> = {
+        prompt: text,
+        ...(priorMessages.length > 0 ? { history: priorMessages } : {}),
+        ...(preferredBackend ? { model_backend: preferredBackend } : {}),
+        workflow_mode: workflowMode,
+      }
+      try {
+        await startStream(requestBody)
+        // Response will come via streamState; append a placeholder then update
+        // once done event arrives. We watch streamState in the effect below.
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+        setWorkflowPhase('error')
+      } finally {
+        setSending(false)
+      }
+      return
+    }
+
     try {
       const parsedPlanTasks = workflowMode === 'superpowered'
         ? planTasksText
@@ -179,7 +206,21 @@ export function ChatView() {
     }
   }
 
-  async function copyMessage(text: string, key: string) {
+  // When a streaming run finishes, append the final response as an assistant message
+  useEffect(() => {
+    if (streamState.status === 'done' && streamState.finalResponse) {
+      appendMessage({ role: 'assistant', text: streamState.finalResponse })
+      setWorkflowPhase('deliver')
+      setSending(false)
+    } else if (streamState.status === 'error' && streamState.error) {
+      setError(streamState.error)
+      setWorkflowPhase('error')
+      setSending(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamState.status])
+
+
     try {
       await navigator.clipboard.writeText(text)
       setCopiedKey(key)
@@ -318,6 +359,15 @@ export function ChatView() {
           </button>
         </div>
         <div className={styles.workflowBarActions}>
+          <label className={styles.toggleLabel} title="Use streaming /chat/stream endpoint and show live timeline">
+            <input
+              type="checkbox"
+              checked={liveRun}
+              onChange={(e) => setLiveRun(e.target.checked)}
+              disabled={sending}
+            />
+            Live Run
+          </label>
           <span className={`badge ${workflowPhase === 'error' ? 'badge-error' : workflowPhase === 'approval' ? 'badge-warn' : 'badge-ok'}`}>
             {workflowPhase}
           </span>
@@ -421,7 +471,30 @@ export function ChatView() {
             </div>
           </div>
         )}
-        {sending && <StatusIndicator isActive />}
+        {sending && !liveRun && <StatusIndicator isActive />}
+        {liveRun && streamState.status !== 'idle' && (
+          <div>
+            <button
+              className={styles.collapseBtn}
+              onClick={() => setTimelineOpen((v) => !v)}
+              style={{ margin: '4px 0' }}
+            >
+              {timelineOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              Run Timeline
+            </button>
+            {timelineOpen && (
+              <RunTimeline events={streamState.events} status={streamState.status} />
+            )}
+            {streamState.status === 'done' && (
+              <PreviewPanel
+                patchSummaries={streamState.patchSummaries}
+                updatedPaths={streamState.updatedPaths}
+                onFeedback={(feedback) => void sendPrompt(feedback)}
+                feedbackLoading={sending}
+              />
+            )}
+          </div>
+        )}
         {promoteMsg && <p className={`${styles.error} text-info`}>{promoteMsg}</p>}
         {error && <p className={`${styles.error} text-error`}>{error}</p>}
         <div ref={messagesEndRef} />

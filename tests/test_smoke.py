@@ -4199,3 +4199,88 @@ def test_lmstudio_adapter_parses_malformed_delimiter_and_whitespace_tool_call() 
     assert parsed[0].name == "subagent-driven-development"
     assert parsed[0].arguments == {"plan": "draft widget app"}
 
+
+# ─── Phase 4: Streaming /chat/stream endpoint ──────────────────────────────
+
+def _collect_sse_events(response) -> list[dict]:
+    """Parse all SSE data lines from a streaming response into dicts."""
+    events: list[dict] = []
+    for raw_line in response.iter_lines():
+        line = raw_line if isinstance(raw_line, str) else raw_line.decode()
+        line = line.strip()
+        if line.startswith("data:"):
+            payload = line[len("data:"):].strip()
+            if payload:
+                events.append(json.loads(payload))
+    return events
+
+
+def test_chat_stream_returns_sse_events() -> None:
+    """POST /chat/stream emits at least a 'start' and an 'eof' event."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/chat/stream",
+        json={"prompt": "hello", "model_backend": "local_stub"},
+    ) as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+        events = _collect_sse_events(response)
+
+    event_types = [e.get("type") for e in events]
+    assert "start" in event_types, f"Expected 'start' event in {event_types}"
+    assert "eof" in event_types, f"Expected 'eof' event in {event_types}"
+
+
+def test_chat_stream_emits_done_event_with_success_field() -> None:
+    """POST /chat/stream must emit a 'done' event with a 'success' boolean."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/chat/stream",
+        json={"prompt": "ping", "model_backend": "local_stub"},
+    ) as response:
+        events = _collect_sse_events(response)
+
+    done_events = [e for e in events if e.get("type") == "done"]
+    assert len(done_events) == 1, f"Expected exactly 1 done event, got: {done_events}"
+    done = done_events[0]
+    assert "success" in done, f"'done' event missing 'success' field: {done}"
+    assert isinstance(done["success"], bool)
+
+
+def test_chat_stream_start_event_has_task_id() -> None:
+    """The 'start' event from /chat/stream must include a task_id."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/chat/stream",
+        json={"prompt": "hi", "model_backend": "local_stub"},
+    ) as response:
+        events = _collect_sse_events(response)
+
+    start_events = [e for e in events if e.get("type") == "start"]
+    assert len(start_events) == 1
+    assert start_events[0].get("task_id"), "start event must have a task_id"
+
+
+def test_chat_stream_rejects_missing_api_key() -> None:
+    """POST /chat/stream returns 401 when no API key is supplied."""
+    app = create_app(Path(".").resolve())
+    # Use base FastAPITestClient so no auto-key injection happens
+    from fastapi.testclient import TestClient as _PlainClient
+    client = _PlainClient(app)
+
+    response = client.post(
+        "/chat/stream",
+        json={"prompt": "hello"},
+        headers={"x-api-key": "invalid-key-that-does-not-exist"},
+    )
+    assert response.status_code in (401, 403)
+

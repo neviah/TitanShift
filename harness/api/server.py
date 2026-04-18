@@ -2642,6 +2642,66 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def list_tasks() -> list[TaskSummary]:
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
 
+    @app.post("/chat/stream", dependencies=[Depends(require_read_api_key)])
+    async def chat_stream(body: ChatRequest) -> StreamingResponse:
+        """SSE endpoint for streaming chat.
+
+        Emits newline-delimited `data: {json}\\n\\n` events while the reactive
+        state machine executes. Event types: start, step, tool_result,
+        text_delta, done, error. Connect with EventSource or fetch + ReadableStream.
+        """
+        _sync_runtime_workspace_root(_active_workspace["root"])
+
+        task_input: dict[str, Any] = {}
+        if body.model_backend:
+            task_input["model_backend"] = body.model_backend
+        if body.budget:
+            task_input["budget"] = body.budget.model_dump(exclude_none=True)
+        if body.workflow_mode:
+            task_input["workflow_mode"] = body.workflow_mode
+        if body.history:
+            task_input["conversation_history"] = [
+                {"role": m.role, "content": m.content} for m in body.history
+            ]
+        stored_approvals = _load_approvals()
+        if body.spec_approved is not None:
+            task_input["spec_approved"] = body.spec_approved
+        elif stored_approvals.get("spec"):
+            task_input["spec_approved"] = True
+        if body.plan_approved is not None:
+            task_input["plan_approved"] = body.plan_approved
+        elif stored_approvals.get("plan"):
+            task_input["plan_approved"] = True
+        available_tools = runtime.tools.list_tools()
+        task_input["available_tools"] = [
+            {"name": t.name, "description": t.description or ""}
+            for t in available_tools
+            if runtime.tools.preview_policy(t)[0]
+        ]
+        task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
+
+        task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
+
+        async def _event_generator():
+            try:
+                async for event in runtime.orchestrator.state_machine.run_task_stream(task):
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
+            except Exception as exc:
+                err = json.dumps({"type": "error", "message": str(exc)}, default=str)
+                yield f"data: {err}\n\n"
+            finally:
+                yield "data: {\"type\": \"eof\"}\n\n"
+
+        return StreamingResponse(
+            _event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     # Template routes MUST be registered before /tasks/{task_id} so FastAPI does
     # not swallow GET /tasks/templates as a parameterised task lookup.
     @app.get("/tasks/templates", response_model=list[TaskTemplate], dependencies=[Depends(require_read_api_key)])

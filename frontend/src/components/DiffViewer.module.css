@@ -1,0 +1,87 @@
+.root {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: 12px;
+  background: var(--bg-surface);
+}
+
+.header {
+  padding: 6px 12px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.colNum      { width: 44px; }
+.colCode     { width: calc(50% - 22px - 1px); }
+.colDivider  { width: 1px; background: var(--border-subtle); }
+
+.row { }
+.row:hover td { background: var(--bg-overlay); }
+
+.rowHeader td { }
+
+.cellHeader {
+  padding: 3px 12px;
+  background: var(--bg-overlay);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cellNum {
+  padding: 0 8px;
+  text-align: right;
+  color: var(--text-muted);
+  user-select: none;
+  white-space: nowrap;
+  background: var(--bg-surface);
+}
+
+.cellCode {
+  padding: 0 8px;
+  white-space: pre;
+  word-break: break-all;
+}
+
+.cellCode code {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-primary);
+}
+
+.cellDivider {
+  background: var(--border-subtle);
+  padding: 0;
+}
+
+/* Remove line */
+.cellRemove {
+  background: rgba(255, 51, 85, 0.08);
+}
+.cellRemove code { color: #ff6680; }
+
+/* Add line */
+.cellAdd {
+  background: rgba(34, 221, 136, 0.07);
+}
+.cellAdd code { color: #44ee99; }

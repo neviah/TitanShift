@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
-from typing import Any
+from typing import Any, AsyncIterator
 
 from harness.model.adapter import ModelRegistry, ModelRequest, ToolCall
 from harness.runtime.config import ConfigManager
@@ -815,6 +815,232 @@ class ReactiveStateMachine:
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
         )
+
+    # ── Streaming variant ─────────────────────────────────────────────────────
+
+    async def run_task_stream(self, task: Task) -> AsyncIterator[dict[str, Any]]:
+        """Run a task and yield SSE-style event dicts as execution progresses.
+
+        Event types:
+          start       — task accepted, budget resolved
+          step        — model generated one or more tool calls (about to execute)
+          tool_result — tool call finished
+          text_delta  — model produced final text (emitted once)
+          done        — task complete; includes full TaskResult fields
+          error       — unrecoverable error
+        """
+        budget = self._resolve_budget(task)
+        if budget["max_steps"] < 1:
+            yield {"type": "error", "message": "Budget exceeded: max_steps < 1"}
+            return
+
+        yield {
+            "type": "start",
+            "task_id": task.id,
+            "max_steps": budget["max_steps"],
+            "max_tokens": budget["max_tokens"],
+        }
+
+        preferred_backend = task.input.get("model_backend") if task.input else None
+        workspace_root = task.input.get("workspace_root") if task.input else None
+        model = self.models.select_model(preferred_backend)
+
+        requested_tools = self._detect_requested_tools(task.description)
+        mandatory_tools = self._detect_mandatory_tools(task.description)
+        requested_canonical = {self._canonical_tool_name(name) for name in requested_tools}
+        mandatory_canonical = {self._canonical_tool_name(name) for name in mandatory_tools}
+        system_parts = [
+            "You are a helpful AI assistant integrated into the TitanShift agent harness.",
+            "When you need live information, use the most specific available tool for the user request.",
+            "When the user asks you to create or modify workspace files, use create_directory and write_file.",
+            "After completing file operations, summarize what was created and where.",
+            "Only emit tool calls for actual tools from the provided tool schema.",
+        ]
+        if requested_tools:
+            system_parts.append(
+                "The user explicitly requested these tools: "
+                + ", ".join(requested_tools)
+                + ". Attempt them before substituting alternatives."
+            )
+        if workspace_root:
+            system_parts.append(
+                f"The active workspace folder is: {workspace_root}. "
+                "Use paths relative to this workspace."
+            )
+        if self.skills:
+            workflow_mode = task.input.get("workflow_mode") if task.input else self.config.get("orchestrator.workflow_mode", "lightning")
+            skills_section = self.skills.format_for_system_prompt(workflow_mode)
+            if skills_section:
+                system_parts.append("\n" + skills_section)
+
+        system_prompt = " ".join(system_parts)
+        tool_defs = self._build_active_tool_definitions(requested_tools)
+        narrowed_tools = self._narrow_tools_by_skill_recommendation(tool_defs, task.description)
+        if narrowed_tools:
+            tool_defs = narrowed_tools
+
+        conversation_history: list[dict[str, Any]] = task.input.get("conversation_history", []) if task.input else []
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        for prior in conversation_history:
+            role = prior.get("role", "user")
+            content = prior.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": task.description})
+
+        used_tools: list[str] = []
+        tool_errors: list[str] = []
+        created_paths: list[str] = []
+        updated_paths: list[str] = []
+        artifacts: list[dict[str, Any]] = []
+        patch_summaries: list[str] = []
+        context_provenance: list[dict[str, Any]] = []
+        final_text = ""
+        last_model_id = model.model_id
+        total_tokens = model.estimate_tokens(task.description)
+        workspace_root_path = Path(str(workspace_root or ".")).resolve()
+        workflow_mode_str = str(task.input.get("workflow_mode", "lightning") if task.input else "lightning")
+        is_superpowered = workflow_mode_str.lower() == "superpowered"
+
+        try:
+            for step in range(budget["max_steps"]):
+                if total_tokens > budget["max_tokens"]:
+                    yield {"type": "error", "message": "Budget exceeded: token limit reached"}
+                    return
+
+                try:
+                    used_requested_tools = [n for n in used_tools if self._canonical_tool_name(n) in requested_canonical]
+                    used_mandatory_tools = [n for n in used_tools if self._canonical_tool_name(n) in mandatory_canonical]
+                    active_tool_defs = None
+                    if requested_tools and not used_requested_tools:
+                        active_tool_defs = self._build_active_tool_definitions(requested_tools, allow_support_tools=False)
+                    if (not requested_tools or used_requested_tools) and mandatory_tools and len(used_mandatory_tools) < len(mandatory_tools):
+                        active_tool_defs = self._build_active_tool_definitions(mandatory_tools, allow_support_tools=False)
+                    response = await asyncio.wait_for(
+                        model.generate(ModelRequest(
+                            prompt="",
+                            system_prompt=system_prompt,
+                            messages=messages,
+                            tool_definitions=active_tool_defs,
+                            timeout_s=max(5.0, min(float(getattr(model, "timeout_s", 45.0)), budget["max_duration_ms"] / 1000.0)),
+                        )),
+                        timeout=budget["max_duration_ms"] / 1000.0,
+                    )
+                except (asyncio.TimeoutError, RuntimeError):
+                    yield {"type": "error", "message": "Model timed out"}
+                    return
+
+                last_model_id = response.model_id
+
+                if not response.tool_calls:
+                    final_text = response.text
+                    total_tokens += model.estimate_tokens(response.text)
+                    yield {"type": "text_delta", "step": step, "text": final_text}
+                    break
+
+                # Emit step event listing the tool calls about to execute
+                yield {
+                    "type": "step",
+                    "step": step,
+                    "tool_calls": [
+                        {"tool": tc.name, "args": tc.arguments}
+                        for tc in self._normalize_calls_for_stream(response.tool_calls)
+                    ],
+                }
+
+                tool_result_lines: list[str] = []
+                for tc in self._normalize_calls_for_stream(response.tool_calls):
+                    used_tools.append(tc.name)
+                    if self._is_skill_like_pseudo_call(tc):
+                        tool_content = json.dumps({"ok": True, "skill_like_call": tc.name})
+                        total_tokens += model.estimate_tokens(tool_content)
+                        tool_result_lines.append(f"Tool `{tc.name}` returned: {tool_content}")
+                        yield {"type": "tool_result", "step": step, "tool": tc.name, "ok": True, "summary": "skill-like call redirected"}
+                        continue
+                    try:
+                        tool_result: Any = await self.tools.execute_tool(tc.name, tc.arguments, bypass_policy=is_superpowered)
+                    except PermissionError as exc:
+                        tool_errors.append(f"{tc.name}: {exc}")
+                        tool_result = {"ok": False, "error": str(exc)}
+                    except Exception as exc:
+                        tool_errors.append(f"{tc.name}: {exc}")
+                        tool_result = {"ok": False, "error": str(exc)}
+
+                    if isinstance(tool_result, dict):
+                        cp = tool_result.get("created_paths")
+                        if isinstance(cp, list):
+                            created_paths.extend(str(p) for p in cp if str(p).strip())
+                        up = tool_result.get("updated_paths")
+                        if isinstance(up, list):
+                            updated_paths.extend(str(p) for p in up if str(p).strip())
+                        persisted_artifacts, artifact_created = self._persist_tool_artifacts(
+                            task_id=task.id,
+                            workspace_root=workspace_root_path,
+                            tool_name=tc.name,
+                            tool_args=tc.arguments,
+                            tool_result=tool_result,
+                        )
+                        if persisted_artifacts:
+                            artifacts.extend(persisted_artifacts)
+                        if artifact_created:
+                            created_paths.extend(artifact_created)
+                        if tc.name == "patch_file":
+                            s = tool_result.get("patch_summary")
+                            if s and str(s).strip():
+                                patch_summaries.append(str(s).strip())
+                        if tc.name == "apply_wiring":
+                            ws = tool_result.get("patch_summaries")
+                            if isinstance(ws, list):
+                                patch_summaries.extend(str(s).strip() for s in ws if str(s).strip())
+                        if tc.name == "read_context":
+                            prov = tool_result.get("provenance")
+                            if isinstance(prov, list):
+                                context_provenance.extend(i for i in prov if isinstance(i, dict))
+
+                    tool_content = json.dumps(tool_result, default=str)
+                    total_tokens += model.estimate_tokens(tool_content)
+                    condensed = tool_content[:800]
+                    if len(tool_content) > 800:
+                        condensed += " ...[truncated]"
+                    tool_result_lines.append(f"Tool `{tc.name}` called with {json.dumps(tc.arguments)} returned: {condensed}")
+
+                    ok_flag = isinstance(tool_result, dict) and tool_result.get("ok", True) is not False
+                    yield {
+                        "type": "tool_result",
+                        "step": step,
+                        "tool": tc.name,
+                        "ok": ok_flag,
+                        "summary": condensed[:200],
+                    }
+
+                messages.append({
+                    "role": "user",
+                    "content": "Tool outputs are now available.\n" + "\n".join(tool_result_lines),
+                })
+            else:
+                if not final_text:
+                    final_text = "[Agent reached max steps without producing a final response]"
+        except Exception as exc:
+            yield {"type": "error", "message": str(exc)}
+            return
+
+        yield {
+            "type": "done",
+            "task_id": task.id,
+            "success": bool(final_text and not final_text.startswith("[Agent reached")),
+            "response": final_text,
+            "model": last_model_id,
+            "used_tools": used_tools,
+            "created_paths": list(dict.fromkeys(created_paths)),
+            "updated_paths": list(dict.fromkeys(updated_paths)),
+            "patch_summaries": list(dict.fromkeys(patch_summaries)),
+            "context_provenance": context_provenance,
+            "estimated_total_tokens": total_tokens,
+        }
+
+    def _normalize_calls_for_stream(self, raw_calls: list[Any]) -> list[ToolCall]:
+        """Thin wrapper: reuse _normalize_tool_call for each raw call."""
+        return [self._normalize_tool_call(raw_tc, "") for raw_tc in raw_calls]
 
     def _build_tool_definitions(self) -> list[dict[str, Any]]:
         """Return OpenAI-format tool schemas for all policy-allowed tools."""

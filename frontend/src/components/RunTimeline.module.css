@@ -1,0 +1,134 @@
+.root {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.title {
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.statusBadge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status_idle     { background: var(--bg-overlay); color: var(--text-muted); }
+.status_connecting { background: var(--accent-dim); color: var(--accent-primary); }
+.status_streaming { background: rgba(34,221,136,0.12); color: var(--status-ok); }
+.status_done     { background: rgba(34,221,136,0.12); color: var(--status-ok); }
+.status_error    { background: rgba(255,51,85,0.12);  color: var(--status-error); }
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 12px 5px 28px;
+  position: relative;
+  border-left: 2px solid transparent;
+  transition: background var(--transition-fast);
+}
+.item:hover {
+  background: var(--bg-overlay);
+}
+
+.dot {
+  position: absolute;
+  left: 10px;
+  top: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-default);
+}
+.dotPulse {
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* Kind-specific dot colours */
+.kindInfo  .dot { background: var(--text-muted); }
+.kindStep  .dot { background: var(--accent-primary); }
+.kindTool  .dot { background: var(--status-info); }
+.kindText  .dot { background: var(--status-ok); }
+.kindDone  .dot { background: var(--status-ok); }
+.kindError .dot { background: var(--status-error); }
+
+/* Kind-specific left border */
+.kindStep  { border-left-color: var(--accent-primary); }
+.kindError { border-left-color: var(--status-error); }
+.kindDone  { border-left-color: var(--status-ok); }
+
+.label {
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.summary {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin: 0;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.argList {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.argItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.toolName {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-primary);
+}
+
+.argHint {
+  color: var(--text-muted);
+  font-size: 10px;
+}
