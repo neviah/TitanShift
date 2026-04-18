@@ -110,6 +110,13 @@ class ReactiveStateMachine:
         for tool_name in available:
             if tool_name.lower() in text:
                 matched.add(tool_name)
+            elif tool_name.startswith("repo_"):
+                # Detect repo_* tools by their identifier (the word between "repo_" and the
+                # first separator), e.g. "repo_camofox-browser_http_request" → "camofox".
+                bare = tool_name[5:]  # strip "repo_"
+                identifier = bare.split("-")[0].split("_")[0].lower()
+                if identifier and len(identifier) >= 3 and identifier in text:
+                    matched.add(tool_name)
 
         # Heuristic intent mapping for common user phrasing that omits exact tool names.
         if any(token in text for token in ["browser", "browse", "open website", "open the site", "navigate to"]):

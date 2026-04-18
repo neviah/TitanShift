@@ -195,7 +195,7 @@ class SkillRegistry:
             skills_to_show = [s for s in self.list_skills() if "builtin" in s.tags or "superpowered" in s.tags]
         else:
             # Lightning mode: avoid injecting built-in workflow skills that models may mistake for tools.
-            skills_to_show = [s for s in self.list_skills() if "builtin" not in s.tags and "superpowered" not in s.tags]
+            skills_to_show = [s for s in self.list_skills() if "builtin" not in s.tags and "superpowered" not in s.tags and "workflow" not in s.tags]
 
         if not skills_to_show:
             return ""

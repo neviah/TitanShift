@@ -4677,9 +4677,12 @@ def test_chat_stream_start_event_has_task_id() -> None:
     assert start_events[0].get("task_id"), "start event must have a task_id"
 
 
-def test_chat_stream_rejects_missing_api_key() -> None:
-    """POST /chat/stream returns 401 when no API key is supplied."""
-    app = create_app(Path(".").resolve())
+def test_chat_stream_rejects_missing_api_key(tmp_path: Path) -> None:
+    """POST /chat/stream returns 401 when an invalid API key is supplied and auth is enabled."""
+    app = create_app(tmp_path)
+    # Enable key enforcement in the isolated tmp config so the real harness.config.json is untouched.
+    app.state.runtime.config.set("api.require_api_key", True)
+    app.state.runtime.config.set("api.api_key", "correct-key-for-this-test")
     # Use base FastAPITestClient so no auto-key injection happens
     from fastapi.testclient import TestClient as _PlainClient
     client = _PlainClient(app)
