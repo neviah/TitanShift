@@ -25,7 +25,15 @@
     "market_remote_timeout_s": 10.0,
     "market_remote_min_sync_seconds": 0,
     "market_trusted_public_keys": [],
-    "market_allow_v1_hash_fallback": true
+    "market_allow_v1_hash_fallback": true,
+    "last30days": {
+      "SCRAPECREATORS_API_KEY": "",
+      "XAI_API_KEY": "",
+      "OPENROUTER_API_KEY": "",
+      "BRAVE_API_KEY": "",
+      "emit": "compact",
+      "save_dir": ""
+    }
   },
   "model": {
     "default_backend": "local_stub",

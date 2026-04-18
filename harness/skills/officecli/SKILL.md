@@ -6,6 +6,8 @@ domain: documents
 mode: prompt
 tags: [office, docx, xlsx, pptx, documents, excel, word, powerpoint, officecli]
 source: "https://github.com/iOfficeAI/OfficeCLI"
+required_tools: [officecli_create_document, officecli_add_element, officecli_view_document, officecli_set_properties, officecli_merge_template]
+dependencies: []
 ---
 
 # OfficeCLI

@@ -7,6 +7,8 @@ mode: prompt
 tags: [research, social, reddit, youtube, trends, news, competitive-intelligence]
 source: "https://github.com/mvanhorn/last30days-skill"
 license: MIT
+required_tools: []
+dependencies: [last30days-skill]
 ---
 
 # last30days — Live Social Research

@@ -106,6 +106,14 @@ class SkillRegistry:
                 domain=domain,
                 tags=tags,
                 version=version,
+                required_tools=[
+                    str(t) for t in frontmatter.get("required_tools", [])
+                    if str(t).strip()
+                ] if isinstance(frontmatter.get("required_tools"), list) else [],
+                dependencies=[
+                    str(d) for d in frontmatter.get("dependencies", [])
+                    if str(d).strip()
+                ] if isinstance(frontmatter.get("dependencies"), list) else [],
             )
             self._skills[skill_name] = skill
         except Exception as e:
