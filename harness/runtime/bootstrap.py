@@ -74,6 +74,8 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     tools = ToolRegistry(
         PermissionPolicy.from_config(cfg, workspace_root),
         audit_sink=on_tool_audit,
+        max_concurrent_shell_evals=int(cfg.get("execution.max_concurrent_shell_evals", 2)),
+        max_concurrent_browser_sessions=int(cfg.get("execution.max_concurrent_browser_sessions", 1)),
     )
     health.set("tools", "healthy")
 

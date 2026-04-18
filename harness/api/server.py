@@ -157,6 +157,7 @@ from harness.api.schemas import (
     ToolSummary,
 )
 from harness.api.key_store import KeyStore
+from harness.execution.queue import RunQueue
 from harness.logging.logger import JsonLogger, _trace_id_var
 from harness.scheduler.module import ScheduledJob
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
@@ -182,6 +183,11 @@ def create_app(workspace_root: Path) -> FastAPI:
     # Key store — SQLite-backed API key management
     _key_store_path = workspace_root / ".titantshift" / "key_store.db"
     _key_store = KeyStore(_key_store_path)
+
+    # Run queue — bounded concurrent execution with per-run timeouts
+    _max_concurrent_runs = int(runtime.config.get("execution.max_concurrent_runs", 4))
+    _run_timeout_s = float(runtime.config.get("execution.run_timeout_seconds", 300))
+    _run_queue = RunQueue(max_workers=_max_concurrent_runs, timeout_s=_run_timeout_s)
 
     # Mutable workspace root — can be changed at runtime via /workspace/set-root
     _active_workspace: dict[str, Path] = {"root": workspace_root}
@@ -2734,11 +2740,34 @@ def create_app(workspace_root: Path) -> FastAPI:
             input=task_input,
         )
 
+        # Check concurrency cap before starting — return 429 if queue is full.
+        if _run_queue.at_capacity:
+            retry_after = _run_queue.retry_after_seconds()
+            return Response(
+                content='{"detail":"Too many concurrent runs. Retry shortly."}',
+                status_code=429,
+                media_type="application/json",
+                headers={"Retry-After": str(retry_after)},
+            )
+
         # Wrap in an asyncio.Task so it can be cancelled via POST /tasks/{id}/cancel.
         _run_coro = asyncio.create_task(runtime.orchestrator.run_reactive_task(task))
         runtime.cancellation.register(task.id, _run_coro)
         try:
-            result = await _run_coro
+            # Enforce per-run wall-clock timeout via the run queue's configured value.
+            result = await asyncio.wait_for(_run_coro, timeout=_run_queue.timeout_s)
+        except asyncio.TimeoutError:
+            _run_coro.cancel()
+            runtime.cancellation.unregister(task.id)
+            runtime.orchestrator.task_store.mark_cancelled(task.id)
+            return ChatResponse(
+                success=False,
+                response="Run timed out.",
+                model="system",
+                mode="timeout",
+                error=f"Run exceeded timeout of {_run_queue.timeout_s}s.",
+                task_id=task.id,
+            )
         except asyncio.CancelledError:
             runtime.orchestrator.task_store.mark_cancelled(task.id)
             return ChatResponse(
@@ -2801,6 +2830,95 @@ def create_app(workspace_root: Path) -> FastAPI:
             return TaskRollbackResponse(task_id=task_id, ok=True, restored_paths=restored)
         except Exception as exc:
             return TaskRollbackResponse(task_id=task_id, ok=False, restored_paths=[], error=str(exc))
+
+    # ── /runs — async submit + poll + SSE stream ──────────────────────────────
+
+    @app.post("/runs", dependencies=[Depends(require_read_api_key)])
+    async def submit_run(body: ChatRequest) -> JSONResponse:
+        """Submit a run and return a run_id immediately.  Poll GET /runs/{run_id}."""
+        run_id = uuid.uuid4().hex
+
+        # Build task input (mirrors /chat logic without the blocking await)
+        model_backend = str(body.model_backend or runtime.config.get("model.default_backend", "local_stub"))
+        task_input: dict[str, Any] = {
+            "model_backend": model_backend,
+            "workflow_mode": body.workflow_mode or "lightning",
+            "budget": (body.budget or {}) if hasattr(body, "budget") else {},
+            "workspace_root": str(_active_workspace["root"]).replace("\\", "/"),
+        }
+        available_tools = runtime.tools.list_tools()
+        task_input["available_tools"] = [
+            {"name": t.name, "description": t.description or ""}
+            for t in available_tools
+            if runtime.tools.preview_policy(t)[0]
+        ]
+        task = Task(id=run_id, description=body.prompt, input=task_input)
+        coro = runtime.orchestrator.run_reactive_task(task)
+
+        accepted = await _run_queue.submit(run_id, coro)
+        if not accepted:
+            retry_after = _run_queue.retry_after_seconds()
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many concurrent runs.", "run_id": None},
+                headers={"Retry-After": str(retry_after)},
+            )
+        return JSONResponse(
+            status_code=202,
+            content={"run_id": run_id, "state": "running"},
+        )
+
+    @app.get("/runs", dependencies=[Depends(require_read_api_key)])
+    async def list_runs() -> JSONResponse:
+        return JSONResponse({"runs": _run_queue.list_runs()})
+
+    @app.get("/runs/{run_id}", dependencies=[Depends(require_read_api_key)])
+    async def get_run(run_id: str) -> JSONResponse:
+        status = _run_queue.get_status(run_id)
+        if status is None:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        payload: dict[str, Any] = dict(status)
+        entry = _run_queue.get_entry(run_id)
+        if entry is not None and entry.result is not None:
+            result = entry.result
+            payload["result"] = {
+                "success": getattr(result, "success", None),
+                "response": result.output.get("response", "") if hasattr(result, "output") else None,
+                "error": getattr(result, "error", None),
+            }
+        http_status = 200 if status["state"] in ("completed", "running") else (
+            408 if status["state"] == "timeout" else 200
+        )
+        return JSONResponse(status_code=http_status, content=payload)
+
+    @app.get("/runs/{run_id}/stream", dependencies=[Depends(require_read_api_key)])
+    async def stream_run(run_id: str) -> StreamingResponse:
+        """SSE stream that yields status events until the run reaches a terminal state."""
+        entry = _run_queue.get_entry(run_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+        async def _event_stream() -> Any:
+            # Emit a running event immediately
+            yield f"data: {json.dumps({'run_id': run_id, 'state': 'running'})}\n\n"
+            # Poll until done (100 ms ticks) then emit final state
+            while not entry.completed.is_set():
+                await asyncio.sleep(0.1)
+                if not entry.completed.is_set():
+                    yield f"data: {json.dumps({'run_id': run_id, 'state': 'running'})}\n\n"
+            status = _run_queue.get_status(run_id)
+            payload: dict[str, Any] = dict(status)  # type: ignore[arg-type]
+            if entry.result is not None:
+                result = entry.result
+                payload["result"] = {
+                    "success": getattr(result, "success", None),
+                    "response": result.output.get("response", "") if hasattr(result, "output") else None,
+                    "error": getattr(result, "error", None),
+                }
+            yield f"data: {json.dumps(payload)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
     @app.get(
         "/api-keys/status",

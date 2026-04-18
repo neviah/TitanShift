@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -88,11 +89,16 @@ class ToolRegistry:
         self,
         policy: PermissionPolicy,
         audit_sink: Callable[[dict[str, Any]], None] | None = None,
+        max_concurrent_shell_evals: int = 2,
+        max_concurrent_browser_sessions: int = 1,
     ) -> None:
         self.policy = policy
         self._tools: dict[str, ToolDefinition] = {}
         self._audit_sink = audit_sink
         self._rollback_store: Any | None = None  # RollbackStore — set after construction
+        # Per-category concurrency caps
+        self._shell_semaphore = asyncio.Semaphore(max(1, max_concurrent_shell_evals))
+        self._browser_semaphore = asyncio.Semaphore(max(1, max_concurrent_browser_sessions))
 
     def set_rollback_store(self, store: Any) -> None:
         """Wire in a RollbackStore so file mutations are snapshotted before execution."""
@@ -161,6 +167,21 @@ class ToolRegistry:
             return {"ok": True, "message": f"Tool {name} has no handler in phase 1"}
 
         self._emit_audit(name=name, status="allowed", reason=reason, args=args)
+
+        # Enforce per-category concurrency caps
+        caps = tool.capabilities or []
+        is_shell = any(c in caps for c in ("shell.exec", "shell.command", "process.exec")) or \
+                   name in ("shell_command", "run_tests", "run_project_check", "lint_and_fix",
+                            "install_dependencies", "version_bump", "tag_and_publish_release")
+        is_browser = any(c.startswith("browser.") for c in caps) or \
+                     name in ("browser_action",)
+
+        if is_shell:
+            async with self._shell_semaphore:
+                return await tool.handler(args)
+        elif is_browser:
+            async with self._browser_semaphore:
+                return await tool.handler(args)
         return await tool.handler(args)
 
     def find_tools_by_capability(self, capability: str) -> list[ToolDefinition]:
