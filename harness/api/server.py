@@ -8,6 +8,8 @@ import json
 import os
 import re
 import shlex
+import threading
+import time
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -16,8 +18,8 @@ from typing import Any, TypeVar
 from urllib.parse import quote_plus, urlparse
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from harness.memory.graph.migration import (
     export_from_neo4j,
@@ -155,6 +157,7 @@ from harness.api.schemas import (
     ToolSummary,
 )
 from harness.api.key_store import KeyStore
+from harness.logging.logger import JsonLogger, _trace_id_var
 from harness.scheduler.module import ScheduledJob
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.service_manager import ServiceLaunchConfig
@@ -171,6 +174,11 @@ def create_app(workspace_root: Path) -> FastAPI:
     app.state.runtime = runtime
     emergency_fix_history: dict[str, dict[str, Any]] = {}
 
+    # ── Observability: in-memory metric counters ──────────────────────────────
+    _metrics_lock = threading.Lock()
+    _req_counts: dict[str, int] = {}              # "METHOD|path_pattern|Nxx"
+    _req_durations_ms: dict[str, list[float]] = {}  # "METHOD|path_pattern"
+
     # Key store — SQLite-backed API key management
     _key_store_path = workspace_root / ".titantshift" / "key_store.db"
     _key_store = KeyStore(_key_store_path)
@@ -182,6 +190,35 @@ def create_app(workspace_root: Path) -> FastAPI:
     _scheduled_task_stack_jobs: dict[str, dict[str, Any]] = {}
     _scheduler_loop_task: asyncio.Task[None] | None = None
     _scheduler_loop_stop: asyncio.Event = asyncio.Event()
+
+    # ── Request tracing & metrics middleware ──────────────────────────────────
+    @app.middleware("http")
+    async def _observability_middleware(request: Request, call_next: Any) -> Response:
+        trace_id = uuid.uuid4().hex
+        _trace_id_var.set(trace_id)
+        request.state.trace_id = trace_id
+        t0 = time.monotonic()
+        response = await call_next(request)
+        elapsed_ms = (time.monotonic() - t0) * 1000.0
+
+        method = request.method
+        raw_path = request.url.path
+        # Normalise dynamic path segments so cardinality stays low
+        path_pattern = re.sub(r"/[0-9a-f]{32,}", "/{id}", raw_path)
+        path_pattern = re.sub(r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "/{id}", path_pattern)
+        status_class = f"{response.status_code // 100}xx"
+
+        req_key = f"{method}|{path_pattern}|{status_class}"
+        dur_key = f"{method}|{path_pattern}"
+        with _metrics_lock:
+            _req_counts[req_key] = _req_counts.get(req_key, 0) + 1
+            bucket = _req_durations_ms.setdefault(dur_key, [])
+            bucket.append(elapsed_ms)
+            if len(bucket) > 1000:
+                del bucket[:-1000]
+
+        response.headers["X-Trace-ID"] = trace_id
+        return response
 
     def _sync_runtime_workspace_root(root: Path) -> None:
         """Keep runtime file/tool execution rooted to the active workspace."""
@@ -2437,6 +2474,51 @@ def create_app(workspace_root: Path) -> FastAPI:
                     "degraded_modules": len(degraded),
                 },
             )
+
+            # ── Alert threshold checks ─────────────────────────────────────────
+            max_error_rate = float(runtime.config.get("observability.alert_error_rate_threshold", 0.0))
+            max_p95_ms = float(runtime.config.get("observability.alert_p95_latency_ms_threshold", 0.0))
+
+            if max_error_rate > 0:
+                with _metrics_lock:
+                    total_reqs = sum(_req_counts.values())
+                    error_reqs = sum(v for k, v in _req_counts.items() if k.endswith("|4xx") or k.endswith("|5xx"))
+                if total_reqs > 0:
+                    error_rate = error_reqs / total_reqs
+                    if error_rate >= max_error_rate:
+                        runtime.logger.log(
+                            "ALERT_THRESHOLD_EXCEEDED",
+                            {
+                                "source": "scheduler.maintenance",
+                                "metric": "error_rate",
+                                "value": round(error_rate, 4),
+                                "threshold": max_error_rate,
+                                "total_requests": total_reqs,
+                                "error_requests": error_reqs,
+                            },
+                        )
+
+            if max_p95_ms > 0:
+                with _metrics_lock:
+                    slow_paths: list[dict[str, Any]] = []
+                    for dur_key, durs in _req_durations_ms.items():
+                        if not durs:
+                            continue
+                        sd = sorted(durs)
+                        p95 = sd[max(0, int(len(sd) * 0.95) - 1)]
+                        if p95 >= max_p95_ms:
+                            method, path_pattern = dur_key.split("|", 1)
+                            slow_paths.append({"method": method, "path": path_pattern, "p95_ms": round(p95, 1)})
+                if slow_paths:
+                    runtime.logger.log(
+                        "ALERT_THRESHOLD_EXCEEDED",
+                        {
+                            "source": "scheduler.maintenance",
+                            "metric": "p95_latency_ms",
+                            "threshold": max_p95_ms,
+                            "slow_paths": slow_paths,
+                        },
+                    )
 
         async def _retention_preview_job() -> None:
             report_default = int(runtime.config.get("reports.cleanup_max_age_days", 7))
@@ -5362,6 +5444,129 @@ def create_app(workspace_root: Path) -> FastAPI:
             total_successful_tasks=total_successful,
             total_failed_tasks=total_failed,
             overall_success_rate=round(total_successful / total, 3) if total else None,
+        )
+
+    # ── /health ───────────────────────────────────────────────────────────────
+    @app.get("/health")
+    async def health_check() -> JSONResponse:
+        """Deep health probe. Returns subsystem statuses and overall health."""
+        subsystems: dict[str, Any] = {}
+        for record in runtime.health.as_list():
+            subsystems[record["name"]] = {
+                "status": record["status"],
+                "updated_at": record.get("updated_at"),
+                "details": record.get("details", {}),
+            }
+
+        # Probe model connectivity
+        model_ok, model_detail = await _resolve_model_connection()
+        if not model_ok:
+            subsystems.setdefault("models", {})["status"] = "degraded"
+            subsystems["models"].setdefault("details", {})["connection_error"] = model_detail
+
+        # Probe memory backend
+        try:
+            runtime.memory.semantic.query("__health_probe__", k=1)
+        except Exception as mem_exc:
+            subsystems.setdefault("memory", {})["status"] = "degraded"
+            subsystems["memory"].setdefault("details", {})["error"] = str(mem_exc)
+
+        # Compute overall status
+        all_statuses = [v.get("status", "unknown") for v in subsystems.values()]
+        if any(s == "down" for s in all_statuses):
+            overall = "down"
+            http_status = 503
+        elif any(s == "degraded" for s in all_statuses):
+            overall = "degraded"
+            http_status = 200
+        else:
+            overall = "healthy"
+            http_status = 200
+
+        return JSONResponse(
+            status_code=http_status,
+            content={
+                "status": overall,
+                "subsystems": subsystems,
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    # ── /metrics (Prometheus text format) ────────────────────────────────────
+    @app.get("/metrics")
+    async def prometheus_metrics() -> Response:
+        """Prometheus-compatible metrics endpoint."""
+        lines: list[str] = []
+
+        # Request counters
+        lines.append("# HELP titanshift_requests_total Total HTTP requests by method, path pattern and status class")
+        lines.append("# TYPE titanshift_requests_total counter")
+        with _metrics_lock:
+            for key, count in sorted(_req_counts.items()):
+                method, path_pattern, status_class = key.split("|", 2)
+                labels = f'method="{method}",path="{path_pattern}",status_class="{status_class}"'
+                lines.append(f"titanshift_requests_total{{{labels}}} {count}")
+
+        # Request latency p95
+        lines.append("# HELP titanshift_request_duration_ms_p95 p95 request latency per endpoint (ms)")
+        lines.append("# TYPE titanshift_request_duration_ms_p95 gauge")
+        with _metrics_lock:
+            for key, durations in sorted(_req_durations_ms.items()):
+                if not durations:
+                    continue
+                sd = sorted(durations)
+                p95 = sd[max(0, int(len(sd) * 0.95) - 1)]
+                method, path_pattern = key.split("|", 1)
+                labels = f'method="{method}",path="{path_pattern}"'
+                lines.append(f"titanshift_request_duration_ms_p95{{{labels}}} {p95:.1f}")
+
+        # Tool call counters from structured log
+        tool_events = runtime.logger.query(event_type="TOOL_AUDIT", limit=5000)
+        tool_counts: dict[str, int] = {}
+        tool_dur_buckets: dict[str, list[float]] = {}
+        for evt in tool_events:
+            p = evt.get("payload", {}) if isinstance(evt.get("payload"), dict) else {}
+            tool_name = str(p.get("tool", p.get("tool_name", "unknown")))
+            outcome = "success" if p.get("success", p.get("ok", True)) else "error"
+            k = f"{tool_name}|{outcome}"
+            tool_counts[k] = tool_counts.get(k, 0) + 1
+            dur = p.get("duration_ms")
+            if dur is not None:
+                tool_dur_buckets.setdefault(tool_name, []).append(float(dur))
+
+        lines.append("# HELP titanshift_tool_calls_total Tool invocations by tool name and outcome")
+        lines.append("# TYPE titanshift_tool_calls_total counter")
+        for key, count in sorted(tool_counts.items()):
+            tool_name, outcome = key.split("|", 1)
+            labels = f'tool="{tool_name}",outcome="{outcome}"'
+            lines.append(f"titanshift_tool_calls_total{{{labels}}} {count}")
+
+        lines.append("# HELP titanshift_tool_duration_seconds_avg Average tool call duration (seconds)")
+        lines.append("# TYPE titanshift_tool_duration_seconds_avg gauge")
+        for tool_name, durs in sorted(tool_dur_buckets.items()):
+            avg_s = (sum(durs) / len(durs)) / 1000.0
+            lines.append(f'titanshift_tool_duration_seconds_avg{{tool="{tool_name}"}} {avg_s:.4f}')
+
+        # Task status gauges
+        all_tasks = runtime.orchestrator.list_tasks()
+        task_status_counts: dict[str, int] = {}
+        for t in all_tasks:
+            s = str(t.get("status", "unknown"))
+            task_status_counts[s] = task_status_counts.get(s, 0) + 1
+        lines.append("# HELP titanshift_tasks_total Task counts by status")
+        lines.append("# TYPE titanshift_tasks_total gauge")
+        for s, cnt in sorted(task_status_counts.items()):
+            lines.append(f'titanshift_tasks_total{{status="{s}"}} {cnt}')
+
+        active_count = sum(1 for t in all_tasks if t.get("status") in {"running", "pending"})
+        lines.append("# HELP titanshift_runs_active Currently active (running/pending) tasks")
+        lines.append("# TYPE titanshift_runs_active gauge")
+        lines.append(f"titanshift_runs_active {active_count}")
+
+        lines.append("")
+        return Response(
+            content="\n".join(lines),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
     return app

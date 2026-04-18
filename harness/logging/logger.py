@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# Set by the HTTP middleware on every inbound request.
+_trace_id_var: ContextVar[str] = ContextVar("trace_id", default="")
 
 
 @dataclass(slots=True)
@@ -15,11 +19,14 @@ class JsonLogger:
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
     def log(self, event_type: str, payload: dict[str, Any]) -> None:
-        record = {
+        record: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": event_type,
             "payload": payload,
         }
+        trace_id = _trace_id_var.get("")
+        if trace_id:
+            record["trace_id"] = trace_id
         with self.log_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
 
