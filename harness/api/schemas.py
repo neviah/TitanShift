@@ -179,6 +179,7 @@ class ArtifactRecord(BaseModel):
     summary: str
     generator: str
     backend: str
+    verified: bool = False
     provenance: dict[str, Any] = Field(default_factory=dict)
     preview: dict[str, Any] | None = None
 

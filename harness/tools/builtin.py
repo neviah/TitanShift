@@ -707,6 +707,50 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
+    def _write_pdf_report(
+        target: Path,
+        *,
+        title: str,
+        summary: str,
+        generated_at: str,
+        sections: list[dict[str, str]],
+    ) -> None:
+        try:
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+            from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+        except Exception as exc:  # pragma: no cover - import path validated in smoke tests
+            raise ValueError(
+                "PDF output requires the 'reportlab' package. Install dependencies and retry."
+            ) from exc
+
+        doc = SimpleDocTemplate(str(target), pagesize=letter)
+        styles = getSampleStyleSheet()
+        body_style = ParagraphStyle(
+            "Body",
+            parent=styles["BodyText"],
+            fontSize=10,
+            leading=14,
+            spaceAfter=6,
+        )
+
+        story: list[Any] = []
+        story.append(Paragraph(escape(title), styles["Title"]))
+        story.append(Spacer(1, 10))
+        if summary:
+            story.append(Paragraph(escape(summary), body_style))
+            story.append(Spacer(1, 6))
+        story.append(Paragraph(f"Generated at {escape(generated_at)}", styles["Italic"]))
+        story.append(Spacer(1, 10))
+
+        for section in sections:
+            story.append(Paragraph(escape(section["heading"]), styles["Heading2"]))
+            body = escape(section["body"]).replace("\n", "<br/>")
+            story.append(Paragraph(body or "&nbsp;", body_style))
+            story.append(Spacer(1, 8))
+
+        doc.build(story)
+
     async def generate_report_handler(args: dict[str, Any]) -> dict[str, Any]:
         title = str(args.get("title") or "Generated Report").strip() or "Generated Report"
         output_format = str(args.get("format") or "markdown").strip().lower()
@@ -716,8 +760,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         sections = args.get("sections") or []
         if not isinstance(sections, list):
             raise ValueError("sections must be an array when provided")
-        if output_format not in {"markdown", "html"}:
-            raise ValueError("format must be one of: markdown, html")
+        if output_format not in {"markdown", "html", "pdf"}:
+            raise ValueError("format must be one of: markdown, html, pdf")
 
         normalized_sections: list[dict[str, str]] = []
         for index, item in enumerate(sections, start=1):
@@ -740,7 +784,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         ).hexdigest()[:12]
 
         safe_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "report"
-        extension = "md" if output_format == "markdown" else "html"
+        extension = "md" if output_format == "markdown" else "html" if output_format == "html" else "pdf"
         filename = f"{safe_title}-{request_hash}.{extension}"
         target_dir = _resolve_workspace_path(raw_target_path)
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -760,7 +804,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             content = "\n".join(markdown_lines).strip() + "\n"
             mime_type = "text/markdown"
             kind = "document.markdown"
-        else:
+            target.write_text(content, encoding="utf-8")
+        elif output_format == "html":
             section_html = "".join(
                 [
                     (
@@ -801,8 +846,18 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             )
             mime_type = "text/html"
             kind = "document.html"
+            target.write_text(content, encoding="utf-8")
+        else:
+            _write_pdf_report(
+                target,
+                title=title,
+                summary=summary,
+                generated_at=generated_at,
+                sections=normalized_sections,
+            )
+            mime_type = "application/pdf"
+            kind = "document.pdf"
 
-        target.write_text(content, encoding="utf-8")
         normalized_path = str(target).replace("\\", "/")
         artifact = {
             "artifact_id": request_hash,
@@ -813,6 +868,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "summary": summary or f"Generated {output_format} report",
             "generator": "generate_report",
             "backend": "document_backend",
+            "verified": True,
             "provenance": {
                 "request_hash": request_hash,
                 "generated_at": generated_at,
@@ -836,14 +892,14 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
     tools.register_tool(
         ToolDefinition(
             name="generate_report",
-            description="Generate a deterministic markdown or HTML report from structured input and emit artifact metadata.",
+            description="Generate a deterministic markdown, HTML, or PDF report from structured input and emit artifact metadata.",
             handler=generate_report_handler,
             parameters={
                 "type": "object",
                 "properties": {
                     "title": {"type": "string", "description": "Report title"},
                     "summary": {"type": "string", "description": "Optional report summary paragraph"},
-                    "format": {"type": "string", "description": "markdown | html"},
+                    "format": {"type": "string", "description": "markdown | html | pdf"},
                     "target_path": {"type": "string", "description": "Output directory path"},
                     "template": {"type": "string", "description": "Optional template identifier for reproducibility metadata"},
                     "data": {"type": "object", "description": "Optional structured source data for reproducibility metadata"},
@@ -1071,6 +1127,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "summary": f"{chart_type.capitalize()} chart with {len(data_rows)} data points",
             "generator": "generate_chart",
             "backend": "chart_backend",
+            "verified": True,
             "provenance": {
                 "request_hash": request_hash,
                 "generated_at": generated_at,
@@ -1289,6 +1346,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "summary": summary,
             "generator": "generate_svg_asset",
             "backend": "vector_backend",
+            "verified": True,
             "provenance": {
                 "request_hash": request_hash,
                 "generated_at": generated_at,
@@ -1335,6 +1393,235 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "overwrite": {"type": "boolean", "description": "Whether to overwrite an existing target file"},
                 },
                 "required": ["kind", "title"],
+            },
+        )
+    )
+
+    async def generate_hyperframes_scene_handler(args: dict[str, Any]) -> dict[str, Any]:
+        title = str(args.get("title") or "Hyperframes Scene").strip() or "Hyperframes Scene"
+        raw_target_path = str(args.get("target_path") or "outputs/videos").strip()
+        overwrite = bool(args.get("overwrite", False))
+        width = max(320, int(args.get("width") or 1920))
+        height = max(240, int(args.get("height") or 1080))
+        fps = max(12, int(args.get("fps") or 30))
+        duration_s = max(1.0, float(args.get("duration_s") or 10.0))
+        background_color = str(args.get("background_color") or "#0f172a").strip() or "#0f172a"
+        overlay_text = str(args.get("overlay_text") or title).strip() or title
+        narration_text = str(args.get("narration") or "").strip()
+        raw_assets = args.get("assets") or []
+        if not isinstance(raw_assets, list):
+            raise ValueError("assets must be an array when provided")
+
+        normalized_assets: list[dict[str, Any]] = []
+        for index, item in enumerate(raw_assets, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"assets[{index - 1}] must be an object")
+            kind = str(item.get("kind") or "video").strip().lower()
+            if kind not in {"video", "image", "audio", "text"}:
+                raise ValueError(f"assets[{index - 1}].kind must be one of: video, image, audio, text")
+            start = max(0.0, float(item.get("start") or 0.0))
+            item_duration = max(0.1, float(item.get("duration") or duration_s))
+            track = max(0, int(item.get("track") or (index - 1)))
+            src = str(item.get("src") or "").strip()
+            label = str(item.get("label") or f"Clip {index}").strip() or f"Clip {index}"
+            text = str(item.get("text") or label).strip() or label
+            normalized_assets.append(
+                {
+                    "kind": kind,
+                    "start": start,
+                    "duration": item_duration,
+                    "track": track,
+                    "src": src,
+                    "label": label,
+                    "text": text,
+                }
+            )
+
+        generated_at = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "title": title,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "duration_s": duration_s,
+            "background_color": background_color,
+            "overlay_text": overlay_text,
+            "narration": narration_text,
+            "assets": normalized_assets,
+        }
+        request_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
+        safe_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "scene"
+        composition_id = f"hf-{safe_title}-{request_hash}"
+
+        target_dir = _resolve_workspace_path(raw_target_path)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        scene_path = (target_dir / f"{safe_title}-{request_hash}.html").resolve()
+        job_path = (target_dir / f"{safe_title}-{request_hash}.render.json").resolve()
+        scene_existed_before = scene_path.exists()
+        job_existed_before = job_path.exists()
+        if (scene_existed_before or job_existed_before) and not overwrite:
+            raise ValueError(
+                "target Hyperframes scene already exists and overwrite=false: "
+                f"{scene_path if scene_existed_before else job_path}"
+            )
+
+        stage_children: list[str] = []
+        if not normalized_assets:
+            stage_children.append(
+                "  <div id=\"title-card\" class=\"clip title\" data-start=\"0\" "
+                f"data-duration=\"{duration_s:.2f}\" data-track-index=\"0\">{escape(overlay_text)}</div>"
+            )
+        else:
+            for idx, asset in enumerate(normalized_assets, start=1):
+                common = (
+                    f"id=\"asset-{idx}\" data-start=\"{asset['start']:.2f}\" "
+                    f"data-duration=\"{asset['duration']:.2f}\" data-track-index=\"{asset['track']}\""
+                )
+                if asset["kind"] == "video":
+                    src_attr = f" src=\"{escape(asset['src'])}\"" if asset["src"] else ""
+                    stage_children.append(f"  <video {common}{src_attr} muted playsinline></video>")
+                elif asset["kind"] == "image":
+                    src_attr = f" src=\"{escape(asset['src'])}\"" if asset["src"] else ""
+                    stage_children.append(f"  <img {common}{src_attr} alt=\"{escape(asset['label'])}\" />")
+                elif asset["kind"] == "audio":
+                    src_attr = f" src=\"{escape(asset['src'])}\"" if asset["src"] else ""
+                    stage_children.append(f"  <audio {common}{src_attr}></audio>")
+                else:
+                    stage_children.append(f"  <div class=\"clip text\" {common}>{escape(asset['text'])}</div>")
+
+        scene_html = (
+            "<!doctype html>\n"
+            "<html lang=\"en\">\n"
+            "  <head>\n"
+            "    <meta charset=\"UTF-8\" />\n"
+            "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+            f"    <title>{escape(title)}</title>\n"
+            "    <style>\n"
+            "      html, body { margin: 0; background: #0b1220; }\n"
+            "      #stage { position: relative; overflow: hidden; font-family: system-ui, sans-serif; }\n"
+            "      #stage > .title, #stage > .text { display: grid; place-items: center; color: #f8fafc; font-weight: 700; font-size: 64px; text-align: center; }\n"
+            "      #stage > video, #stage > img { width: 100%; height: 100%; object-fit: cover; }\n"
+            "      #stage > * { position: absolute; inset: 0; }\n"
+            "    </style>\n"
+            "  </head>\n"
+            "  <body>\n"
+            f"    <div id=\"stage\" data-composition-id=\"{composition_id}\" data-start=\"0\" data-width=\"{width}\" data-height=\"{height}\" data-fps=\"{fps}\" data-duration=\"{duration_s:.2f}\" style=\"background:{escape(background_color)}\">\n"
+            f"{chr(10).join(stage_children)}\n"
+            "    </div>\n"
+            "  </body>\n"
+            "</html>\n"
+        )
+
+        scene_norm = str(scene_path).replace("\\", "/")
+        output_mp4 = str((target_dir / f"{safe_title}-{request_hash}.mp4").resolve()).replace("\\", "/")
+        job_config = {
+            "backend": "hyperframes_backend",
+            "composition_id": composition_id,
+            "scene_path": scene_norm,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "duration_s": duration_s,
+            "narration": narration_text,
+            "output_mp4": output_mp4,
+            "suggested_cli": f"npx hyperframes render --input \"{scene_norm}\" --output \"{output_mp4}\"",
+            "generated_at": generated_at,
+        }
+
+        scene_path.write_text(scene_html, encoding="utf-8")
+        job_path.write_text(json.dumps(job_config, indent=2) + "\n", encoding="utf-8")
+
+        job_norm = str(job_path).replace("\\", "/")
+        scene_artifact = {
+            "artifact_id": f"{request_hash}-scene",
+            "kind": "video.hyperframes.scene",
+            "path": scene_norm,
+            "mime_type": "text/html",
+            "title": f"{title} scene",
+            "summary": "Hyperframes HTML composition",
+            "generator": "generate_hyperframes_scene",
+            "backend": "hyperframes_backend",
+            "verified": True,
+            "provenance": {
+                "request_hash": request_hash,
+                "generated_at": generated_at,
+                "composition_id": composition_id,
+                "asset_count": len(normalized_assets),
+            },
+            "preview": {"safe_inline": True},
+        }
+        job_artifact = {
+            "artifact_id": f"{request_hash}-render-job",
+            "kind": "video.hyperframes.render_job",
+            "path": job_norm,
+            "mime_type": "application/json",
+            "title": f"{title} render job",
+            "summary": "Deterministic Hyperframes render configuration",
+            "generator": "generate_hyperframes_scene",
+            "backend": "hyperframes_backend",
+            "verified": True,
+            "provenance": {
+                "request_hash": request_hash,
+                "generated_at": generated_at,
+                "composition_id": composition_id,
+            },
+            "preview": None,
+        }
+
+        return {
+            "ok": True,
+            "title": title,
+            "composition_id": composition_id,
+            "scene_path": scene_norm,
+            "render_job_path": job_norm,
+            "output_mp4": output_mp4,
+            "created_paths": [
+                *([] if scene_existed_before else [scene_norm]),
+                *([] if job_existed_before else [job_norm]),
+            ],
+            "updated_paths": [
+                *([scene_norm] if scene_existed_before else []),
+                *([job_norm] if job_existed_before else []),
+            ],
+            "artifacts": [scene_artifact, job_artifact],
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_hyperframes_scene",
+            description="Generate a deterministic Hyperframes HTML scene and a render-job JSON config for agent-friendly video pipelines.",
+            handler=generate_hyperframes_scene_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Video scene title"},
+                    "target_path": {"type": "string", "description": "Output directory path"},
+                    "width": {"type": "integer", "description": "Composition width in pixels (default 1920)"},
+                    "height": {"type": "integer", "description": "Composition height in pixels (default 1080)"},
+                    "fps": {"type": "integer", "description": "Frames per second (default 30)"},
+                    "duration_s": {"type": "number", "description": "Total duration in seconds (default 10)"},
+                    "background_color": {"type": "string", "description": "Background color for the stage"},
+                    "overlay_text": {"type": "string", "description": "Default title text when no assets are provided"},
+                    "narration": {"type": "string", "description": "Optional narration text included in render job metadata"},
+                    "assets": {
+                        "type": "array",
+                        "description": "Optional ordered media/text assets",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"type": "string", "description": "video | image | audio | text"},
+                                "src": {"type": "string", "description": "Source file/URL for media assets"},
+                                "text": {"type": "string", "description": "Text payload for text assets"},
+                                "label": {"type": "string", "description": "Label for metadata/alt text"},
+                                "start": {"type": "number", "description": "Clip start time in seconds"},
+                                "duration": {"type": "number", "description": "Clip duration in seconds"},
+                                "track": {"type": "integer", "description": "Layer/track index"},
+                            },
+                        },
+                    },
+                    "overwrite": {"type": "boolean", "description": "Whether existing target files may be replaced"},
+                },
+                "required": ["title"],
             },
         )
     )

@@ -62,18 +62,21 @@ export function RunTimeline({ events, status }: RunTimelineProps) {
                   {(event.tool_calls as Array<{ tool: string; args: unknown }>).map((tc, j) => (
                     <li key={j} className={styles.argItem}>
                       <code className={styles.toolName}>{tc.tool}</code>
-                      {tc.args && Object.keys(tc.args as object).length > 0 && (
-                        <span className={styles.argHint}>
-                          {Object.keys(tc.args as object)
-                            .slice(0, 3)
-                            .join(', ')}
-                        </span>
-                      )}
+                      {(() => {
+                        if (!tc.args || typeof tc.args !== 'object' || Array.isArray(tc.args)) return null
+                        const argKeys = Object.keys(tc.args as Record<string, unknown>)
+                        if (argKeys.length === 0) return null
+                        return (
+                          <span className={styles.argHint}>
+                            {argKeys.slice(0, 3).join(', ')}
+                          </span>
+                        )
+                      })()}
                     </li>
                   ))}
                 </ul>
               )}
-              {event.type === 'tool_result' && event.summary && (
+              {event.type === 'tool_result' && typeof event.summary === 'string' && (
                 <p className={styles.summary}>{String(event.summary).slice(0, 120)}</p>
               )}
               {event.type === 'done' && Array.isArray(event.patch_summaries) && (event.patch_summaries as string[]).length > 0 && (

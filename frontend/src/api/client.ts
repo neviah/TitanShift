@@ -345,8 +345,6 @@ export function rotateApiKey(scope: 'read' | 'admin'): Promise<ApiKeyRotateRespo
   return request(`/api-keys/rotate?scope=${scope}`, { method: 'POST' }, 'admin')
 }
 
-}
-
 export function setWorkspaceRoot(path: string): Promise<{ root: string }> {
   return request('/workspace/set-root', {
     method: 'POST',

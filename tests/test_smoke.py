@@ -182,7 +182,110 @@ def test_generate_report_tool_emits_artifact_metadata() -> None:
     assert artifact["generator"] == "generate_report"
     assert artifact["backend"] == "document_backend"
     assert artifact["mime_type"] == "text/markdown"
+    assert artifact["verified"] is True
     assert Path(artifact["path"]).exists()
+
+
+def test_generate_report_tool_supports_pdf_output() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "generate_report",
+            {
+                "title": "Artifact PDF Smoke",
+                "format": "pdf",
+                "target_path": "tmp/artifact-smoke",
+                "sections": [
+                    {"heading": "Overview", "body": "hello pdf"},
+                ],
+                "overwrite": True,
+            },
+        )
+    )
+
+    assert result["ok"] is True
+    artifacts = result.get("artifacts")
+    assert isinstance(artifacts, list)
+    assert len(artifacts) == 1
+    artifact = artifacts[0]
+    assert artifact["generator"] == "generate_report"
+    assert artifact["mime_type"] == "application/pdf"
+    assert artifact["kind"] == "document.pdf"
+    assert artifact["verified"] is True
+    output_path = Path(artifact["path"])
+    assert output_path.exists()
+    assert output_path.read_bytes().startswith(b"%PDF")
+
+
+def test_generate_hyperframes_scene_tool_emits_scene_and_render_job() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "generate_hyperframes_scene",
+            {
+                "title": "Launch Clip",
+                "target_path": "tmp/hyperframes-smoke",
+                "duration_s": 6,
+                "assets": [
+                    {"kind": "text", "text": "Ship fast", "start": 0, "duration": 3, "track": 0},
+                    {"kind": "text", "text": "Stay safe", "start": 3, "duration": 3, "track": 1},
+                ],
+                "overwrite": True,
+            },
+        )
+    )
+
+    assert result["ok"] is True
+    assert str(result.get("composition_id", "")).startswith("hf-")
+    artifacts = result.get("artifacts")
+    assert isinstance(artifacts, list)
+    assert len(artifacts) == 2
+    scene_artifact = next(a for a in artifacts if a["kind"] == "video.hyperframes.scene")
+    job_artifact = next(a for a in artifacts if a["kind"] == "video.hyperframes.render_job")
+    assert scene_artifact["verified"] is True
+    assert job_artifact["verified"] is True
+    scene_path = Path(scene_artifact["path"])
+    job_path = Path(job_artifact["path"])
+    assert scene_path.exists()
+    assert job_path.exists()
+    scene_text = scene_path.read_text(encoding="utf-8")
+    assert "data-composition-id" in scene_text
+    job = json.loads(job_path.read_text(encoding="utf-8"))
+    assert str(job.get("backend")) == "hyperframes_backend"
+    assert "suggested_cli" in job
+
+
+def test_artifact_default_verified_false_when_not_provided() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    workspace_root = Path(".").resolve()
+    source = workspace_root / ".harness" / "verified-default-smoke.md"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("# Draft Artifact\n", encoding="utf-8")
+    try:
+        persisted, _ = runtime.orchestrator.state_machine._persist_tool_artifacts(
+            task_id="task-verified-smoke",
+            workspace_root=workspace_root,
+            tool_name="manual_tool",
+            tool_args={},
+            tool_result={
+                "artifacts": [
+                    {
+                        "artifact_id": "artifact-verified-smoke",
+                        "kind": "document.markdown",
+                        "path": str(source),
+                        "mime_type": "text/markdown",
+                        "title": "Draft Artifact",
+                        "summary": "draft",
+                        "generator": "manual",
+                        "backend": "manual",
+                    }
+                ]
+            },
+        )
+        assert len(persisted) == 1
+        assert persisted[0]["verified"] is False
+    finally:
+        source.unlink(missing_ok=True)
 
 
 def test_artifact_preview_endpoint_serves_safe_artifact() -> None:

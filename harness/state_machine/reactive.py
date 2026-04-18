@@ -320,6 +320,7 @@ class ReactiveStateMachine:
                 "summary": str(row.get("summary") or "Generated artifact"),
                 "generator": str(row.get("generator") or tool_name),
                 "backend": str(row.get("backend") or "unknown"),
+                "verified": bool(row.get("verified", False)),
                 "provenance": {
                     **(row.get("provenance") if isinstance(row.get("provenance"), dict) else {}),
                     "task_id": task_id,

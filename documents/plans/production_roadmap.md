@@ -27,7 +27,7 @@ Scope:
   - `generate_report`
   - `generate_chart`
   - `generate_svg_asset`
-- Keep Remotion scene generation as next-in-line after first three tools stabilize.
+- Keep Hyperframes scene generation as next-in-line after first three tools stabilize.
 
 Primary acceptance criteria:
 

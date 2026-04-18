@@ -39,7 +39,7 @@ export function ChatView() {
   const [timelineOpen, setTimelineOpen] = useState(true)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
-  const { state: streamState, startStream, cancelStream } = useTaskStream()
+  const { state: streamState, startStream } = useTaskStream()
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
   const { concurrencyMode, isTaskRunning } = useSchedulerTask()
@@ -225,7 +225,7 @@ export function ChatView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamState.status])
 
-
+  async function copyMessage(text: string, key: string) {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedKey(key)

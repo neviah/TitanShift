@@ -19,7 +19,7 @@ Initial artifact types:
 - PDF reports rendered from HTML/Markdown templates
 - Charts from structured JSON or CSV input
 - SVG graphics and UI assets
-- Remotion scene specs and deterministic video render jobs
+- Hyperframes scene specs and deterministic video render jobs
 
 Explicitly out of scope for this item:
 
@@ -43,7 +43,7 @@ Planned tools:
 - `generate_report`: produce Markdown, HTML, or PDF from structured inputs and templates.
 - `generate_chart`: produce PNG or SVG charts from tabular data and chart configuration.
 - `generate_svg_asset`: produce icons, diagrams, badges, simple illustrations, and UI graphics from structured instructions.
-- `generate_remotion_scene`: produce a typed Remotion composition plus render config for short deterministic videos.
+- `generate_hyperframes_scene`: produce a typed Hyperframes composition plus render config for short deterministic videos.
 
 Rules for all tools:
 
@@ -116,7 +116,7 @@ Recommended first backends:
 - `document_backend`: Markdown, HTML, PDF
 - `chart_backend`: SVG and PNG charts from structured data
 - `vector_backend`: SVG illustrations, badges, diagrams, UI assets
-- `remotion_backend`: typed scene generation and optional render execution
+- `hyperframes_backend`: typed scene generation and optional render execution
 
 ### Storage Model
 
@@ -172,7 +172,7 @@ Core positioning:
 Recommended release language:
 
 - "TitanShift now supports artifact-ready runs, so agents can generate concrete outputs like reports, charts, and graphics alongside their final answers."
-- "Our media direction is deterministic and code-driven: documents, SVG assets, data visuals, and Remotion-based video compositions rather than heavyweight local generative models."
+- "Our media direction is deterministic and code-driven: documents, SVG assets, data visuals, and Hyperframes-based video compositions rather than heavyweight local generative models."
 - "Artifacts in TitanShift are reviewable and reproducible, with provenance that shows exactly which tool and inputs produced each output."
 
 ### What Not To Promise Yet
@@ -187,4 +187,4 @@ Recommended release language:
 1. Add artifact contract, storage layout, and API serialization.
 2. Ship `generate_report`, `generate_chart`, and `generate_svg_asset` as the first production tools.
 3. Add UI artifact cards and preview support.
-4. Add `generate_remotion_scene` after the first three artifact types are stable.
+4. Add `generate_hyperframes_scene` after the first three artifact types are stable.

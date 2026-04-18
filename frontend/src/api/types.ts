@@ -186,6 +186,9 @@ export interface StreamEvent {
 }
 
 export interface ChatResponse {
+  success: boolean
+  response: string
+  model: string
   mode: string
   workflow_mode?: string | null
   missing_approvals?: string[] | null
@@ -272,6 +275,7 @@ export interface RunArtifact {
   summary: string
   generator: string
   backend: string
+  verified?: boolean
   provenance: Record<string, unknown>
   preview: {
     url?: string

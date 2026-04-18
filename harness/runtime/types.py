@@ -54,5 +54,6 @@ class ArtifactRecord(TypedDict):
     summary: str
     generator: str
     backend: str
+    verified: bool
     provenance: dict[str, Any]
     preview: ArtifactPreview | None

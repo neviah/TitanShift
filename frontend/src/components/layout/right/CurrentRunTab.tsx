@@ -22,6 +22,7 @@ type RunArtifact = {
   summary: string
   generator: string
   backend: string
+  verified: boolean
   provenance: Record<string, unknown>
   preview: Record<string, unknown> | null
 }
@@ -44,6 +45,7 @@ function readArtifactArray(value: unknown): RunArtifact[] {
       summary: String(row.summary ?? ''),
       generator: String(row.generator ?? ''),
       backend: String(row.backend ?? ''),
+      verified: Boolean(row.verified),
       provenance: readRecord(row.provenance) ?? {},
       preview: readRecord(row.preview),
     })
@@ -149,6 +151,9 @@ export function CurrentRunTab() {
                           <div className={styles.inlineBadges}>
                             <span className="badge badge-dim">{artifact.kind}</span>
                             <span className="badge badge-ok">{artifact.mime_type}</span>
+                            <span className={`badge ${artifact.verified ? 'badge-ok' : 'badge-warn'}`}>
+                              {artifact.verified ? 'verified' : 'draft'}
+                            </span>
                           </div>
                         </div>
                         {artifact.summary.length > 0 && <p className={styles.hint}>{artifact.summary}</p>}
