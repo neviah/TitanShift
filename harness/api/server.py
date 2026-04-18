@@ -139,6 +139,10 @@ from harness.api.schemas import (
     TaskTemplateRunRequest,
     TaskTemplateRunResponse,
     TaskSummary,
+    TaskCancelResponse,
+    TaskRollbackResponse,
+    ApiKeyStatusResponse,
+    ApiKeyRotateResponse,
     WorkspaceFileResponse,
     WorkspaceTreeNode,
     ToolSummary,
@@ -2627,7 +2631,25 @@ def create_app(workspace_root: Path) -> FastAPI:
             description=body.prompt,
             input=task_input,
         )
-        result = await runtime.orchestrator.run_reactive_task(task)
+
+        # Wrap in an asyncio.Task so it can be cancelled via POST /tasks/{id}/cancel.
+        _run_coro = asyncio.create_task(runtime.orchestrator.run_reactive_task(task))
+        runtime.cancellation.register(task.id, _run_coro)
+        try:
+            result = await _run_coro
+        except asyncio.CancelledError:
+            runtime.orchestrator.task_store.mark_cancelled(task.id)
+            return ChatResponse(
+                success=False,
+                response="Task was cancelled.",
+                model="system",
+                mode="cancelled",
+                error="Task cancelled by user request.",
+                task_id=task.id,
+            )
+        finally:
+            runtime.cancellation.unregister(task.id)
+
         return ChatResponse(
             success=result.success,
             response=result.output.get("response", result.error or ""),
@@ -2639,11 +2661,79 @@ def create_app(workspace_root: Path) -> FastAPI:
             error=result.error,
             estimated_total_tokens=result.output.get("estimated_total_tokens"),
             task_template_id=None,
+            task_id=task.id,
         )
 
     @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_read_api_key)])
     async def list_tasks() -> list[TaskSummary]:
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
+
+    @app.post(
+        "/tasks/{task_id}/cancel",
+        response_model=TaskCancelResponse,
+        dependencies=[Depends(require_read_api_key)],
+    )
+    async def cancel_task(task_id: str) -> TaskCancelResponse:
+        was_running = runtime.cancellation.is_running(task_id)
+        cancelled = runtime.cancellation.cancel(task_id)
+        if cancelled:
+            try:
+                runtime.orchestrator.task_store.mark_cancelled(task_id)
+            except Exception:
+                pass
+        return TaskCancelResponse(task_id=task_id, cancelled=cancelled, was_running=was_running)
+
+    @app.post(
+        "/tasks/{task_id}/rollback",
+        response_model=TaskRollbackResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def rollback_task(task_id: str) -> TaskRollbackResponse:
+        if runtime.cancellation.is_running(task_id):
+            raise HTTPException(status_code=409, detail="Task is still running — cancel it first.")
+        if not runtime.rollback_store.has_snapshots(task_id):
+            raise HTTPException(status_code=404, detail="No rollback snapshots found for this task.")
+        try:
+            restored = runtime.rollback_store.restore(task_id)
+            runtime.rollback_store.discard(task_id)
+            return TaskRollbackResponse(task_id=task_id, ok=True, restored_paths=restored)
+        except Exception as exc:
+            return TaskRollbackResponse(task_id=task_id, ok=False, restored_paths=[], error=str(exc))
+
+    @app.get(
+        "/api-keys/status",
+        response_model=ApiKeyStatusResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def api_key_status() -> ApiKeyStatusResponse:
+        read_key = str(runtime.config.get("api.api_key", "")).strip()
+        admin_key = str(runtime.config.get("api.admin_api_key", "")).strip()
+
+        def _mask(key: str) -> str | None:
+            if not key:
+                return None
+            return key[:4] + "****" + key[-4:] if len(key) > 8 else "****"
+
+        return ApiKeyStatusResponse(
+            read_key_configured=bool(read_key),
+            admin_key_configured=bool(admin_key),
+            read_key_masked=_mask(read_key),
+            admin_key_masked=_mask(admin_key),
+        )
+
+    @app.post(
+        "/api-keys/rotate",
+        response_model=ApiKeyRotateResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def rotate_api_key(scope: str = "read") -> ApiKeyRotateResponse:
+        if scope not in ("read", "admin"):
+            raise HTTPException(status_code=400, detail="scope must be 'read' or 'admin'")
+        import secrets as _secrets
+        new_key = _secrets.token_urlsafe(32)
+        config_key = "api.api_key" if scope == "read" else "api.admin_api_key"
+        runtime.config.set(config_key, new_key)
+        return ApiKeyRotateResponse(ok=True, scope=scope, new_key=new_key)
 
     @app.post("/chat/stream", dependencies=[Depends(require_read_api_key)])
     async def chat_stream(body: ChatRequest) -> StreamingResponse:

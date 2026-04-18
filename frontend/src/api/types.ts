@@ -193,6 +193,7 @@ export interface ChatResponse {
   error: string | null
   estimated_total_tokens: number | null
   task_template_id?: string | null
+  task_id?: string | null
 }
 
 export interface RuntimeSkillSummary {
@@ -449,4 +450,30 @@ export interface MemorySummary {
   short_term_entries: number
   long_term_scopes: number
   long_term_entries: number
+}
+
+export interface TaskCancelResponse {
+  task_id: string
+  cancelled: boolean
+  was_running: boolean
+}
+
+export interface TaskRollbackResponse {
+  task_id: string
+  ok: boolean
+  restored_paths: string[]
+  error?: string | null
+}
+
+export interface ApiKeyStatusResponse {
+  read_key_configured: boolean
+  admin_key_configured: boolean
+  read_key_masked?: string | null
+  admin_key_masked?: string | null
+}
+
+export interface ApiKeyRotateResponse {
+  ok: boolean
+  scope: string
+  new_key: string
 }

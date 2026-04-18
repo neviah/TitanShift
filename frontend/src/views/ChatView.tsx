@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Copy, RotateCcw } from 'lucide-react'
-import { approveArtifact, fetchArtifacts, fetchConfig, revokeArtifactApproval, sendChat } from '../api/client'
+import { approveArtifact, cancelTask, fetchArtifacts, fetchConfig, revokeArtifactApproval, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
 import { useSchedulerTask } from '../contexts/SchedulerTaskContext'
@@ -37,6 +37,8 @@ export function ChatView() {
   const [artifactBusy, setArtifactBusy] = useState(false)
   const [liveRun, setLiveRun] = useState(false)
   const [timelineOpen, setTimelineOpen] = useState(true)
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   const { state: streamState, startStream, cancelStream } = useTaskStream()
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
@@ -172,6 +174,7 @@ export function ChatView() {
             }
           : {}),
       })
+      if (result.task_id) setCurrentTaskId(result.task_id)
       const reply = (
         (result.response ?? '').trim()
         || (result.error ?? '').trim()
@@ -203,6 +206,8 @@ export function ChatView() {
       setWorkflowPhase('error')
     } finally {
       setSending(false)
+      setCurrentTaskId(null)
+      setCancelling(false)
     }
   }
 
@@ -471,7 +476,24 @@ export function ChatView() {
             </div>
           </div>
         )}
-        {sending && !liveRun && <StatusIndicator isActive />}
+        {sending && !liveRun && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <StatusIndicator isActive />
+            {currentTaskId && (
+              <button
+                className={styles.cancelBtn}
+                disabled={cancelling}
+                onClick={() => {
+                  if (!currentTaskId || cancelling) return
+                  setCancelling(true)
+                  void cancelTask(currentTaskId).catch(() => {}).finally(() => setCancelling(false))
+                }}
+              >
+                {cancelling ? 'Cancelling…' : 'Cancel'}
+              </button>
+            )}
+          </div>
+        )}
         {liveRun && streamState.status !== 'idle' && (
           <div>
             <button

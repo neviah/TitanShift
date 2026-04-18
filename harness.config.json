@@ -103,7 +103,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 40,
-      "max_tokens": 2555,
+      "max_tokens": 4096,
       "max_duration_ms": 600000
     }
   },
@@ -111,10 +111,10 @@
     "enable_graphify_plugin": false
   },
   "api": {
-    "require_api_key": true,
-    "api_key": "read123",
-    "require_admin_api_key": true,
-    "admin_api_key": "admin123"
+    "require_api_key": false,
+    "api_key": "W-JdP9IjBpxaD0z4J4Rd5A8-iPr3X5a2_YfmgY60gbA",
+    "require_admin_api_key": false,
+    "admin_api_key": "supersecretadminkey456"
   },
   "reports": {
     "redact_by_default": true,

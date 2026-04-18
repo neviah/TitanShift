@@ -332,6 +332,21 @@
   cursor: not-allowed;
 }
 
+.cancelBtn {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-danger, #e06c75);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cancelBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .empty {
   display: flex;
   flex-direction: column;

@@ -155,7 +155,9 @@
     "allowed_cwd_roots": ["."],
     "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"],
     "max_runtime_s": 30,
-    "max_output_bytes": 32768
+    "max_output_bytes": 32768,
+    "sandbox_env": false,
+    "allowed_env_vars": ["PATH", "HOME", "USER", "USERPROFILE", "SYSTEMROOT", "TEMP", "TMP"]
   },
   "state_machine": {
     "default_budget": {

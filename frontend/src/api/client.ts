@@ -27,6 +27,10 @@ import type {
   RuntimeSkillSummary,
   SkillRepoIntakeResponse,
   SkillRepoIntakeUninstallResponse,
+  TaskCancelResponse,
+  TaskRollbackResponse,
+  ApiKeyStatusResponse,
+  ApiKeyRotateResponse,
 } from './types'
 
 export const API_BASE = '/api'
@@ -319,6 +323,28 @@ export function fetchWorkspaceTree(): Promise<WorkspaceTreeNode[]> {
 
 export function fetchWorkspaceInfo(): Promise<{ root: string }> {
   return request('/workspace/info')
+}
+
+// ---- Task Cancellation & Rollback ----
+
+export function cancelTask(taskId: string): Promise<TaskCancelResponse> {
+  return request(`/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
+}
+
+export function rollbackTask(taskId: string): Promise<TaskRollbackResponse> {
+  return request(`/tasks/${encodeURIComponent(taskId)}/rollback`, { method: 'POST' }, 'admin')
+}
+
+// ---- API Key Management ----
+
+export function fetchApiKeyStatus(): Promise<ApiKeyStatusResponse> {
+  return request('/api-keys/status', {}, 'admin')
+}
+
+export function rotateApiKey(scope: 'read' | 'admin'): Promise<ApiKeyRotateResponse> {
+  return request(`/api-keys/rotate?scope=${scope}`, { method: 'POST' }, 'admin')
+}
+
 }
 
 export function setWorkspaceRoot(path: string): Promise<{ root: string }> {

@@ -134,6 +134,16 @@ class TaskStore:
         record.error = result.error
         self._persist(record)
 
+    def mark_cancelled(self, task_id: str) -> None:
+        record = self._records.get(task_id)
+        if record is None:
+            return
+        record.status = "cancelled"
+        record.completed_at = datetime.now(timezone.utc).isoformat()
+        record.success = False
+        record.error = "Cancelled"
+        self._persist(record)
+
     def list(self) -> list[TaskRecord]:
         return sorted(self._records.values(), key=lambda r: r.created_at, reverse=True)
 

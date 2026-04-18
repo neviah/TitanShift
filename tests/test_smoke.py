@@ -3779,6 +3779,310 @@ def test_run_history_report_policy_endpoint() -> None:
     assert isinstance(body.get("max_export_bytes"), int)
 
 
+# ─── Phase 6: Execution Safety and Production Readiness ──────────────────────
+
+def test_execution_policy_sandbox_env_defaults_to_false() -> None:
+    cfg = ConfigManager(Path(".").resolve())
+    policy = ExecutionPolicy.from_config(cfg, Path(".").resolve())
+    assert policy.sandbox_env is False
+
+
+def test_execution_policy_sandbox_env_filters_environment() -> None:
+    policy = ExecutionPolicy(
+        allowed_cwd_roots=[Path(".").resolve()],
+        allowed_command_prefixes=["echo"],
+        max_runtime_s=10,
+        max_output_bytes=1024,
+        sandbox_env=True,
+        allowed_env_vars=["PATH"],
+    )
+    runner = ExecutionModule(policy=policy, default_cwd=Path("."))
+    env = runner._build_env()
+    assert env is not None
+    # Only PATH should be present (if it's set in the environment)
+    assert all(k == "PATH" for k in env)
+
+
+def test_execution_policy_no_sandbox_returns_none_env() -> None:
+    policy = ExecutionPolicy(
+        allowed_cwd_roots=[Path(".").resolve()],
+        allowed_command_prefixes=["echo"],
+        max_runtime_s=10,
+        max_output_bytes=1024,
+        sandbox_env=False,
+        allowed_env_vars=[],
+    )
+    runner = ExecutionModule(policy=policy, default_cwd=Path("."))
+    assert runner._build_env() is None
+
+
+def test_execution_policy_cwd_constraint_blocks_parent_dirs() -> None:
+    workspace = Path(".").resolve()
+    policy = ExecutionPolicy(
+        allowed_cwd_roots=[workspace / "harness"],
+        allowed_command_prefixes=["git"],
+        max_runtime_s=10,
+        max_output_bytes=1024,
+    )
+    assert policy.is_cwd_allowed(workspace / "harness" / "execution") is True
+    assert policy.is_cwd_allowed(workspace) is False
+    assert policy.is_cwd_allowed(workspace / "tests") is False
+
+
+def test_execution_policy_allowed_command_prefixes_enforced() -> None:
+    policy = ExecutionPolicy(
+        allowed_cwd_roots=[Path(".").resolve()],
+        allowed_command_prefixes=["git", "python"],
+        max_runtime_s=10,
+        max_output_bytes=1024,
+    )
+    assert policy.is_command_allowed("git") is True
+    assert policy.is_command_allowed("python") is True
+    assert policy.is_command_allowed("rm") is False
+    assert policy.is_command_allowed("curl") is False
+
+
+def test_cancellation_registry_cancel_running_task() -> None:
+    from harness.runtime.cancellation import CancellationRegistry
+
+    registry = CancellationRegistry()
+    cancelled_flag = {"value": False}
+
+    async def _slow():
+        try:
+            await asyncio.sleep(0)  # yield to ensure task starts running
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled_flag["value"] = True
+            raise
+
+    async def _run():
+        task = asyncio.create_task(_slow())
+        registry.register("task-1", task)
+        await asyncio.sleep(0)  # let the task start
+        assert registry.is_running("task-1") is True
+        result = registry.cancel("task-1")
+        assert result is True
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_run())
+    assert cancelled_flag["value"] is True
+
+
+def test_cancellation_registry_cancel_nonexistent_task_returns_false() -> None:
+    from harness.runtime.cancellation import CancellationRegistry
+    registry = CancellationRegistry()
+    assert registry.cancel("no-such-task") is False
+
+
+def test_cancellation_registry_is_running_after_completion() -> None:
+    from harness.runtime.cancellation import CancellationRegistry
+
+    registry = CancellationRegistry()
+
+    async def _run():
+        async def _noop():
+            return None
+
+        task = asyncio.create_task(_noop())
+        registry.register("task-done", task)
+        await task
+        assert registry.is_running("task-done") is False
+
+    asyncio.run(_run())
+
+
+def test_rollback_store_snapshots_and_restores_file(tmp_path: Path) -> None:
+    from harness.runtime.rollback import RollbackStore
+
+    store = RollbackStore(tmp_path)
+    target = tmp_path / "file_to_modify.txt"
+    target.write_text("original content\n", encoding="utf-8")
+
+    store.snapshot("task-abc", target)
+    # Simulate mutation
+    target.write_text("mutated content\n", encoding="utf-8")
+    assert target.read_text(encoding="utf-8") == "mutated content\n"
+
+    restored = store.restore("task-abc")
+    assert str(target) in restored
+    assert target.read_text(encoding="utf-8") == "original content\n"
+
+
+def test_rollback_store_snapshot_is_idempotent(tmp_path: Path) -> None:
+    from harness.runtime.rollback import RollbackStore
+
+    store = RollbackStore(tmp_path)
+    target = tmp_path / "idempotent.txt"
+    target.write_text("first\n", encoding="utf-8")
+
+    store.snapshot("task-xyz", target)
+    target.write_text("second\n", encoding="utf-8")
+    store.snapshot("task-xyz", target)  # Should NOT overwrite original snapshot
+
+    restored = store.restore("task-xyz")
+    assert str(target) in restored
+    assert target.read_text(encoding="utf-8") == "first\n"
+
+
+def test_rollback_store_deletes_created_file_on_rollback(tmp_path: Path) -> None:
+    from harness.runtime.rollback import RollbackStore
+
+    store = RollbackStore(tmp_path)
+    new_file = tmp_path / "created_by_task.txt"
+
+    # Snapshot before the file exists (simulates pre-creation state)
+    store.snapshot("task-create", new_file)
+    new_file.write_text("task-created content\n", encoding="utf-8")
+    assert new_file.exists()
+
+    store.restore("task-create")
+    assert not new_file.exists()
+
+
+def test_rollback_store_discard_removes_snapshots(tmp_path: Path) -> None:
+    from harness.runtime.rollback import RollbackStore
+
+    store = RollbackStore(tmp_path)
+    target = tmp_path / "discard_target.txt"
+    target.write_text("ok\n", encoding="utf-8")
+
+    store.snapshot("task-discard", target)
+    assert store.has_snapshots("task-discard") is True
+
+    store.discard("task-discard")
+    assert store.has_snapshots("task-discard") is False
+
+
+def test_rollback_store_registered_in_runtime(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    assert runtime.rollback_store is not None
+    assert hasattr(runtime.rollback_store, "snapshot")
+    assert hasattr(runtime.rollback_store, "restore")
+
+
+def test_cancellation_registry_registered_in_runtime(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    assert runtime.cancellation is not None
+    assert hasattr(runtime.cancellation, "cancel")
+    assert hasattr(runtime.cancellation, "is_running")
+
+
+def test_cancel_nonexistent_task_returns_not_cancelled() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.post("/tasks/no-such-task-id/cancel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_id"] == "no-such-task-id"
+    assert body["cancelled"] is False
+    assert body["was_running"] is False
+
+
+def test_rollback_no_snapshots_returns_404() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.post("/tasks/no-such-task-id/rollback")
+    assert response.status_code == 404
+
+
+def test_api_key_status_endpoint_no_keys_configured() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("api.require_admin_api_key", False)
+    app.state.runtime.config.set("api.require_api_key", False)
+    app.state.runtime.config.set("api.api_key", "")
+    app.state.runtime.config.set("api.admin_api_key", "")
+    client = TestClient(app)
+    response = client.get("/api-keys/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["read_key_configured"] is False
+    assert body["admin_key_configured"] is False
+    assert body["read_key_masked"] is None
+    assert body["admin_key_masked"] is None
+
+
+def test_api_key_status_masks_configured_keys() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("api.require_api_key", False)
+    app.state.runtime.config.set("api.require_admin_api_key", False)
+    app.state.runtime.config.set("api.api_key", "supersecretreadkey123")
+    app.state.runtime.config.set("api.admin_api_key", "supersecretadminkey456")
+    client = TestClient(app)
+    response = client.get("/api-keys/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["read_key_configured"] is True
+    assert body["admin_key_configured"] is True
+    # Masked key should not contain the full value
+    assert body["read_key_masked"] != "supersecretreadkey123"
+    assert "****" in (body["read_key_masked"] or "")
+
+
+def test_api_key_rotate_endpoint_generates_new_key() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("api.require_api_key", False)
+    app.state.runtime.config.set("api.require_admin_api_key", False)
+    original_key = str(app.state.runtime.config.get("api.api_key", ""))
+    client = TestClient(app)
+    response = client.post("/api-keys/rotate?scope=read")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["scope"] == "read"
+    assert len(body["new_key"]) >= 20
+    # New key should differ from the original
+    new_key_in_config = str(app.state.runtime.config.get("api.api_key", ""))
+    assert new_key_in_config == body["new_key"]
+    assert new_key_in_config != original_key
+
+
+def test_api_key_rotate_invalid_scope_returns_400() -> None:
+    app = create_app(Path(".").resolve())
+    app.state.runtime.config.set("api.require_api_key", False)
+    app.state.runtime.config.set("api.require_admin_api_key", False)
+    client = TestClient(app)
+    response = client.post("/api-keys/rotate?scope=invalid")
+    assert response.status_code == 400
+
+
+def test_tool_registry_snapshots_file_before_write(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    runtime = app.state.runtime
+    target = tmp_path / "tool_snapshot_test.txt"
+    target.write_text("before mutation\n", encoding="utf-8")
+
+    asyncio.run(
+        runtime.tools.execute_tool(
+            "write_file",
+            {"target_path": str(target), "content": "after mutation\n"},
+            task_id="snap-task-1",
+        )
+    )
+
+    # Snapshot should exist
+    assert runtime.rollback_store.has_snapshots("snap-task-1") is True
+    # Restore should revert to original
+    runtime.rollback_store.restore("snap-task-1")
+    assert target.read_text(encoding="utf-8") == "before mutation\n"
+
+
+def test_health_endpoint_includes_rollback_and_cancellation_entries() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+    response = client.get("/status")
+    assert response.status_code == 200
+    health_items = {item["name"] for item in response.json()["health"]}
+    assert "rollback" in health_items
+    assert "cancellation" in health_items
+
+
+
 def test_run_history_export_endpoint_writes_file() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app)

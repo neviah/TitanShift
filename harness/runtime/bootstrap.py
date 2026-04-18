@@ -12,10 +12,12 @@ from harness.logging.logger import JsonLogger
 from harness.memory.manager import MemoryManager
 from harness.model.adapter import ModelRegistry
 from harness.orchestrator.orchestrator import Orchestrator
+from harness.runtime.cancellation import CancellationRegistry
 from harness.runtime.config import ConfigManager
 from harness.runtime.event_bus import EventBus
 from harness.runtime.health import HealthRegistry
 from harness.runtime.module_loader import ModuleLoader
+from harness.runtime.rollback import RollbackStore
 from harness.runtime.service_manager import ServiceManager
 from harness.runtime.telemetry import TelemetryCollector
 from harness.scheduler.module import ScheduledJob, Scheduler
@@ -42,6 +44,8 @@ class RuntimeContext:
     skills: SkillRegistry
     service_manager: ServiceManager
     telemetry: TelemetryCollector
+    cancellation: CancellationRegistry
+    rollback_store: RollbackStore
 
 
 def build_runtime(workspace_root: Path) -> RuntimeContext:
@@ -235,6 +239,14 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     telemetry_collector = TelemetryCollector()
     health.set("telemetry", "healthy")
 
+    cancellation = CancellationRegistry()
+
+    storage_dir = workspace_root / cfg.get("memory.storage_dir", ".harness")
+    rollback_store = RollbackStore(storage_dir)
+    tools.set_rollback_store(rollback_store)
+    health.set("rollback", "healthy", {"store": str(storage_dir / "rollbacks")})
+    health.set("cancellation", "healthy")
+
     return RuntimeContext(
         config=cfg,
         event_bus=bus,
@@ -252,4 +264,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         skills=skills,
         service_manager=service_manager,
         telemetry=telemetry_collector,
+        cancellation=cancellation,
+        rollback_store=rollback_store,
     )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from harness.runtime.config import ConfigManager
@@ -12,6 +12,8 @@ class ExecutionPolicy:
     allowed_command_prefixes: list[str]
     max_runtime_s: int
     max_output_bytes: int
+    sandbox_env: bool = False
+    allowed_env_vars: list[str] = field(default_factory=list)
 
     @classmethod
     def from_config(cls, cfg: ConfigManager, workspace_root: Path) -> "ExecutionPolicy":
@@ -21,6 +23,8 @@ class ExecutionPolicy:
             allowed_command_prefixes=list(cfg.get("execution.allowed_command_prefixes", []) or []),
             max_runtime_s=int(cfg.get("execution.max_runtime_s", 30)),
             max_output_bytes=int(cfg.get("execution.max_output_bytes", 32768)),
+            sandbox_env=bool(cfg.get("execution.sandbox_env", False)),
+            allowed_env_vars=list(cfg.get("execution.allowed_env_vars", []) or []),
         )
 
     def is_command_allowed(self, command: str) -> bool:

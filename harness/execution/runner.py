@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,13 @@ class ExecutionModule:
         self.policy = policy
         self.default_cwd = default_cwd.resolve()
 
+    def _build_env(self) -> dict[str, str] | None:
+        """Return a filtered environment dict when sandbox_env is enabled."""
+        if not self.policy.sandbox_env:
+            return None
+        allowed = set(self.policy.allowed_env_vars)
+        return {k: v for k, v in os.environ.items() if k in allowed}
+
     async def run_command(
         self,
         command: str,
@@ -43,6 +51,7 @@ class ExecutionModule:
             command,
             *args,
             cwd=str(run_cwd),
+            env=self._build_env(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

@@ -41,6 +41,7 @@ class ChatResponse(BaseModel):
     error: str | None = None
     estimated_total_tokens: int | None = None
     task_template_id: str | None = None
+    task_id: str | None = None
 
 
 class TaskTemplate(BaseModel):
@@ -930,6 +931,32 @@ class TaskSearchResponse(BaseModel):
     query: str
     total: int
     results: list[TaskSearchResult]
+
+
+class TaskCancelResponse(BaseModel):
+    task_id: str
+    cancelled: bool
+    was_running: bool
+
+
+class TaskRollbackResponse(BaseModel):
+    task_id: str
+    ok: bool
+    restored_paths: list[str]
+    error: str | None = None
+
+
+class ApiKeyStatusResponse(BaseModel):
+    read_key_configured: bool
+    admin_key_configured: bool
+    read_key_masked: str | None = None
+    admin_key_masked: str | None = None
+
+
+class ApiKeyRotateResponse(BaseModel):
+    ok: bool
+    scope: str
+    new_key: str
 
 
 

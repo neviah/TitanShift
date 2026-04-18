@@ -92,6 +92,11 @@ class ToolRegistry:
         self.policy = policy
         self._tools: dict[str, ToolDefinition] = {}
         self._audit_sink = audit_sink
+        self._rollback_store: Any | None = None  # RollbackStore — set after construction
+
+    def set_rollback_store(self, store: Any) -> None:
+        """Wire in a RollbackStore so file mutations are snapshotted before execution."""
+        self._rollback_store = store
 
     def register_tool(self, tool: ToolDefinition) -> None:
         self._tools[tool.name] = tool
@@ -117,7 +122,13 @@ class ToolRegistry:
         """Policy preview with empty args for UI/API listing."""
         return self.policy.evaluate_tool(tool, {})
 
-    async def execute_tool(self, name: str, args: dict[str, Any], bypass_policy: bool = False) -> dict[str, Any]:
+    async def execute_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        bypass_policy: bool = False,
+        task_id: str | None = None,
+    ) -> dict[str, Any]:
         tool = self.get_tool(name)
         if tool is None:
             self._emit_audit(name=name, status="denied", reason="tool_not_found", args=args)
@@ -131,6 +142,19 @@ class ToolRegistry:
                 raise PermissionError(f"Tool blocked by deny-all policy: {name}")
         else:
             reason = "bypassed_for_superpowered_mode"
+
+        # Snapshot files before mutation so they can be rolled back.
+        if task_id and self._rollback_store is not None:
+            from harness.runtime.rollback import MUTATING_TOOLS
+            from pathlib import Path as _Path
+            if name in MUTATING_TOOLS:
+                for path_key in ("path", "source_path", "target_path"):
+                    raw_path = args.get(path_key)
+                    if raw_path:
+                        try:
+                            self._rollback_store.snapshot(task_id, _Path(str(raw_path)))
+                        except Exception:
+                            pass  # Snapshot failure must never block execution.
 
         if tool.handler is None:
             self._emit_audit(name=name, status="allowed", reason="no_handler", args=args)
