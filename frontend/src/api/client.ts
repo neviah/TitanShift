@@ -23,6 +23,7 @@ import type {
   ArtifactFile,
   ArtifactApproveResponse,
   WorkflowMetrics,
+  TaskSearchResponse,
   RuntimeSkillSummary,
   SkillRepoIntakeResponse,
   SkillRepoIntakeUninstallResponse,
@@ -366,4 +367,13 @@ export function revokeArtifactApproval(artifact_type: string): Promise<{ artifac
 
 export function fetchWorkflowMetrics(): Promise<WorkflowMetrics> {
   return request('/metrics/workflow')
+}
+
+// ---- Task Search ----
+
+export function searchTasks(query: string, limit = 10): Promise<TaskSearchResponse> {
+  return request('/tasks/search', {
+    method: 'POST',
+    body: JSON.stringify({ query, limit }),
+  })
 }

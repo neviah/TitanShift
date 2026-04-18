@@ -52,6 +52,9 @@ from harness.api.schemas import (
     WorkflowMetrics,
     WorkflowModeStats,
     SuperpoweredModeStats,
+    TaskSearchRequest,
+    TaskSearchResponse,
+    TaskSearchResult,
     ChatRequest,
     ChatResponse,
     ConfigUpdateRequest,
@@ -2792,6 +2795,35 @@ def create_app(workspace_root: Path) -> FastAPI:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskDetail(**task)
 
+    @app.post("/tasks/search", response_model=TaskSearchResponse, dependencies=[Depends(require_read_api_key)])
+    async def search_tasks(body: TaskSearchRequest) -> TaskSearchResponse:
+        """Full-text search over prior task outputs stored in semantic memory."""
+        hits = runtime.memory.semantic_search(body.query, limit=body.limit)
+        results: list[TaskSearchResult] = []
+        for hit in hits:
+            meta = hit.get("metadata") or {}
+            if not isinstance(meta, dict):
+                meta = {}
+            # doc_id is the task_id when stored by _persist_run_to_memory
+            task_id = str(meta.get("task_id") or hit.get("doc_id") or "")
+            record = runtime.orchestrator.task_store.get(task_id)
+            description = record.description if record else ""
+            status = record.status if record else "unknown"
+            success = record.success if record else None
+            content = str(hit.get("content", ""))
+            snippet = content[:200].replace("\n", " ")
+            results.append(
+                TaskSearchResult(
+                    task_id=task_id,
+                    description=description,
+                    status=status,
+                    success=success,
+                    snippet=snippet,
+                    workflow_mode=str(meta.get("workflow_mode") or "") or None,
+                )
+            )
+        return TaskSearchResponse(query=body.query, total=len(results), results=results)
+
     def _build_workspace_tree(root: Path, current: Path, max_depth: int = 3) -> list[WorkspaceTreeNode]:
         if max_depth < 0:
             return []
@@ -5028,14 +5060,35 @@ def create_app(workspace_root: Path) -> FastAPI:
     # ── Workflow telemetry metrics ────────────────────────────────────────────
     @app.get("/metrics/workflow", response_model=WorkflowMetrics, dependencies=[Depends(require_read_api_key)])
     async def workflow_metrics() -> WorkflowMetrics:
+        import statistics
+
         events = runtime.logger.query(event_type="WORKFLOW_TELEMETRY", limit=1000)
         payloads = [e.get("payload", {}) for e in events if isinstance(e.get("payload"), dict)]
 
+        # Enrich each payload with task-level success from the durable task store
+        # (telemetry events emitted before task_store.mark_completed don't carry success).
+        task_rows_by_id: dict[str, dict[str, Any]] = {
+            r.get("task_id", ""): r  # type: ignore[attr-defined]
+            for r in runtime.orchestrator.list_tasks()
+            if isinstance(r, dict) and r.get("task_id")
+        }
+
+        def _enrich(p: dict[str, Any]) -> dict[str, Any]:
+            tid = str(p.get("task_id", ""))
+            row = task_rows_by_id.get(tid, {})
+            p = dict(p)
+            if "success" not in p and row:
+                p["success"] = row.get("success")
+            return p
+
+        payloads = [_enrich(p) for p in payloads]
+
         if not payloads:
-            # Fallback for runtimes where telemetry events are not persisted yet.
-            task_rows = runtime.orchestrator.list_tasks()
+            # Fallback: synthesise payloads from task store rows directly.
             inferred_payloads: list[dict[str, Any]] = []
-            for row in task_rows:
+            for row in runtime.orchestrator.list_tasks():
+                if not isinstance(row, dict):
+                    continue
                 output = row.get("output", {}) if isinstance(row.get("output", {}), dict) else {}
                 review_result = output.get("review_result", {}) if isinstance(output.get("review_result", {}), dict) else {}
                 wf = str(output.get("workflow_mode", "")).strip().lower()
@@ -5044,7 +5097,6 @@ def create_app(workspace_root: Path) -> FastAPI:
                         wf = "superpowered"
                     else:
                         wf = "lightning"
-
                 iterations = None
                 task_results = review_result.get("task_results", []) if isinstance(review_result, dict) else []
                 if isinstance(task_results, list) and task_results:
@@ -5052,15 +5104,16 @@ def create_app(workspace_root: Path) -> FastAPI:
                         (int(item.get("iterations", 0)) for item in task_results if isinstance(item, dict)),
                         default=0,
                     )
-
                 inferred_payloads.append(
                     {
+                        "task_id": row.get("task_id", ""),
                         "workflow_mode": wf,
                         "duration_ms": 0,
                         "gate_blocked": output.get("mode") == "approval-gate",
                         "review_ran": bool(review_result),
                         "review_passed": (bool(review_result.get("ok")) if isinstance(review_result, dict) and review_result else None),
                         "review_iterations": iterations,
+                        "success": row.get("success"),
                     }
                 )
             payloads = inferred_payloads
@@ -5071,17 +5124,43 @@ def create_app(workspace_root: Path) -> FastAPI:
         def _avg(values: list[float]) -> float:
             return round(sum(values) / len(values), 1) if values else 0.0
 
+        def _percentile(values: list[float], pct: float) -> float | None:
+            if not values:
+                return None
+            sorted_vals = sorted(values)
+            idx = int(len(sorted_vals) * pct / 100)
+            idx = min(idx, len(sorted_vals) - 1)
+            return round(sorted_vals[idx], 1)
+
+        def _mode_stats(mode_payloads: list[dict[str, Any]]) -> dict[str, Any]:
+            durations = [float(p.get("duration_ms", 0)) for p in mode_payloads]
+            successes = [p for p in mode_payloads if p.get("success") is True]
+            failures = [p for p in mode_payloads if p.get("success") is False]
+            total = len(mode_payloads)
+            return {
+                "total_tasks": total,
+                "successful_tasks": len(successes),
+                "failed_tasks": len(failures),
+                "success_rate": round(len(successes) / total, 3) if total else None,
+                "avg_duration_ms": _avg(durations),
+                "p50_duration_ms": _percentile(durations, 50),
+                "p95_duration_ms": _percentile(durations, 95),
+            }
+
+        lightning_stats = _mode_stats(lightning_p)
+        sp_stats = _mode_stats(sp_p)
+
         sp_reviews = [p for p in sp_p if p.get("review_ran")]
         sp_iters = [int(p["review_iterations"]) for p in sp_reviews if p.get("review_iterations") is not None]
 
+        total = len(payloads)
+        total_successful = sum(1 for p in payloads if p.get("success") is True)
+        total_failed = sum(1 for p in payloads if p.get("success") is False)
+
         return WorkflowMetrics(
-            lightning=WorkflowModeStats(
-                total_tasks=len(lightning_p),
-                avg_duration_ms=_avg([float(p.get("duration_ms", 0)) for p in lightning_p]),
-            ),
+            lightning=WorkflowModeStats(**lightning_stats),
             superpowered=SuperpoweredModeStats(
-                total_tasks=len(sp_p),
-                avg_duration_ms=_avg([float(p.get("duration_ms", 0)) for p in sp_p]),
+                **sp_stats,
                 gate_blocked_count=sum(1 for p in sp_p if p.get("gate_blocked")),
                 review_ran_count=len(sp_reviews),
                 review_pass_rate=(
@@ -5091,9 +5170,13 @@ def create_app(workspace_root: Path) -> FastAPI:
                 ),
                 avg_review_iterations=_avg([float(i) for i in sp_iters]) if sp_iters else None,
             ),
-            total_tasks=len(payloads),
+            total_tasks=total,
+            total_successful_tasks=total_successful,
+            total_failed_tasks=total_failed,
+            overall_success_rate=round(total_successful / total, 3) if total else None,
         )
 
     return app
+
 
 

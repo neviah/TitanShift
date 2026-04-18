@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
 from harness.memory.manager import MemoryManager
 from harness.model.adapter import ModelRegistry
@@ -62,7 +64,10 @@ class Orchestrator:
         self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools, self.skills)
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         self.role_templates = self._build_default_role_templates()
-        self.task_store = TaskStore()
+        # Use SQLite-backed TaskStore so task history survives restarts.
+        _storage_raw = str(self.config.get("memory.storage_dir", ".harness"))
+        _storage_dir = Path(_storage_raw) if Path(_storage_raw).is_absolute() else Path.cwd() / _storage_raw
+        self.task_store = TaskStore(db_path=_storage_dir / "tasks.db")
         self.agents = {
             "main-agent": AgentRecord(
                 agent_id="main-agent",
@@ -323,6 +328,74 @@ class Orchestrator:
 
         return {"ok": True, "task_results": task_results, "max_iterations": max_iterations}
 
+    def _persist_run_to_memory(self, task: Task, result: TaskResult) -> None:
+        """Persist task output to semantic store and graph for cross-run retrieval.
+
+        Non-fatal: any storage error is swallowed so it cannot block the caller.
+        """
+        output = result.output if isinstance(result.output, dict) else {}
+
+        # Semantic store: full-text-searchable document for `POST /tasks/search`
+        doc_text = f"{task.description}\n{output.get('response', '')}"
+        self.memory.embed_and_store(
+            doc_id=task.id,
+            text=doc_text,
+            metadata={
+                "task_id": task.id,
+                "success": str(result.success),
+                "workflow_mode": str(output.get("workflow_mode", "unknown")),
+                "used_tools": json.dumps(output.get("used_tools", []), default=str),
+                "created_paths": json.dumps(output.get("created_paths", []), default=str),
+                "updated_paths": json.dumps(output.get("updated_paths", []), default=str),
+            },
+            embedding=[],
+        )
+
+        # Graph: task node
+        self.memory.graph_add_node(
+            task.id,
+            node_type="task",
+            properties={
+                "description": task.description[:200],
+                "success": str(result.success),
+                "workflow_mode": str(output.get("workflow_mode", "unknown")),
+            },
+        )
+
+        # Graph: file nodes + CREATED / MODIFIED edges
+        for file_path in output.get("created_paths", []):
+            if not isinstance(file_path, str):
+                continue
+            node_id = f"file:{file_path}"
+            self.memory.graph_add_node(node_id, node_type="file", properties={"path": file_path})
+            self.memory.graph_add_edge(task.id, node_id, edge_type="CREATED")
+
+        for file_path in output.get("updated_paths", []):
+            if not isinstance(file_path, str):
+                continue
+            node_id = f"file:{file_path}"
+            self.memory.graph_add_node(node_id, node_type="file", properties={"path": file_path})
+            self.memory.graph_add_edge(task.id, node_id, edge_type="MODIFIED")
+
+        # Graph: artifact nodes + PRODUCED edges
+        for artifact in output.get("artifacts", []):
+            if not isinstance(artifact, dict):
+                continue
+            artifact_id = str(artifact.get("artifact_id") or artifact.get("id") or "")
+            if not artifact_id:
+                continue
+            node_id = f"artifact:{artifact_id}"
+            self.memory.graph_add_node(
+                node_id,
+                node_type="artifact",
+                properties={
+                    "artifact_id": artifact_id,
+                    "kind": str(artifact.get("kind", "unknown")),
+                    "title": str(artifact.get("title", "")),
+                },
+            )
+            self.memory.graph_add_edge(task.id, node_id, edge_type="PRODUCED")
+
     def get_workflow_mode(self) -> str:
         """Get current workflow mode: 'lightning' or 'superpowered'."""
         return str(self.config.get("orchestrator.workflow_mode", "lightning"))
@@ -555,6 +628,10 @@ class Orchestrator:
                 )
                 _telemetry["gate_blocked"] = True
                 self.task_store.mark_completed(result)
+                try:
+                    self._persist_run_to_memory(task, result)
+                except Exception:
+                    pass
                 await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                 return result
 
@@ -591,6 +668,10 @@ class Orchestrator:
                             error=msg,
                         )
                         self.task_store.mark_completed(result)
+                        try:
+                            self._persist_run_to_memory(task, result)
+                        except Exception:
+                            pass
                         await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                         return result
 
@@ -618,6 +699,10 @@ class Orchestrator:
                             error=msg,
                         )
                         self.task_store.mark_completed(result)
+                        try:
+                            self._persist_run_to_memory(task, result)
+                        except Exception:
+                            pass
                         await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                         return result
                     task.input["review_result"] = review_result
@@ -656,6 +741,10 @@ class Orchestrator:
                 )
                 result = TaskResult(task_id=task.id, output={}, success=False, error=f"Unhandled runtime error: {exc}")
             self.task_store.mark_completed(result)
+            try:
+                self._persist_run_to_memory(task, result)
+            except Exception:
+                pass
             await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
             return result
 

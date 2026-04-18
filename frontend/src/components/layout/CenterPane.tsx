@@ -4,6 +4,7 @@ import { FileView } from '../../views/FileView'
 import { SkillsView } from '../../views/SkillsView'
 import { SettingsView } from '../../views/SettingsView'
 import { SchedulerView } from '../../views/SchedulerView'
+import { TasksView } from '../../views/TasksView'
 import { PlaceholderView } from '../../views/PlaceholderView'
 import { ModuleBackdrop } from './ModuleBackdrop'
 import styles from './CenterPane.module.css'
@@ -24,7 +25,7 @@ export function CenterPane({ activeTab, selectedFilePath }: CenterPaneProps) {
         </div>
         {activeTab === 'skills' && <SkillsView />}
         {activeTab === 'settings' && <SettingsView />}
-        {activeTab === 'tasks' && <PlaceholderView label="Tasks" />}
+        {activeTab === 'tasks' && <TasksView />}
         {activeTab === 'scheduler' && <SchedulerView />}
         {activeTab === 'files' && <FileView selectedFilePath={selectedFilePath} />}
         {activeTab === 'tools' && <PlaceholderView label="Tools" />}

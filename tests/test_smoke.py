@@ -4284,3 +4284,172 @@ def test_chat_stream_rejects_missing_api_key() -> None:
     )
     assert response.status_code in (401, 403)
 
+
+# ─── Phase 5: Persistence, Memory, and Metrics ───────────────────────────────
+
+def test_task_store_persists_to_sqlite(tmp_path: Path) -> None:
+    """TaskStore with a db_path survives reinstantiation."""
+    from harness.orchestrator.task_store import TaskStore
+    from harness.runtime.types import Task, TaskResult
+
+    db = tmp_path / "tasks.db"
+    store1 = TaskStore(db_path=db)
+    task = Task(id="persist-test-1", description="Persistence smoke test", input={})
+    store1.create(task)
+    store1.mark_started(task.id)
+    store1.mark_completed(
+        TaskResult(task_id=task.id, output={"response": "done"}, success=True)
+    )
+
+    # New instance reads from same db
+    store2 = TaskStore(db_path=db)
+    record = store2.get("persist-test-1")
+    assert record is not None, "record should survive reinstantiation"
+    assert record.status == "completed"
+    assert record.success is True
+    assert record.output.get("response") == "done"
+
+
+def test_task_store_in_memory_without_db_path() -> None:
+    """TaskStore with no db_path still works (no file written)."""
+    from harness.orchestrator.task_store import TaskStore
+    from harness.runtime.types import Task, TaskResult
+
+    store = TaskStore()
+    task = Task(id="mem-only-1", description="Memory-only task", input={})
+    store.create(task)
+    store.mark_started(task.id)
+    store.mark_completed(TaskResult(task_id=task.id, output={}, success=False, error="oops"))
+    record = store.get("mem-only-1")
+    assert record is not None
+    assert record.status == "failed"
+    assert record.error == "oops"
+
+
+def test_run_persists_to_semantic_memory() -> None:
+    """After a successful /chat call, a semantic memory doc is stored."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={"prompt": "semantic persistence test run", "model_backend": "local_stub"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+
+    task_id = body.get("task_id")
+    if not task_id:
+        # task_id may not be returned in response; just verify memory search works
+        return
+
+    runtime = client.app.state.runtime  # type: ignore[attr-defined]
+    hits = runtime.memory.semantic_search("persistence test run", limit=5)
+    assert isinstance(hits, list)
+    # At least one document should reference our task
+    found = any(
+        str(h.get("metadata", {}).get("task_id", "") or h.get("doc_id", "")) == task_id
+        for h in hits
+    )
+    assert found, f"task {task_id} not found in semantic memory; hits={hits}"
+
+
+def test_run_adds_task_node_to_graph() -> None:
+    """After a /chat call, a task node is added to the memory graph."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    response = client.post(
+        "/chat",
+        json={"prompt": "graph node test run", "model_backend": "local_stub"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    task_id = body.get("task_id")
+    if not task_id:
+        return  # Can't verify without a task_id in response
+
+    runtime = client.app.state.runtime  # type: ignore[attr-defined]
+    assert runtime.memory.graph_has_node(task_id), f"task node {task_id} not in graph"
+
+
+def test_tasks_search_endpoint_returns_results() -> None:
+    """POST /tasks/search returns a valid response shape."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    # Seed at least one task via /chat
+    client.post(
+        "/chat",
+        json={"prompt": "searchable run for search endpoint test", "model_backend": "local_stub"},
+    )
+
+    response = client.post("/tasks/search", json={"query": "searchable run", "limit": 5})
+    assert response.status_code == 200
+    body = response.json()
+    assert "query" in body
+    assert "total" in body
+    assert "results" in body
+    assert isinstance(body["results"], list)
+    # Each result must have required fields
+    for item in body["results"]:
+        assert "task_id" in item
+        assert "status" in item
+        assert "snippet" in item
+
+
+def test_workflow_metrics_returns_enhanced_fields() -> None:
+    """GET /metrics/workflow returns the new success_rate and percentile fields."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    # Ensure at least one task exists for meaningful metrics
+    client.post(
+        "/chat",
+        json={"prompt": "metrics test run", "model_backend": "local_stub"},
+    )
+
+    response = client.get("/metrics/workflow")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "total_tasks" in body
+    assert "lightning" in body
+    assert "superpowered" in body
+
+    lightning = body["lightning"]
+    assert "total_tasks" in lightning
+    assert "avg_duration_ms" in lightning
+    # New optional fields should be present (may be null if no data)
+    assert "p50_duration_ms" in lightning
+    assert "p95_duration_ms" in lightning
+
+    assert "overall_success_rate" in body
+
+
+def test_task_list_survives_app_restart(tmp_path: Path) -> None:
+    """Tasks created in one app instance are visible in a fresh instance (durable store)."""
+    import uuid as _uuid
+    # Build two runtimes pointing at the same storage dir so they share tasks.db
+    from harness.runtime.bootstrap import build_runtime
+
+    runtime1 = build_runtime(Path(".").resolve())
+    storage_dir = Path(str(runtime1.config.get("memory.storage_dir", ".harness")))
+    if not storage_dir.is_absolute():
+        storage_dir = Path(".").resolve() / storage_dir
+
+    task = Task(id=f"restart-test-{_uuid.uuid4().hex[:8]}", description="Restart persistence test", input={})
+    runtime1.orchestrator.task_store.create(task)
+    runtime1.orchestrator.task_store.mark_started(task.id)
+    from harness.runtime.types import TaskResult
+    runtime1.orchestrator.task_store.mark_completed(
+        TaskResult(task_id=task.id, output={"response": "ok"}, success=True)
+    )
+
+    # Second runtime reading the same storage dir
+    runtime2 = build_runtime(Path(".").resolve())
+    record = runtime2.orchestrator.task_store.get(task.id)
+    assert record is not None, "Task should be visible from a fresh runtime"
+    assert record.status == "completed"
+

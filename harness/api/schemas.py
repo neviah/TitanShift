@@ -888,7 +888,12 @@ class ArtifactApproveResponse(BaseModel):
 
 class WorkflowModeStats(BaseModel):
     total_tasks: int
+    successful_tasks: int = 0
+    failed_tasks: int = 0
+    success_rate: float | None = None
     avg_duration_ms: float
+    p50_duration_ms: float | None = None
+    p95_duration_ms: float | None = None
 
 
 class SuperpoweredModeStats(WorkflowModeStats):
@@ -902,6 +907,29 @@ class WorkflowMetrics(BaseModel):
     lightning: WorkflowModeStats
     superpowered: SuperpoweredModeStats
     total_tasks: int
+    total_successful_tasks: int = 0
+    total_failed_tasks: int = 0
+    overall_success_rate: float | None = None
+
+
+class TaskSearchRequest(BaseModel):
+    query: str
+    limit: int = 10
+
+
+class TaskSearchResult(BaseModel):
+    task_id: str
+    description: str
+    status: str
+    success: bool | None
+    snippet: str
+    workflow_mode: str | None = None
+
+
+class TaskSearchResponse(BaseModel):
+    query: str
+    total: int
+    results: list[TaskSearchResult]
 
 
 

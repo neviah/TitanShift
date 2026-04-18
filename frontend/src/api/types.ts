@@ -369,7 +369,12 @@ export interface ArtifactApproveResponse {
 
 export interface WorkflowModeStats {
   total_tasks: number
+  successful_tasks?: number
+  failed_tasks?: number
+  success_rate?: number | null
   avg_duration_ms: number
+  p50_duration_ms?: number | null
+  p95_duration_ms?: number | null
 }
 
 export interface WorkflowMetrics {
@@ -381,6 +386,24 @@ export interface WorkflowMetrics {
     avg_review_iterations: number | null
   }
   total_tasks: number
+  total_successful_tasks?: number
+  total_failed_tasks?: number
+  overall_success_rate?: number | null
+}
+
+export interface TaskSearchResult {
+  task_id: string
+  description: string
+  status: string
+  success: boolean | null
+  snippet: string
+  workflow_mode: string | null
+}
+
+export interface TaskSearchResponse {
+  query: string
+  total: number
+  results: TaskSearchResult[]
 }
 
 export interface WorkspaceTreeNode {
