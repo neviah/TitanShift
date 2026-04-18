@@ -1,0 +1,14 @@
+{
+  "tool_name": "manual_tool",
+  "arguments": {},
+  "source_artifact": {
+    "artifact_id": "artifact-verified-smoke",
+    "kind": "document.markdown",
+    "path": "D:\\Projects\\TitantShift\\.harness\\verified-default-smoke.md",
+    "mime_type": "text/markdown",
+    "title": "Draft Artifact",
+    "summary": "draft",
+    "generator": "manual",
+    "backend": "manual"
+  }
+}

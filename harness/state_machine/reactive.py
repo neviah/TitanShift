@@ -112,7 +112,7 @@ class ReactiveStateMachine:
                 matched.add(tool_name)
             elif tool_name.startswith("repo_"):
                 # Detect repo_* tools by their identifier (the word between "repo_" and the
-                # first separator), e.g. "repo_camofox-browser_http_request" → "camofox".
+                # first separator), e.g. "repo_playwright-browser_http_request" → "playwright".
                 bare = tool_name[5:]  # strip "repo_"
                 identifier = bare.split("-")[0].split("_")[0].lower()
                 if identifier and len(identifier) >= 3 and identifier in text:

@@ -1414,7 +1414,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     repo_tool_adapters = _load_repo_tool_adapters()
     repo_intake_manifests = _load_repo_intake_manifests()
     for adapter_record in list(repo_tool_adapters.values()):
-        # Skip adapters marked as blocked (e.g. Camofox requires browser dep not available)
+        # Skip adapters marked as blocked (e.g. Playwright requires browser dep not available)
         if str(adapter_record.get("status", "ready")).lower() == "blocked":
             continue
         _register_generated_repo_tool(adapter_record)

@@ -82,9 +82,9 @@ class TestClient(FastAPITestClient):
         return response
 
 
-CAMOFOX_REDDIT_PROMPT = (
+PLAYWRIGHT_REDDIT_PROMPT = (
     'If the file "reddit.txt" does not exist in our workspace directory, then create it. '
-    "Use the repo camofox tool and skill for browsing. and go to reddit. "
+    "Use the repo playwright tool and skill for browsing. and go to reddit. "
     "use append_file tool to add exactly one new line in that text file. writing the link to the first post you see on the reddit website on a new line in that text file. "
     "After writing, use read_file on reddit.txt and return the full final file content. "
     "Also return the exact tools_used list."
@@ -1075,11 +1075,11 @@ def test_generate_component_tool_creates_react_component() -> None:
         shutil.rmtree(target_dir, ignore_errors=True)
 
 
-def test_camofox_same_prompt_enforces_requested_repo_tool_before_support_tools(tmp_path: Path) -> None:
+def test_playwright_same_prompt_enforces_requested_repo_tool_before_support_tools(tmp_path: Path) -> None:
     app = create_app(tmp_path)
     runtime = app.state.runtime
 
-    async def fake_camofox_handler(args: dict[str, object]) -> dict[str, object]:
+    async def fake_playwright_handler(args: dict[str, object]) -> dict[str, object]:
         assert args.get("action") == "get_links"
         assert args.get("url") == "https://www.reddit.com/"
         return {
@@ -1096,9 +1096,9 @@ def test_camofox_same_prompt_enforces_requested_repo_tool_before_support_tools(t
 
     runtime.tools.register_tool(
         ToolDefinition(
-            name="repo_camofox-browser_http_request",
-            description="Camoufox browser automation adapter",
-            handler=fake_camofox_handler,
+            name="repo_playwright-browser_http_request",
+            description="Playwright browser automation adapter",
+            handler=fake_playwright_handler,
             parameters={
                 "type": "object",
                 "properties": {
@@ -1110,7 +1110,7 @@ def test_camofox_same_prompt_enforces_requested_repo_tool_before_support_tools(t
             capabilities=["browser.automation"],
         )
     )
-    runtime.tools.policy.allowed_tool_names.add("repo_camofox-browser_http_request")
+    runtime.tools.policy.allowed_tool_names.add("repo_playwright-browser_http_request")
 
     class SequenceAdapter:
         model_id = "sequence"
@@ -1133,7 +1133,7 @@ def test_camofox_same_prompt_enforces_requested_repo_tool_before_support_tools(t
                     tool_calls=[
                         ToolCall(
                             id="2",
-                            name="repo_camofox_browser_http_request",
+                            name="repo_playwright_browser_http_request",
                             arguments={"action": "get_links", "url": "https://www.reddit.com/"},
                         )
                     ],
@@ -1161,7 +1161,7 @@ def test_camofox_same_prompt_enforces_requested_repo_tool_before_support_tools(t
                 )
             return ModelResponse(
                 text=(
-                    "tools_used=[repo_camofox-browser_http_request, append_file, read_file]\n"
+                    "tools_used=[repo_playwright-browser_http_request, append_file, read_file]\n"
                     "https://www.reddit.com/r/test/comments/123/example_post/"
                 ),
                 model_id=self.model_id,
@@ -1175,15 +1175,15 @@ def test_camofox_same_prompt_enforces_requested_repo_tool_before_support_tools(t
     result = asyncio.run(
         runtime.orchestrator.run_reactive_task(
             Task(
-                id="camofox-prompt-regression",
-                description=CAMOFOX_REDDIT_PROMPT,
+                id="playwright-prompt-regression",
+                description=PLAYWRIGHT_REDDIT_PROMPT,
                 input={"model_backend": "sequence"},
             )
         )
     )
 
     assert result.success is True
-    assert "repo_camofox-browser_http_request" in result.output["used_tools"]
+    assert "repo_playwright-browser_http_request" in result.output["used_tools"]
     assert "list_directory" not in result.output["used_tools"]
     assert Path(tmp_path / "reddit.txt").read_text(encoding="utf-8").strip() == "https://www.reddit.com/r/test/comments/123/example_post/"
 

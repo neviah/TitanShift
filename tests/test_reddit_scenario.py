@@ -8,7 +8,7 @@ from harness.api.server import create_app
 
 # This is the prompt from your screenshot
 prompt = """If the file \"reddit.txt\" does not exist in our workspace directory, then create it.
-Use the repo camofox tool and skill for browsing. and go to reddit.
+Use the repo playwright tool and skill for browsing. and go to reddit.
 use append_file tool to add exactly one new line in that text file. writing the link to the first post you see on the reddit website on a new line in that text file.
 After writing, use read_file on reddit.txt and return the full final file content.
 Also return the exact tools_used list."""
@@ -33,14 +33,14 @@ print(f"Model: {result.get('model')}")
 tools_used = result.get('used_tools', [])
 print(f"\nTools used: {tools_used}")
 
-# Check if any Camofox tools were actually called
-camofox_tools_called = [t for t in tools_used if 'camofox' in t.lower()]
-if camofox_tools_called:
-    print(f"\nERROR: Camofox tools were called: {camofox_tools_called}")
-    print("This means the fix didn't work!")
+# Verify playwright was used, not a legacy browser adapter
+unexpected_tools = [t for t in tools_used if 'camofox' in t.lower() or 'camoufox' in t.lower()]
+if unexpected_tools:
+    print(f"\nERROR: Unexpected legacy tools were called: {unexpected_tools}")
+    print("Should be using playwright now!")
     exit(1)
 else:
-    print(f"\nOK: No Camofox tools were called")
+    print(f"\nOK: No legacy browser tools were called")
     if tools_used:
         print(f"Instead used: {', '.join(set(tools_used))}")
 
