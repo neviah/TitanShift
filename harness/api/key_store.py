@@ -32,6 +32,14 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Valid key scopes / roles (coarsest → finest privilege)
+_VALID_SCOPES = frozenset({"read", "read_only", "operator", "admin"})
+# Scopes that include write-level access
+_OPERATOR_SCOPES = frozenset({"operator", "admin"})
+# Scopes that include admin-level access
+_ADMIN_SCOPES = frozenset({"admin"})
+
+
 @dataclass
 class KeyRecord:
     id: str
@@ -43,6 +51,13 @@ class KeyRecord:
     last_used_at: Optional[str]
     expires_at: Optional[str]
     revoked_at: Optional[str]
+    # Multi-tenant fields (migration 002)
+    tenant_id: str = "_system_"
+    allowed_tools: list = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.allowed_tools is None:
+            self.allowed_tools = []
 
     @property
     def is_active(self) -> bool:
@@ -55,6 +70,14 @@ class KeyRecord:
             if datetime.now(timezone.utc) > exp:
                 return False
         return True
+
+    @property
+    def is_operator(self) -> bool:
+        return self.scope in _OPERATOR_SCOPES
+
+    @property
+    def is_admin(self) -> bool:
+        return self.scope in _ADMIN_SCOPES
 
 
 @dataclass
@@ -119,6 +142,7 @@ class KeyStore:
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> KeyRecord:
+        keys = row.keys()
         return KeyRecord(
             id=row["id"],
             description=row["description"],
@@ -129,6 +153,8 @@ class KeyStore:
             last_used_at=row["last_used_at"],
             expires_at=row["expires_at"],
             revoked_at=row["revoked_at"],
+            tenant_id=row["tenant_id"] if "tenant_id" in keys else "_system_",
+            allowed_tools=json.loads(row["allowed_tools"] or "[]") if "allowed_tools" in keys else [],
         )
 
     # ------------------------------------------------------------------
@@ -145,20 +171,25 @@ class KeyStore:
         description: str,
         scope: str,
         expires_at: str | None = None,
+        tenant_id: str | None = None,
+        allowed_tools: list[str] | None = None,
     ) -> tuple[KeyRecord, str]:
         """Create and persist a new key.
 
         Returns ``(record, raw_key)``. The caller must surface ``raw_key``
         to the operator exactly once; it is never recoverable after this call.
         """
-        if scope not in ("read", "admin"):
-            raise ValueError(f"scope must be 'read' or 'admin', got {scope!r}")
+        if scope not in _VALID_SCOPES:
+            raise ValueError(f"scope must be one of {sorted(_VALID_SCOPES)}, got {scope!r}")
 
         raw_key = self.generate_raw_key()
         key_id = str(uuid.uuid4())
         key_hash = _hash_key(raw_key)
         key_prefix = raw_key[:_PREFIX_DISPLAY_LEN]
         now = _now_iso()
+        # Tenant defaults to the key's own ID so every key is isolated by default.
+        effective_tenant = tenant_id if tenant_id else key_id
+        allowed_tools_json = json.dumps(allowed_tools or [])
 
         with self._lock:
             conn = self._connect()
@@ -166,10 +197,10 @@ class KeyStore:
                 conn.execute(
                     "INSERT INTO api_keys"
                     " (id, description, scope, key_hash, key_prefix, created_at,"
-                    "  last_used_at, expires_at, revoked_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    "  last_used_at, expires_at, revoked_at, tenant_id, allowed_tools)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (key_id, description, scope, key_hash, key_prefix,
-                     now, None, expires_at, None),
+                     now, None, expires_at, None, effective_tenant, allowed_tools_json),
                 )
                 conn.execute(
                     "INSERT INTO api_key_events (key_id, event_type, occurred_at, metadata)"
@@ -190,6 +221,8 @@ class KeyStore:
             last_used_at=None,
             expires_at=expires_at,
             revoked_at=None,
+            tenant_id=effective_tenant,
+            allowed_tools=allowed_tools or [],
         )
         return record, raw_key
 

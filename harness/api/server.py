@@ -305,23 +305,77 @@ def create_app(workspace_root: Path) -> FastAPI:
         if supplied != expected:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-    async def require_read_api_key(x_api_key: str | None = Header(default=None)) -> None:
-        # Check key store first — any active key (read or admin scope) grants read access.
-        if x_api_key and _key_store.authenticate(x_api_key) is not None:
-            return
+    # ── Tenant context ────────────────────────────────────────────────────────
+
+    from dataclasses import dataclass as _dc
+
+    @_dc
+    class TenantContext:
+        """Resolved per-request tenant identity."""
+        tenant_id: str          # "_system_" for config-based keys; key UUID for store keys
+        scope: str              # "read" | "read_only" | "operator" | "admin"
+        allowed_tools: list     # empty = use global tool policy; non-empty = override
+
+        @property
+        def is_system(self) -> bool:
+            return self.tenant_id == "_system_"
+
+    def _resolve_tenant_from_key(x_api_key: str | None) -> TenantContext | None:
+        """Try the key store first; return a TenantContext or None."""
+        if x_api_key:
+            record = _key_store.authenticate(x_api_key)
+            if record is not None:
+                return TenantContext(
+                    tenant_id=record.tenant_id,
+                    scope=record.scope,
+                    allowed_tools=record.allowed_tools or [],
+                )
+        return None
+
+    async def require_read_api_key(
+        x_api_key: str | None = Header(default=None),
+    ) -> TenantContext:
+        # Key store: any active key (any scope) grants read access.
+        ctx = _resolve_tenant_from_key(x_api_key)
+        if ctx is not None:
+            return ctx
         _validate_api_key(
             supplied=x_api_key,
             expected=str(runtime.config.get("api.api_key", "")).strip(),
             enabled=bool(runtime.config.get("api.require_api_key", False)),
             missing_detail="API key auth enabled but no api.api_key configured",
         )
+        return TenantContext(tenant_id="_system_", scope="admin", allowed_tools=[])
 
-    async def require_admin_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    async def require_operator_api_key(
+        x_api_key: str | None = Header(default=None),
+    ) -> TenantContext:
+        """Require at least operator scope (operator or admin)."""
+        ctx = _resolve_tenant_from_key(x_api_key)
+        if ctx is not None:
+            from harness.api.key_store import _OPERATOR_SCOPES
+            if ctx.scope not in _OPERATOR_SCOPES:
+                raise HTTPException(status_code=403, detail="Operator or admin scope required")
+            return ctx
+        # Fall back to config-based key (config keys are always admin)
+        _validate_api_key(
+            supplied=x_api_key,
+            expected=str(runtime.config.get("api.admin_api_key", "")).strip(),
+            enabled=bool(runtime.config.get("api.require_admin_api_key", False)),
+            missing_detail="Admin API key auth enabled but no api.admin_api_key configured",
+        )
+        return TenantContext(tenant_id="_system_", scope="admin", allowed_tools=[])
+
+    async def require_admin_api_key(
+        x_api_key: str | None = Header(default=None),
+    ) -> TenantContext:
         # Key store admin-scoped key grants admin access.
-        if x_api_key:
-            ks_record = _key_store.authenticate(x_api_key)
-            if ks_record is not None and ks_record.scope == "admin":
-                return
+        ctx = _resolve_tenant_from_key(x_api_key)
+        if ctx is not None:
+            from harness.api.key_store import _ADMIN_SCOPES
+            if ctx.scope in _ADMIN_SCOPES:
+                return ctx
+            raise HTTPException(status_code=403, detail="Admin scope required")
         admin_enabled = bool(runtime.config.get("api.require_admin_api_key", False))
         if admin_enabled:
             _validate_api_key(
@@ -330,8 +384,10 @@ def create_app(workspace_root: Path) -> FastAPI:
                 enabled=True,
                 missing_detail="Admin API key auth enabled but no api.admin_api_key configured",
             )
-            return
-        await require_read_api_key(x_api_key)
+            return TenantContext(tenant_id="_system_", scope="admin", allowed_tools=[])
+        # No auth required — still resolve tenant from read key
+        ctx2 = _resolve_tenant_from_key(x_api_key)
+        return ctx2 or TenantContext(tenant_id="_system_", scope="admin", allowed_tools=[])
 
     def _report_redacted_keys() -> list[str]:
         keys = runtime.config.get("reports.redacted_keys", [])
@@ -2654,8 +2710,11 @@ def create_app(workspace_root: Path) -> FastAPI:
             "loaded_modules": loaded_modules,
         }
 
-    @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_read_api_key)])
-    async def chat(body: ChatRequest) -> ChatResponse:
+    @app.post("/chat", response_model=ChatResponse)
+    async def chat(
+        body: ChatRequest,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> ChatResponse:
         # Re-sync every chat request so tool path policy always follows workspace root.
         _sync_runtime_workspace_root(_active_workspace["root"])
 
@@ -2733,6 +2792,8 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         # Pass active workspace root as context for file operations
         task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
+        # Thread tenant context through for downstream isolation checks
+        task_input["tenant_id"] = tenant.tenant_id
 
         task = Task(
             id=str(uuid.uuid4()),
@@ -2795,16 +2856,27 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_id=task.id,
         )
 
-    @app.get("/tasks", response_model=list[TaskSummary], dependencies=[Depends(require_read_api_key)])
-    async def list_tasks() -> list[TaskSummary]:
-        return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks()]
+    @app.get("/tasks", response_model=list[TaskSummary])
+    async def list_tasks(
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> list[TaskSummary]:
+        # System tenant can see all tasks; isolated tenants see only their own.
+        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks(tenant_id=tenant_filter)]
 
     @app.post(
         "/tasks/{task_id}/cancel",
         response_model=TaskCancelResponse,
-        dependencies=[Depends(require_read_api_key)],
     )
-    async def cancel_task(task_id: str) -> TaskCancelResponse:
+    async def cancel_task(
+        task_id: str,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> TaskCancelResponse:
+        # Enforce tenant ownership (system tenant may cancel any task).
+        if not tenant.is_system:
+            task_rec = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant.tenant_id)
+            if task_rec is None:
+                raise HTTPException(status_code=403, detail="Task not found or access denied")
         was_running = runtime.cancellation.is_running(task_id)
         cancelled = runtime.cancellation.cancel(task_id)
         if cancelled:
@@ -3271,10 +3343,30 @@ def create_app(workspace_root: Path) -> FastAPI:
             content = target.read_text(encoding="utf-8", errors="replace")
         return WorkspaceFileResponse(path=str(path).replace('\\', '/'), content=content[:200000])
 
-    @app.get("/artifacts/run/{task_id}/{artifact_id}/preview", dependencies=[Depends(require_read_api_key)])
-    async def artifact_run_preview(task_id: str, artifact_id: str) -> FileResponse:
+    def _artifact_base(root: Any, tenant: TenantContext, task_id: str) -> Path:
+        """Return the artifacts directory for this task, namespaced by tenant."""
+        base = root / ".titantshift" / "artifacts"
+        if tenant.is_system:
+            return base / task_id
+        return base / tenant.tenant_id / task_id
+
+    def _verify_artifact_access(tenant: TenantContext, task_id: str) -> None:
+        """Raise 403 if this tenant does not own the given task."""
+        if tenant.is_system:
+            return
+        record = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant.tenant_id)
+        if record is None:
+            raise HTTPException(status_code=403, detail="Task not found or access denied")
+
+    @app.get("/artifacts/run/{task_id}/{artifact_id}/preview")
+    async def artifact_run_preview(
+        task_id: str,
+        artifact_id: str,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> FileResponse:
+        _verify_artifact_access(tenant, task_id)
         root = _active_workspace["root"]
-        artifact_dir = (root / ".titantshift" / "artifacts" / task_id / artifact_id).resolve()
+        artifact_dir = (_artifact_base(root, tenant, task_id) / artifact_id).resolve()
         if not artifact_dir.exists() or not artifact_dir.is_dir():
             raise HTTPException(status_code=404, detail="Artifact not found")
 
@@ -3308,10 +3400,15 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         return FileResponse(path=output_path, media_type=mime_type, filename=output_path.name)
 
-    @app.get("/artifacts/run/{task_id}/{artifact_id}/download", dependencies=[Depends(require_read_api_key)])
-    async def artifact_run_download(task_id: str, artifact_id: str) -> FileResponse:
+    @app.get("/artifacts/run/{task_id}/{artifact_id}/download")
+    async def artifact_run_download(
+        task_id: str,
+        artifact_id: str,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> FileResponse:
+        _verify_artifact_access(tenant, task_id)
         root = _active_workspace["root"]
-        artifact_dir = (root / ".titantshift" / "artifacts" / task_id / artifact_id).resolve()
+        artifact_dir = (_artifact_base(root, tenant, task_id) / artifact_id).resolve()
         if not artifact_dir.exists() or not artifact_dir.is_dir():
             raise HTTPException(status_code=404, detail="Artifact not found")
         output_candidates = sorted(artifact_dir.glob("output.*"))
@@ -3320,10 +3417,14 @@ def create_app(workspace_root: Path) -> FastAPI:
         output_path = output_candidates[0].resolve()
         return FileResponse(path=output_path, filename=output_path.name)
 
-    @app.get("/artifacts/run/{task_id}/bundle", dependencies=[Depends(require_read_api_key)])
-    async def artifact_run_bundle(task_id: str) -> StreamingResponse:
+    @app.get("/artifacts/run/{task_id}/bundle")
+    async def artifact_run_bundle(
+        task_id: str,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> StreamingResponse:
+        _verify_artifact_access(tenant, task_id)
         root = _active_workspace["root"]
-        run_dir = (root / ".titantshift" / "artifacts" / task_id).resolve()
+        run_dir = _artifact_base(root, tenant, task_id).resolve()
         if not run_dir.exists() or not run_dir.is_dir():
             raise HTTPException(status_code=404, detail="No artifacts found for this task")
 

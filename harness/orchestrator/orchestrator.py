@@ -575,7 +575,8 @@ class Orchestrator:
 
     async def run_reactive_task(self, task: Task) -> TaskResult:
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
-        self.task_store.create(task)
+        tenant_id = str(task.input.get("tenant_id", "_system_"))
+        self.task_store.create(task, tenant_id=tenant_id)
         self.task_store.mark_started(task.id)
         review_result: dict[str, object] | None = None
         _telemetry: dict[str, object] = {
@@ -881,9 +882,9 @@ class Orchestrator:
     def list_agents(self) -> list[dict]:
         return [asdict(r) for r in sorted(self.agents.values(), key=lambda x: x.created_at)]
 
-    def list_tasks(self) -> list[dict]:
-        return [asdict(record) for record in self.task_store.list()]
+    def list_tasks(self, tenant_id: str | None = None) -> list[dict]:
+        return [asdict(record) for record in self.task_store.list(tenant_id=tenant_id)]
 
-    def get_task(self, task_id: str) -> dict | None:
-        record = self.task_store.get(task_id)
+    def get_task(self, task_id: str, tenant_id: str | None = None) -> dict | None:
+        record = self.task_store.get(task_id, tenant_id=tenant_id)
         return None if record is None else asdict(record)
