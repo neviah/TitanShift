@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import yaml
 from dataclasses import dataclass, field
 from typing import Any
 from typing import Awaitable, Callable
@@ -52,13 +53,26 @@ class SkillRegistry:
             with open(skill_file, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # Parse title from first markdown header
-            title_match = re.search(r"^#\s+(.+?)(?:\n|$)", content, re.MULTILINE)
+            # Parse YAML frontmatter if present
+            frontmatter: dict[str, Any] = {}
+            body = content
+            if content.startswith("---"):
+                end_idx = content.find("\n---", 3)
+                if end_idx != -1:
+                    fm_text = content[3:end_idx].strip()
+                    try:
+                        frontmatter = yaml.safe_load(fm_text) or {}
+                    except yaml.YAMLError:
+                        frontmatter = {}
+                    body = content[end_idx + 4:].lstrip()
+
+            # Parse title from first markdown header (fallback)
+            title_match = re.search(r"^#\s+(.+?)(?:\n|$)", body, re.MULTILINE)
             title = title_match.group(1) if title_match else skill_name
 
-            # Extract "When to Use" section
+            # Extract "When to Use" section (fallback)
             when_match = re.search(
-                r"## When to Use\n\n(.+?)(?=\n##|\Z)", content, re.DOTALL
+                r"## When to Use\n\n(.+?)(?=\n##|\Z)", body, re.DOTALL
             )
             when_to_use = (
                 when_match.group(1).strip()[:300]
@@ -66,24 +80,32 @@ class SkillRegistry:
                 else "Use this skill as needed."
             )
 
-            # First paragraph as description
+            # First paragraph as description (fallback)
             desc_match = re.search(
-                r"^[^#](.+?)(?:\n\n|$)", content.split("## When to Use")[0], re.DOTALL
+                r"^[^#](.+?)(?:\n\n|$)", body.split("## When to Use")[0], re.DOTALL
             )
-            description = (
+            description_fallback = (
                 desc_match.group(1).strip()[:150]
                 if desc_match
                 else f"Skill: {title}"
             )
 
+            # Frontmatter fields override parsed values
+            description = str(frontmatter.get("description", description_fallback))[:300]
+            domain = str(frontmatter.get("domain", "workflow"))
+            version = str(frontmatter.get("version", "1.0.0"))
+            mode = str(frontmatter.get("mode", "prompt"))
+            raw_tags = frontmatter.get("tags", ["superpowered", "builtin"])
+            tags = [str(t) for t in raw_tags] if isinstance(raw_tags, list) else ["superpowered", "builtin"]
+
             skill = SkillDefinition(
                 skill_id=skill_name,
                 description=description,
                 when_to_use=when_to_use,
-                mode="prompt",
-                domain="workflow",
-                tags=["superpowered", "builtin"],
-                version="1.0.0",
+                mode=mode,
+                domain=domain,
+                tags=tags,
+                version=version,
             )
             self._skills[skill_name] = skill
         except Exception as e:

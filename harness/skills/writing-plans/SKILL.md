@@ -1,3 +1,12 @@
+---
+name: writing-plans
+description: "Convert an approved design spec into bite-sized implementation tasks with exact code, file paths, commands, and verification steps."
+version: 1.0.0
+domain: workflow
+mode: prompt
+tags: [workflow, planning, implementation, spec]
+---
+
 # Writing Plans: Spec Into Implementation Tasks
 
 Convert an approved design spec into bite-sized implementation tasks (2-5 minutes each). Each task MUST include exact code, exact file paths, exact commands, and exact verification steps.

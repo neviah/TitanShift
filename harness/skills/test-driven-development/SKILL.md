@@ -1,3 +1,12 @@
+---
+name: test-driven-development
+description: "Enforce TDD discipline: write failing test, implement minimal code, refactor. Ensures every behavior is verified before it is considered done."
+version: 1.0.0
+domain: engineering
+mode: prompt
+tags: [testing, tdd, quality, engineering]
+---
+
 # Test-Driven Development: RED-GREEN-REFACTOR
 
 Enforce TDD discipline in every task: write failing test, watch it fail, implement minimal code, watch it pass, commit.

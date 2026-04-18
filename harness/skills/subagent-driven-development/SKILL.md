@@ -1,3 +1,12 @@
+---
+name: subagent-driven-development
+description: "Execute an approved implementation plan task-by-task using fresh subagents with spec compliance and code quality review gates after each task."
+version: 1.0.0
+domain: workflow
+mode: prompt
+tags: [workflow, subagent, orchestration, review]
+---
+
 # Subagent-Driven Development: Execute Plan With Reviews
 
 Execute a plan task-by-task using fresh subagents, with two-stage review after each task: spec compliance first, then code quality.

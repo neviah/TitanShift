@@ -1,3 +1,12 @@
+---
+name: verification-before-completion
+description: "Gather evidence that work actually works before declaring done. Run tests, check output, collect pass/fail tallies, report faithfully."
+version: 1.0.0
+domain: workflow
+mode: prompt
+tags: [workflow, verification, quality, done-state]
+---
+
 # Verification Before Completion: Evidence-Backed Done State
 
 Before declaring a task complete, gather evidence that it actually works. Minimum: run the test, execute the script, check the output.

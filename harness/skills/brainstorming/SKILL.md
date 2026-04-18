@@ -1,3 +1,12 @@
+---
+name: brainstorming
+description: "Structured ideation before any creative or implementation work. Produces an approved design spec before any code is written."
+version: 1.0.0
+domain: workflow
+mode: prompt
+tags: [workflow, planning, design, spec]
+---
+
 # Brainstorming: Ideas Into Designs
 
 You MUST use this skill before any creative work — creating features, building components, adding functionality, or modifying behavior. Never skip this step, even for "simple" projects.
