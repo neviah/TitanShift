@@ -94,13 +94,25 @@ class SkillRegistry:
                 else f"Skill: {title}"
             )
 
-            # Frontmatter fields override parsed values
+            # Frontmatter fields override parsed values. Support both legacy
+            # top-level fields and spec-style nested metadata values.
+            metadata = frontmatter.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+
             description = str(frontmatter.get("description", description_fallback))[:300]
-            domain = str(frontmatter.get("domain", "workflow"))
-            version = str(frontmatter.get("version", "1.0.0"))
-            mode = str(frontmatter.get("mode", "prompt"))
+            domain = str(frontmatter.get("domain") or metadata.get("domain") or "workflow")
+            version = str(frontmatter.get("version") or metadata.get("version") or "1.0.0")
+            mode = str(frontmatter.get("mode") or metadata.get("mode") or "prompt")
             raw_tags = frontmatter.get("tags", ["superpowered", "builtin"])
             tags = [str(t) for t in raw_tags] if isinstance(raw_tags, list) else ["superpowered", "builtin"]
+
+            raw_required_tools = frontmatter.get("required_tools")
+            if not isinstance(raw_required_tools, list):
+                raw_required_tools = metadata.get("required_tools", [])
+            raw_dependencies = frontmatter.get("dependencies")
+            if not isinstance(raw_dependencies, list):
+                raw_dependencies = metadata.get("dependencies", [])
 
             skill = SkillDefinition(
                 skill_id=skill_name,
@@ -111,13 +123,13 @@ class SkillRegistry:
                 tags=tags,
                 version=version,
                 required_tools=[
-                    str(t) for t in frontmatter.get("required_tools", [])
+                    str(t) for t in raw_required_tools
                     if str(t).strip()
-                ] if isinstance(frontmatter.get("required_tools"), list) else [],
+                ] if isinstance(raw_required_tools, list) else [],
                 dependencies=[
-                    str(d) for d in frontmatter.get("dependencies", [])
+                    str(d) for d in raw_dependencies
                     if str(d).strip()
-                ] if isinstance(frontmatter.get("dependencies"), list) else [],
+                ] if isinstance(raw_dependencies, list) else [],
             )
             # Parse spec-defined allowed-tools (space-separated) and source fields
             raw_allowed = frontmatter.get("allowed-tools", "")
@@ -127,7 +139,7 @@ class SkillRegistry:
             elif isinstance(raw_allowed, list):
                 allowed_tools_spec = [str(t) for t in raw_allowed if str(t).strip()]
             skill.allowed_tools_spec = allowed_tools_spec
-            skill.source = str(frontmatter.get("source", "")).strip()
+            skill.source = str(frontmatter.get("source") or metadata.get("source") or "").strip()
             self._skills[skill_name] = skill
         except Exception as e:
             print(f"Warning: Failed to load skill {skill_name}: {e}")
