@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_BASE } from '../api/client'
 
-export type StreamEventType = 'start' | 'step' | 'tool_result' | 'text_delta' | 'done' | 'error' | 'eof'
+export type StreamEventType = 'start' | 'step' | 'tool_result' | 'text_delta' | 'done' | 'error' | 'eof' | 'artifact_emit'
 
 export interface StreamEvent {
   type: StreamEventType
   [key: string]: unknown
+}
+
+export interface StreamArtifact {
+  artifact_id: string
+  title: string
+  mime_type: string
+  url: string
 }
 
 export interface TaskStreamState {
@@ -17,6 +24,8 @@ export interface TaskStreamState {
   createdPaths: string[]
   updatedPaths: string[]
   patchSummaries: string[]
+  diff: string | null
+  streamArtifacts: StreamArtifact[]
 }
 
 function getApiKey(): string {
@@ -38,6 +47,8 @@ export function useTaskStream() {
     createdPaths: [],
     updatedPaths: [],
     patchSummaries: [],
+    diff: null,
+    streamArtifacts: [],
   })
 
   const abortRef = useRef<AbortController | null>(null)
@@ -60,6 +71,8 @@ export function useTaskStream() {
         createdPaths: [],
         updatedPaths: [],
         patchSummaries: [],
+        diff: null,
+        streamArtifacts: [],
       })
 
       try {
@@ -113,6 +126,26 @@ export function useTaskStream() {
               updates.createdPaths = Array.isArray(event.created_paths) ? (event.created_paths as string[]) : prev.createdPaths
               updates.updatedPaths = Array.isArray(event.updated_paths) ? (event.updated_paths as string[]) : prev.updatedPaths
               updates.patchSummaries = Array.isArray(event.patch_summaries) ? (event.patch_summaries as string[]) : prev.patchSummaries
+              if (typeof event.diff === 'string' && event.diff.trim()) {
+                updates.diff = event.diff
+              }
+              if (Array.isArray(event.artifacts)) {
+                updates.streamArtifacts = event.artifacts as StreamArtifact[]
+              }
+            } else if (event.type === 'tool_result') {
+              if (typeof event.diff === 'string' && event.diff.trim()) {
+                updates.diff = event.diff
+              }
+            } else if (event.type === 'artifact_emit') {
+              updates.streamArtifacts = [
+                ...prev.streamArtifacts,
+                {
+                  artifact_id: typeof event.artifact_id === 'string' ? event.artifact_id : '',
+                  title: typeof event.title === 'string' ? event.title : '',
+                  mime_type: typeof event.mime_type === 'string' ? event.mime_type : '',
+                  url: typeof event.url === 'string' ? event.url : '',
+                },
+              ]
             } else if (event.type === 'error') {
               updates.status = 'error'
               updates.error = typeof event.message === 'string' ? event.message : 'Unknown stream error'

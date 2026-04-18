@@ -75,17 +75,19 @@
 }
 
 /* Kind-specific dot colours */
-.kindInfo  .dot { background: var(--text-muted); }
-.kindStep  .dot { background: var(--accent-primary); }
-.kindTool  .dot { background: var(--status-info); }
-.kindText  .dot { background: var(--status-ok); }
-.kindDone  .dot { background: var(--status-ok); }
-.kindError .dot { background: var(--status-error); }
+.kindInfo     .dot { background: var(--text-muted); }
+.kindStep     .dot { background: var(--accent-primary); }
+.kindTool     .dot { background: var(--status-info); }
+.kindText     .dot { background: var(--status-ok); }
+.kindDone     .dot { background: var(--status-ok); }
+.kindError    .dot { background: var(--status-error); }
+.kindArtifact .dot { background: var(--accent-secondary, #a78bfa); }
 
 /* Kind-specific left border */
-.kindStep  { border-left-color: var(--accent-primary); }
-.kindError { border-left-color: var(--status-error); }
-.kindDone  { border-left-color: var(--status-ok); }
+.kindStep     { border-left-color: var(--accent-primary); }
+.kindError    { border-left-color: var(--status-error); }
+.kindDone     { border-left-color: var(--status-ok); }
+.kindArtifact { border-left-color: var(--accent-secondary, #a78bfa); }
 
 .label {
   color: var(--text-primary);

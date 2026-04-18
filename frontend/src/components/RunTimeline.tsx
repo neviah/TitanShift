@@ -25,6 +25,8 @@ function eventLabel(event: StreamEvent): string {
       return 'Model response received'
     case 'done':
       return (event.success as boolean) ? '✓ Done' : '✗ Done (failed)'
+    case 'artifact_emit':
+      return `⬡ Artifact: ${(event.title as string) || (event.artifact_id as string) || 'generated'}`
     case 'error':
       return `Error: ${event.message as string}`
     default:
@@ -38,6 +40,7 @@ function eventKind(type: string): string {
   if (type === 'tool_result') return styles.kindTool
   if (type === 'step') return styles.kindStep
   if (type === 'text_delta') return styles.kindText
+  if (type === 'artifact_emit') return styles.kindArtifact
   return styles.kindInfo
 }
 
@@ -78,6 +81,9 @@ export function RunTimeline({ events, status }: RunTimelineProps) {
               )}
               {event.type === 'tool_result' && typeof event.summary === 'string' && (
                 <p className={styles.summary}>{String(event.summary).slice(0, 120)}</p>
+              )}
+              {event.type === 'artifact_emit' && typeof event.mime_type === 'string' && event.mime_type && (
+                <p className={styles.summary}>{event.mime_type}</p>
               )}
               {event.type === 'done' && Array.isArray(event.patch_summaries) && (event.patch_summaries as string[]).length > 0 && (
                 <ul className={styles.argList}>

@@ -511,6 +511,7 @@ export function ChatView() {
               <PreviewPanel
                 patchSummaries={streamState.patchSummaries}
                 updatedPaths={streamState.updatedPaths}
+                diff={streamState.diff ?? undefined}
                 onFeedback={(feedback) => void sendPrompt(feedback)}
                 feedbackLoading={sending}
               />

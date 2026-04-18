@@ -1005,6 +1005,7 @@ class ReactiveStateMachine:
         tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
         allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
         llm_call_index = 0
+        last_diff: str = ""  # last patch/replace diff captured for PreviewPanel
 
         try:
             for step in range(budget["max_steps"]):
@@ -1136,16 +1137,32 @@ class ReactiveStateMachine:
                         )
                         if persisted_artifacts:
                             artifacts.extend(persisted_artifacts)
+                            # Emit an artifact_emit stream event for each new artifact
+                            for art in persisted_artifacts:
+                                yield {
+                                    "type": "artifact_emit",
+                                    "artifact_id": art.get("artifact_id", ""),
+                                    "title": art.get("title", ""),
+                                    "mime_type": art.get("mime_type", ""),
+                                    "url": art.get("url", ""),
+                                }
                         if artifact_created:
                             created_paths.extend(artifact_created)
                         if tc.name == "patch_file":
                             s = tool_result.get("patch_summary")
                             if s and str(s).strip():
                                 patch_summaries.append(str(s).strip())
+                            # Capture the applied patch text as the diff for the preview panel
+                            raw_patch = str(tc.arguments.get("patch", "")).strip() if isinstance(tc.arguments, dict) else ""
+                            if raw_patch:
+                                last_diff = raw_patch
                         if tc.name == "apply_wiring":
                             ws = tool_result.get("patch_summaries")
                             if isinstance(ws, list):
                                 patch_summaries.extend(str(s).strip() for s in ws if str(s).strip())
+                            raw_diff = str(tool_result.get("diff", "") or "").strip()
+                            if raw_diff:
+                                last_diff = raw_diff
                         if tc.name == "read_context":
                             prov = tool_result.get("provenance")
                             if isinstance(prov, list):
@@ -1159,12 +1176,19 @@ class ReactiveStateMachine:
                     tool_result_lines.append(f"Tool `{tc.name}` called with {json.dumps(tc.arguments)} returned: {condensed}")
 
                     ok_flag = isinstance(tool_result, dict) and tool_result.get("ok", True) is not False
+                    # Include diff in tool_result events for patch-capable tools
+                    tool_diff = ""
+                    if tc.name == "patch_file" and isinstance(tc.arguments, dict):
+                        tool_diff = str(tc.arguments.get("patch", "") or "").strip()
                     yield {
                         "type": "tool_result",
                         "step": step,
                         "tool": tc.name,
                         "ok": ok_flag,
                         "summary": condensed[:200],
+                        **({
+                            "diff": tool_diff,
+                        } if tool_diff else {}),
                     }
 
                 messages.append({
@@ -1190,6 +1214,18 @@ class ReactiveStateMachine:
             "patch_summaries": list(dict.fromkeys(patch_summaries)),
             "context_provenance": context_provenance,
             "estimated_total_tokens": total_tokens,
+            "artifacts": [
+                {
+                    "artifact_id": art.get("artifact_id", ""),
+                    "title": art.get("title", ""),
+                    "mime_type": art.get("mime_type", ""),
+                    "url": art.get("url", ""),
+                }
+                for art in {art.get("artifact_id", ""): art for art in artifacts}.values()
+            ],
+            **({
+                "diff": last_diff,
+            } if last_diff else {}),
         }
 
     def _normalize_calls_for_stream(self, raw_calls: list[Any]) -> list[ToolCall]:
