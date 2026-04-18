@@ -5,6 +5,7 @@ version: 1.0.0
 domain: workflow
 mode: prompt
 tags: [workflow, verification, quality, done-state]
+source: local
 ---
 
 # Verification Before Completion: Evidence-Backed Done State

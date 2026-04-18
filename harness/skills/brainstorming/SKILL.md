@@ -5,6 +5,7 @@ version: 1.0.0
 domain: workflow
 mode: prompt
 tags: [workflow, planning, design, spec]
+source: local
 ---
 
 # Brainstorming: Ideas Into Designs

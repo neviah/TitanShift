@@ -5,6 +5,7 @@ version: 1.0.0
 domain: engineering
 mode: prompt
 tags: [testing, tdd, quality, engineering]
+source: local
 ---
 
 # Test-Driven Development: RED-GREEN-REFACTOR

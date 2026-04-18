@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import math
@@ -729,7 +729,13 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                 "PDF output requires the 'reportlab' package. Install dependencies and retry."
             ) from exc
 
-        doc = SimpleDocTemplate(str(target), pagesize=letter)
+        doc = SimpleDocTemplate(
+            str(target),
+            pagesize=letter,
+            title=title,
+            author="TitanShift",
+            subject=summary or title,
+        )
         styles = getSampleStyleSheet()
         body_style = ParagraphStyle(
             "Body",
@@ -943,7 +949,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── Chart helpers ────────────────────────────────────────────────────────
+    # â”€â”€ Chart helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _svg_bar_chart(title: str, data: list[dict], width: int, height: int, color: str) -> str:
         ml, mr, mt, mb = 55, 20, 48, 58
@@ -1221,7 +1227,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── SVG asset helpers ─────────────────────────────────────────────────────
+    # â”€â”€ SVG asset helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _svg_badge(label: str, value: str, label_color: str, value_color: str, height: int) -> str:
         label_w = max(30, len(label) * 7 + 16)
@@ -2741,7 +2747,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── patch_file ────────────────────────────────────────────────────────────
+    # â”€â”€ patch_file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _apply_unified_patch(original_lines: list[str], patch_text: str) -> tuple[list[str], int, int, list[str]]:
         """Apply a unified-diff patch to a list of lines.
@@ -2760,7 +2766,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                 self.src_count = src_count
                 self.lines = lines  # raw diff lines starting with ' ', '+', '-'
 
-        # ── Parse patch into hunks ──────────────────────────────────────────
+        # â”€â”€ Parse patch into hunks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         hunks: list[_Hunk] = []
         current_hunk_lines: list[str] = []
         current_src_start = 0
@@ -2784,7 +2790,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         if not hunks:
             return original_lines, 0, 1, ["patch contains no recognisable hunks"]
 
-        # ── Strip line endings from originals for context matching ──────────
+        # â”€â”€ Strip line endings from originals for context matching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         stripped_originals = [ln.rstrip("\r\n") for ln in original_lines]
 
         result = list(original_lines)
@@ -2924,7 +2930,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── install_dependencies ──────────────────────────────────────────────────
+    # â”€â”€ install_dependencies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     async def install_dependencies_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw_pm = str(args.get("package_manager") or "auto").strip().lower()
@@ -2973,7 +2979,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                 "command": full_command,
                 "packages": packages,
                 "dev": dev,
-                "note": f"dry_run=true — no packages installed. Would run: {full_command}",
+                "note": f"dry_run=true â€” no packages installed. Would run: {full_command}",
                 "created_paths": [],
                 "updated_paths": [],
             }
@@ -3039,7 +3045,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── index_project ─────────────────────────────────────────────────────────
+    # â”€â”€ index_project â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     _INDEX_IGNORE_DIRS: frozenset[str] = frozenset({
         ".git", "node_modules", ".venv", "venv", "__pycache__", ".harness",
@@ -3136,7 +3142,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── read_context ──────────────────────────────────────────────────────────
+    # â”€â”€ read_context â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     _READ_CONTEXT_TOKEN_LIMIT = 32_000
     _READ_CONTEXT_CHARS_PER_TOKEN = 4
@@ -3256,7 +3262,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── propose_wiring ────────────────────────────────────────────────────────
+    # â”€â”€ propose_wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _detect_framework(workspace_path: Path) -> str:
         """Heuristically detect the primary frontend/backend framework."""
@@ -3424,7 +3430,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         else:
             proposals.append({
                 "file": component_path,
-                "description": f"Unknown framework '{framework}' — manual wiring required.",
+                "description": f"Unknown framework '{framework}' â€” manual wiring required.",
                 "patch_type": "manual",
                 "manual_instruction": (
                     "Add this file to your app's routing or module registry manually."
@@ -3482,7 +3488,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    # ── apply_wiring ──────────────────────────────────────────────────────────
+    # â”€â”€ apply_wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     async def apply_wiring_handler(args: dict[str, Any]) -> dict[str, Any]:
         proposals = args.get("proposals")
@@ -3514,7 +3520,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             if patch_type == "manual":
                 skipped.append({
                     "file": target_file,
-                    "reason": "manual patch_type — requires human action",
+                    "reason": "manual patch_type â€” requires human action",
                     "instruction": proposal.get("manual_instruction", ""),
                 })
                 continue
@@ -3823,7 +3829,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             name="get_location",
             description=(
                 "Return the approximate geographic location (city, region, country, lat/lon, timezone) "
-                "of the server's public IP address. Uses ip-api.com — no API key required. "
+                "of the server's public IP address. Uses ip-api.com â€” no API key required. "
                 "Useful when the user asks 'where am I', 'what city am I in', or wants weather for their current location."
             ),
             needs_network=True,
@@ -3838,3 +3844,4 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             },
         )
     )
+

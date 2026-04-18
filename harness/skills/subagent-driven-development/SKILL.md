@@ -5,6 +5,7 @@ version: 1.0.0
 domain: workflow
 mode: prompt
 tags: [workflow, subagent, orchestration, review]
+source: local
 ---
 
 # Subagent-Driven Development: Execute Plan With Reviews

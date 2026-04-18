@@ -5,6 +5,7 @@ version: 1.0.0
 domain: workflow
 mode: prompt
 tags: [workflow, planning, implementation, spec]
+source: local
 ---
 
 # Writing Plans: Spec Into Implementation Tasks

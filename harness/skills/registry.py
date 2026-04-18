@@ -26,6 +26,10 @@ class SkillDefinition:
     when_to_use: str = ""
 
 
+    allowed_tools_spec: list[str] = field(default_factory=list)
+    source: str = ""
+
+
 class SkillRegistry:
     def __init__(self, skill_base_path: str = None) -> None:
         self._skills: dict[str, SkillDefinition] = {}
@@ -115,6 +119,15 @@ class SkillRegistry:
                     if str(d).strip()
                 ] if isinstance(frontmatter.get("dependencies"), list) else [],
             )
+            # Parse spec-defined allowed-tools (space-separated) and source fields
+            raw_allowed = frontmatter.get("allowed-tools", "")
+            allowed_tools_spec: list[str] = []
+            if isinstance(raw_allowed, str) and raw_allowed.strip():
+                allowed_tools_spec = [t for t in raw_allowed.split() if t]
+            elif isinstance(raw_allowed, list):
+                allowed_tools_spec = [str(t) for t in raw_allowed if str(t).strip()]
+            skill.allowed_tools_spec = allowed_tools_spec
+            skill.source = str(frontmatter.get("source", "")).strip()
             self._skills[skill_name] = skill
         except Exception as e:
             print(f"Warning: Failed to load skill {skill_name}: {e}")
