@@ -8,6 +8,7 @@ import {
   Brain,
   ScrollText,
   Settings,
+  KeyRound,
   ChevronRight,
   ChevronDown,
   FileText,
@@ -830,6 +831,12 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
             <p className={styles.hint}>Settings are open in the center pane.</p>
           </div>
         )}
+
+        {activeTab === 'keys' && (
+          <div className={styles.list}>
+            <p className={styles.hint}>API Keys are open in the center pane.</p>
+          </div>
+        )}
       </section>
 
       <div className={styles.pulseStrip}>
@@ -842,6 +849,14 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       </div>
 
       <div className={styles.footer}>
+        <button
+          className={`${styles.tab} ${activeTab === 'keys' ? styles.active : ''}`}
+          onClick={() => onTabChange('keys')}
+          data-tooltip="API Keys"
+          aria-label="API Keys"
+        >
+          <KeyRound size={16} />
+        </button>
         <button
           className={`${styles.tab} ${activeTab === 'settings' ? styles.active : ''}`}
           onClick={() => onTabChange('settings')}

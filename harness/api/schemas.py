@@ -746,6 +746,55 @@ class RunHistoryVerifyResponse(BaseModel):
     signing_version: str | None = None
 
 
+# ---- Key Store Management ----
+
+class ApiKeyRecord(BaseModel):
+    id: str
+    description: str
+    scope: str
+    key_prefix: str
+    created_at: str
+    last_used_at: str | None = None
+    expires_at: str | None = None
+    revoked_at: str | None = None
+    is_active: bool
+
+
+class CreateApiKeyRequest(BaseModel):
+    description: str = Field(default="", max_length=200)
+    scope: str = Field(default="read")
+    expires_at: str | None = None  # ISO-8601 datetime string or None
+
+
+class CreateApiKeyResponse(BaseModel):
+    ok: bool
+    key_id: str
+    raw_key: str  # Shown exactly once — never stored, never returned again
+    record: ApiKeyRecord
+
+
+class ApiKeyListResponse(BaseModel):
+    keys: list[ApiKeyRecord]
+
+
+class ApiKeyEventRecord(BaseModel):
+    id: int
+    key_id: str
+    event_type: str
+    occurred_at: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApiKeyEventsResponse(BaseModel):
+    key_id: str
+    events: list[ApiKeyEventRecord]
+
+
+class RevokeApiKeyResponse(BaseModel):
+    ok: bool
+    key_id: str
+
+
 class IncidentReportExportRequest(BaseModel):
     path: str = Field(min_length=1)
     task_id: str | None = None

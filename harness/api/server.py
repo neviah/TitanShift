@@ -143,10 +143,18 @@ from harness.api.schemas import (
     TaskRollbackResponse,
     ApiKeyStatusResponse,
     ApiKeyRotateResponse,
+    ApiKeyRecord,
+    CreateApiKeyRequest,
+    CreateApiKeyResponse,
+    ApiKeyListResponse,
+    ApiKeyEventRecord,
+    ApiKeyEventsResponse,
+    RevokeApiKeyResponse,
     WorkspaceFileResponse,
     WorkspaceTreeNode,
     ToolSummary,
 )
+from harness.api.key_store import KeyStore
 from harness.scheduler.module import ScheduledJob
 from harness.runtime.bootstrap import RuntimeContext, build_runtime
 from harness.runtime.service_manager import ServiceLaunchConfig
@@ -162,6 +170,10 @@ def create_app(workspace_root: Path) -> FastAPI:
     app = FastAPI(title="TitantShift Harness API", version="0.3.1")
     app.state.runtime = runtime
     emergency_fix_history: dict[str, dict[str, Any]] = {}
+
+    # Key store — SQLite-backed API key management
+    _key_store_path = workspace_root / ".titantshift" / "key_store.db"
+    _key_store = KeyStore(_key_store_path)
 
     # Mutable workspace root — can be changed at runtime via /workspace/set-root
     _active_workspace: dict[str, Path] = {"root": workspace_root}
@@ -251,6 +263,9 @@ def create_app(workspace_root: Path) -> FastAPI:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
     async def require_read_api_key(x_api_key: str | None = Header(default=None)) -> None:
+        # Check key store first — any active key (read or admin scope) grants read access.
+        if x_api_key and _key_store.authenticate(x_api_key) is not None:
+            return
         _validate_api_key(
             supplied=x_api_key,
             expected=str(runtime.config.get("api.api_key", "")).strip(),
@@ -259,6 +274,11 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
 
     async def require_admin_api_key(x_api_key: str | None = Header(default=None)) -> None:
+        # Key store admin-scoped key grants admin access.
+        if x_api_key:
+            ks_record = _key_store.authenticate(x_api_key)
+            if ks_record is not None and ks_record.scope == "admin":
+                return
         admin_enabled = bool(runtime.config.get("api.require_admin_api_key", False))
         if admin_enabled:
             _validate_api_key(
@@ -2734,6 +2754,84 @@ def create_app(workspace_root: Path) -> FastAPI:
         config_key = "api.api_key" if scope == "read" else "api.admin_api_key"
         runtime.config.set(config_key, new_key)
         return ApiKeyRotateResponse(ok=True, scope=scope, new_key=new_key)
+
+    # ---- Key Store CRUD ----
+
+    def _record_to_schema(rec) -> ApiKeyRecord:
+        return ApiKeyRecord(
+            id=rec.id,
+            description=rec.description,
+            scope=rec.scope,
+            key_prefix=rec.key_prefix,
+            created_at=rec.created_at,
+            last_used_at=rec.last_used_at,
+            expires_at=rec.expires_at,
+            revoked_at=rec.revoked_at,
+            is_active=rec.is_active,
+        )
+
+    @app.get(
+        "/api-keys",
+        response_model=ApiKeyListResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def list_api_keys() -> ApiKeyListResponse:
+        records = _key_store.list_keys()
+        return ApiKeyListResponse(keys=[_record_to_schema(r) for r in records])
+
+    @app.post(
+        "/api-keys",
+        response_model=CreateApiKeyResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def create_api_key(body: CreateApiKeyRequest) -> CreateApiKeyResponse:
+        if body.scope not in ("read", "admin"):
+            raise HTTPException(status_code=400, detail="scope must be 'read' or 'admin'")
+        record, raw_key = _key_store.create_key(
+            description=body.description,
+            scope=body.scope,
+            expires_at=body.expires_at,
+        )
+        return CreateApiKeyResponse(
+            ok=True,
+            key_id=record.id,
+            raw_key=raw_key,
+            record=_record_to_schema(record),
+        )
+
+    @app.delete(
+        "/api-keys/{key_id}",
+        response_model=RevokeApiKeyResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def revoke_api_key(key_id: str) -> RevokeApiKeyResponse:
+        ok = _key_store.revoke_key(key_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Key not found or already revoked")
+        return RevokeApiKeyResponse(ok=True, key_id=key_id)
+
+    @app.get(
+        "/api-keys/{key_id}/events",
+        response_model=ApiKeyEventsResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def get_api_key_events(key_id: str, limit: int = 50) -> ApiKeyEventsResponse:
+        if _key_store.get_key(key_id) is None:
+            raise HTTPException(status_code=404, detail="Key not found")
+        events = _key_store.get_events(key_id, limit=min(limit, 200))
+        return ApiKeyEventsResponse(
+            key_id=key_id,
+            events=[
+                ApiKeyEventRecord(
+                    id=e.id,
+                    key_id=e.key_id,
+                    event_type=e.event_type,
+                    occurred_at=e.occurred_at,
+                    metadata=e.metadata,
+                )
+                for e in events
+            ],
+        )
 
     @app.post("/chat/stream", dependencies=[Depends(require_read_api_key)])
     async def chat_stream(body: ChatRequest) -> StreamingResponse:

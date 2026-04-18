@@ -31,6 +31,12 @@ import type {
   TaskRollbackResponse,
   ApiKeyStatusResponse,
   ApiKeyRotateResponse,
+  ApiKeyRecord,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+  ApiKeyListResponse,
+  ApiKeyEventsResponse,
+  RevokeApiKeyResponse,
 } from './types'
 
 export const API_BASE = '/api'
@@ -343,6 +349,24 @@ export function fetchApiKeyStatus(): Promise<ApiKeyStatusResponse> {
 
 export function rotateApiKey(scope: 'read' | 'admin'): Promise<ApiKeyRotateResponse> {
   return request(`/api-keys/rotate?scope=${scope}`, { method: 'POST' }, 'admin')
+}
+
+// ---- Key Store CRUD ----
+
+export function listApiKeys(): Promise<ApiKeyListResponse> {
+  return request('/api-keys', {}, 'admin')
+}
+
+export function createApiKey(body: CreateApiKeyRequest): Promise<CreateApiKeyResponse> {
+  return request('/api-keys', { method: 'POST', body: JSON.stringify(body) }, 'admin')
+}
+
+export function revokeApiKey(keyId: string): Promise<RevokeApiKeyResponse> {
+  return request(`/api-keys/${encodeURIComponent(keyId)}`, { method: 'DELETE' }, 'admin')
+}
+
+export function fetchApiKeyEvents(keyId: string, limit = 50): Promise<ApiKeyEventsResponse> {
+  return request(`/api-keys/${encodeURIComponent(keyId)}/events?limit=${limit}`, {}, 'admin')
 }
 
 export function setWorkspaceRoot(path: string): Promise<{ root: string }> {

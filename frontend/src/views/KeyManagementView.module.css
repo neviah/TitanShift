@@ -1,0 +1,502 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* ---- Top bar ---- */
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  gap: 12px;
+  background: color-mix(in oklab, var(--bg-surface) 74%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.titleBlock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pageTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.countPill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: color-mix(in oklab, var(--accent-primary) 15%, transparent);
+  color: var(--accent-primary);
+  border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, transparent);
+}
+
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refreshBtn {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 5px;
+  display: flex;
+  align-items: center;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+.refreshBtn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.createKeyBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+.createKeyBtn:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* ---- Hint / errors ---- */
+
+.hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 16px 20px;
+}
+
+.errorText {
+  color: var(--status-error, #f87171);
+}
+
+/* ---- Empty state ---- */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 48px 20px;
+}
+
+.emptyIcon {
+  opacity: 0.35;
+}
+
+/* ---- Table ---- */
+
+.tableWrapper {
+  flex: 1;
+  overflow: auto;
+  padding: 0 0 16px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.table th {
+  text-align: left;
+  padding: 8px 14px;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border-subtle) 50%, transparent);
+  vertical-align: middle;
+  color: var(--text-primary);
+}
+
+.keyRow:hover td {
+  background: color-mix(in oklab, var(--bg-surface) 60%, transparent);
+}
+
+.keyRowInactive td {
+  opacity: 0.55;
+}
+
+.keyDescription {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.expandBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.expandBtn:hover {
+  color: var(--accent-primary);
+}
+
+.keyDesc {
+  color: var(--text-primary);
+}
+
+.noDesc {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.keyPrefix {
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  background: color-mix(in oklab, var(--bg-elevated) 80%, transparent);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.dateCell {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.revokeBtn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+.revokeBtn:hover {
+  border-color: var(--status-error, #f87171);
+  color: var(--status-error, #f87171);
+}
+
+/* ---- Badges ---- */
+
+.scopeBadge,
+.statusBadge,
+.eventBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.scope_read {
+  background: color-mix(in oklab, #60a5fa 12%, transparent);
+  color: #93c5fd;
+  border-color: color-mix(in oklab, #60a5fa 25%, transparent);
+}
+
+.scope_admin {
+  background: color-mix(in oklab, var(--accent-primary) 15%, transparent);
+  color: var(--accent-primary);
+  border-color: color-mix(in oklab, var(--accent-primary) 30%, transparent);
+}
+
+.status_active {
+  background: color-mix(in oklab, #34d399 12%, transparent);
+  color: #6ee7b7;
+  border-color: color-mix(in oklab, #34d399 25%, transparent);
+}
+
+.status_revoked {
+  background: color-mix(in oklab, #f87171 10%, transparent);
+  color: #fca5a5;
+  border-color: color-mix(in oklab, #f87171 20%, transparent);
+}
+
+.status_expired {
+  background: color-mix(in oklab, #fbbf24 10%, transparent);
+  color: #fcd34d;
+  border-color: color-mix(in oklab, #fbbf24 20%, transparent);
+}
+
+/* ---- Audit panel ---- */
+
+.auditRow td {
+  padding: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.auditWrapper {
+  padding: 10px 28px 14px;
+  background: color-mix(in oklab, var(--bg-elevated) 40%, transparent);
+}
+
+.auditTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.auditTable th {
+  text-align: left;
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auditTable td {
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  border-top: 1px solid color-mix(in oklab, var(--border-subtle) 30%, transparent);
+}
+
+.auditDate {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.event_created { background: color-mix(in oklab, #34d399 12%, transparent); color: #6ee7b7; border-color: color-mix(in oklab, #34d399 25%, transparent); }
+.event_rotated { background: color-mix(in oklab, #60a5fa 12%, transparent); color: #93c5fd; border-color: color-mix(in oklab, #60a5fa 25%, transparent); }
+.event_revoked  { background: color-mix(in oklab, #f87171 10%, transparent); color: #fca5a5; border-color: color-mix(in oklab, #f87171 20%, transparent); }
+.event_used     { background: color-mix(in oklab, var(--text-muted) 10%, transparent); color: var(--text-muted); border-color: color-mix(in oklab, var(--text-muted) 20%, transparent); }
+
+/* ---- Modal ---- */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  backdrop-filter: blur(2px);
+}
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md, 10px);
+  padding: 24px;
+  min-width: 360px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+.modalTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 18px;
+}
+
+.modalBody {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.cancelBtn {
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+.cancelBtn:hover {
+  border-color: var(--accent-primary);
+}
+
+.createBtn {
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.createBtn:hover {
+  background: var(--accent-hover);
+}
+.createBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dangerBtn {
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--status-error, #ef4444);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.dangerBtn:hover {
+  background: color-mix(in oklab, var(--status-error, #ef4444) 85%, black);
+}
+.dangerBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---- Form ---- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.checkRow {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.formInput,
+.formSelect {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-input, var(--bg-elevated));
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  transition: border-color var(--transition-fast);
+}
+.formInput:focus,
+.formSelect:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+/* ---- Raw key display ---- */
+
+.rawKeyWarning {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fcd34d;
+  background: color-mix(in oklab, #fbbf24 10%, transparent);
+  border: 1px solid color-mix(in oklab, #fbbf24 25%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.rawKeyBox {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.rawKeyCode {
+  flex: 1;
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-input, var(--bg-elevated));
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.copyBtn {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border: none;
+  border-left: 1px solid var(--border-default);
+  background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+  color: var(--accent-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  flex-shrink: 0;
+}
+.copyBtn:hover {
+  background: color-mix(in oklab, var(--accent-primary) 22%, transparent);
+}

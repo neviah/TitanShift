@@ -19,3 +19,6 @@ harness.config.local.json
 build/
 dist/
 *.egg-info/
+
+# Key store database (runtime data, not source)
+.titantshift/key_store.db

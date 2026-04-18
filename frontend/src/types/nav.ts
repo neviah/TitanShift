@@ -9,6 +9,7 @@ export type NavTab =
   | 'memory'
   | 'logs'
   | 'settings'
+  | 'keys'
 
 export type RightTab =
   | 'run'

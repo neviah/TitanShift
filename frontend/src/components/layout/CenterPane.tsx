@@ -3,6 +3,7 @@ import { ChatView } from '../../views/ChatView'
 import { FileView } from '../../views/FileView'
 import { SkillsView } from '../../views/SkillsView'
 import { SettingsView } from '../../views/SettingsView'
+import { KeyManagementView } from '../../views/KeyManagementView'
 import { SchedulerView } from '../../views/SchedulerView'
 import { TasksView } from '../../views/TasksView'
 import { PlaceholderView } from '../../views/PlaceholderView'
@@ -25,6 +26,7 @@ export function CenterPane({ activeTab, selectedFilePath }: CenterPaneProps) {
         </div>
         {activeTab === 'skills' && <SkillsView />}
         {activeTab === 'settings' && <SettingsView />}
+        {activeTab === 'keys' && <KeyManagementView />}
         {activeTab === 'tasks' && <TasksView />}
         {activeTab === 'scheduler' && <SchedulerView />}
         {activeTab === 'files' && <FileView selectedFilePath={selectedFilePath} />}

@@ -423,6 +423,55 @@ export interface WorkspaceFileResponse {
   content: string
 }
 
+// ---- Key Store Management ----
+
+export interface ApiKeyRecord {
+  id: string
+  description: string
+  scope: 'read' | 'admin'
+  key_prefix: string
+  created_at: string
+  last_used_at: string | null
+  expires_at: string | null
+  revoked_at: string | null
+  is_active: boolean
+}
+
+export interface CreateApiKeyRequest {
+  description: string
+  scope: 'read' | 'admin'
+  expires_at?: string | null
+}
+
+export interface CreateApiKeyResponse {
+  ok: boolean
+  key_id: string
+  raw_key: string
+  record: ApiKeyRecord
+}
+
+export interface ApiKeyListResponse {
+  keys: ApiKeyRecord[]
+}
+
+export interface ApiKeyEventRecord {
+  id: number
+  key_id: string
+  event_type: string
+  occurred_at: string
+  metadata: Record<string, unknown>
+}
+
+export interface ApiKeyEventsResponse {
+  key_id: string
+  events: ApiKeyEventRecord[]
+}
+
+export interface RevokeApiKeyResponse {
+  ok: boolean
+  key_id: string
+}
+
 export interface LogEntry {
   timestamp: string
   event_type: string

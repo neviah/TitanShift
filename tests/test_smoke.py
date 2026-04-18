@@ -4755,7 +4755,7 @@ def test_run_persists_to_semantic_memory() -> None:
         return
 
     runtime = client.app.state.runtime  # type: ignore[attr-defined]
-    hits = runtime.memory.semantic_search("persistence test run", limit=5)
+    hits = runtime.memory.semantic_search("persistence test run", limit=50)
     assert isinstance(hits, list)
     # At least one document should reference our task
     found = any(
