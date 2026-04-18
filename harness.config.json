@@ -82,7 +82,8 @@
       "npm",
       "curl",
       "dir",
-      "echo"
+      "echo",
+      "officecli"
     ]
   },
   "execution": {
@@ -103,7 +104,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 40,
-      "max_tokens": 4096,
+      "max_tokens": 2555,
       "max_duration_ms": 600000
     }
   },
@@ -112,7 +113,7 @@
   },
   "api": {
     "require_api_key": false,
-    "api_key": "W-JdP9IjBpxaD0z4J4Rd5A8-iPr3X5a2_YfmgY60gbA",
+    "api_key": "apaPCTF8XJqKe818hxIMXr-6fwP7GqlIrtB7TUXQTy8",
     "require_admin_api_key": false,
     "admin_api_key": "supersecretadminkey456"
   },

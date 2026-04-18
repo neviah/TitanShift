@@ -96,7 +96,13 @@
       "index_project",
       "read_context",
       "propose_wiring",
-      "apply_wiring"
+      "apply_wiring",
+      "officecli_create_document",
+      "officecli_add_element",
+      "officecli_view_document",
+      "officecli_set_properties",
+      "officecli_merge_template",
+      "officecli_batch"
     ],
     "blocked_tool_names": [],
     "allowed_command_prefixes": [
@@ -106,7 +112,8 @@
       "npm",
       "curl",
       "dir",
-      "echo"
+      "echo",
+      "officecli"
     ]
   },
   "tools": {
@@ -146,10 +153,16 @@
       "tag_and_publish_release",
       "generate_report",
       "generate_chart",
-      "generate_svg_asset"
+      "generate_svg_asset",
+      "officecli_create_document",
+      "officecli_add_element",
+      "officecli_view_document",
+      "officecli_set_properties",
+      "officecli_merge_template",
+      "officecli_batch"
     ],
     "blocked_tool_names": [],
-    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"]
+    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo", "officecli"]
   },
   "execution": {
     "allowed_cwd_roots": ["."],

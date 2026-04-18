@@ -72,7 +72,21 @@ npm install
 npm run dev
 ```
 
-5. Run tests:
+5. (Optional) Install the `officecli` binary to enable Office document tools (`officecli_create_document`, `officecli_add_element`, `officecli_view_document`, `officecli_set_properties`, `officecli_merge_template`, `officecli_batch`):
+
+**macOS / Linux**
+```bash
+curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
+```
+
+**Windows (PowerShell)**
+```powershell
+irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
+```
+
+Verify: `officecli --version`. If not found after install, open a new terminal and try again.
+
+6. Run tests:
 
 ```bash
 python -m pytest -q -p no:warnings
