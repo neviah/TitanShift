@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from harness.migrations.runner import apply_migrations, check_version
 from harness.runtime.types import Task, TaskResult
 
 
@@ -70,8 +71,10 @@ class TaskStore:
     def _init_db(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self._conn.execute(_CREATE_TABLE_SQL)
-        self._conn.commit()
+        # Guard: raise MigrationError if the on-disk schema is ahead of our migrations
+        check_version(self._conn, "task_store")
+        # Apply any pending migrations (idempotent)
+        apply_migrations(self._conn, "task_store")
         # Warm the in-memory cache from existing rows
         for row in self._conn.execute(_SELECT_ALL_SQL).fetchall():
             task_id, description, status, created_at, started_at, completed_at, success_int, output_json, error = row

@@ -27,4 +27,4 @@ harness = "harness.__main__:main"
 include = ["harness*"]
 
 [tool.setuptools.package-data]
-harness = ["config_defaults.json"]
+harness = ["config_defaults.json", "migrations/**/*.sql"]

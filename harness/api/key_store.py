@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from harness.migrations.runner import apply_migrations, check_version
+
 _KEY_PREFIX = "ts_"
 _PREFIX_DISPLAY_LEN = 12  # "ts_" + 9 chars shown to operators
 
@@ -109,7 +111,8 @@ class KeyStore:
         with self._lock:
             conn = self._connect()
             try:
-                conn.executescript(_SCHEMA)
+                check_version(conn, "key_store")
+                apply_migrations(conn, "key_store")
                 conn.commit()
             finally:
                 conn.close()

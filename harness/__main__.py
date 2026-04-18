@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sqlite3
 import uuid
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 
 from harness.api.server import create_app
+from harness.migrations.runner import MigrationError, apply_migrations, check_version
 from harness.model.adapter import check_lmstudio_health
 from harness.runtime.bootstrap import build_runtime
 from harness.runtime.config import ConfigManager
@@ -47,6 +50,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("status", help="Show current runtime status")
     sub.add_parser("print-config", help="Print resolved defaults from config files")
+
+    # ── Migration commands ────────────────────────────────────────────────────
+    sub.add_parser(
+        "migrate",
+        help="Apply any pending schema migrations to all SQLite databases",
+    )
+
+    config_cmd = sub.add_parser("config", help="Configuration utilities")
+    config_sub = config_cmd.add_subparsers(dest="config_command", required=True)
+    config_sub.add_parser(
+        "migrate",
+        help="Compare the on-disk harness.config.json against current defaults and show diffs",
+    )
+
     return parser
 
 
@@ -98,6 +115,110 @@ def print_config(workspace_root: Path) -> None:
         print("No defaults file found.")
 
 
+# ── Migration helpers ─────────────────────────────────────────────────────────
+
+_DB_NAMES: list[tuple[str, str]] = [
+    ("task_store",    "harness_data/tasks.db"),
+    ("semantic_store", "harness_data/semantic.db"),
+    ("key_store",     "harness_data/key_store.db"),
+]
+
+
+def run_migrate(workspace_root: Path) -> None:
+    """Apply pending migrations to all known SQLite databases."""
+    any_applied = False
+    for db_name, rel_path in _DB_NAMES:
+        db_path = workspace_root / rel_path
+        if not db_path.exists():
+            print(f"  [skip] {db_name}: database not found at {rel_path}")
+            continue
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        try:
+            check_version(conn, db_name)
+            applied = apply_migrations(conn, db_name)
+            if applied:
+                print(f"  [ok]   {db_name}: applied migrations {applied}")
+                any_applied = True
+            else:
+                print(f"  [ok]   {db_name}: already up to date")
+        except MigrationError as exc:
+            print(f"  [ERROR] {db_name}: {exc}")
+            raise SystemExit(1) from exc
+        finally:
+            conn.close()
+    if not any_applied:
+        print("All databases are up to date.")
+
+
+def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """Flatten a nested dict into dotted keys."""
+    out: dict[str, Any] = {}
+    for k, v in d.items():
+        full_key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            out.update(_flatten(v, full_key))
+        else:
+            out[full_key] = v
+    return out
+
+
+def run_config_migrate(workspace_root: Path) -> None:
+    """Compare on-disk config against current defaults and report differences."""
+    defaults_path = workspace_root / "harness" / "config_defaults.json"
+    config_path = workspace_root / "harness.config.json"
+
+    defaults: dict[str, Any] = {}
+    if defaults_path.exists():
+        defaults = json.loads(defaults_path.read_text(encoding="utf-8"))
+
+    file_cfg: dict[str, Any] = {}
+    if config_path.exists():
+        file_cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    else:
+        print("No harness.config.json found — nothing to migrate.")
+        return
+
+    flat_defaults = _flatten(defaults)
+    flat_file = _flatten(file_cfg)
+
+    missing_keys = [k for k in flat_defaults if k not in flat_file]
+    extra_keys = [k for k in flat_file if k not in flat_defaults]
+    changed: list[tuple[str, Any, Any]] = [
+        (k, flat_file[k], flat_defaults[k])
+        for k in flat_file
+        if k in flat_defaults and flat_file[k] != flat_defaults[k]
+    ]
+
+    deprecated_map: dict[str, str] = {
+        # Add deprecated → current key renames here, e.g.:
+        # "old.key": "new.key",
+    }
+    deprecated_used = [(old, new) for old, new in deprecated_map.items() if old in flat_file]
+
+    print("=== Config migration report ===")
+    if missing_keys:
+        print(f"\n  Keys present in defaults but missing from your config ({len(missing_keys)}):")
+        for k in sorted(missing_keys):
+            print(f"    + {k}  (default: {flat_defaults[k]!r})")
+    if extra_keys:
+        print(f"\n  Keys in your config not present in defaults ({len(extra_keys)}) — may be custom or legacy:")
+        for k in sorted(extra_keys):
+            print(f"    ? {k}  =  {flat_file[k]!r}")
+    if changed:
+        print(f"\n  Keys that differ from defaults ({len(changed)}):")
+        for k, yours, theirs in sorted(changed):
+            print(f"    ~ {k}  yours={yours!r}  default={theirs!r}")
+    if deprecated_used:
+        print(f"\n  [WARN] Deprecated keys in use ({len(deprecated_used)}):")
+        for old, new in deprecated_used:
+            print(f"    DEPRECATED {old!r}  →  rename to {new!r}")
+    if not any([missing_keys, extra_keys, changed, deprecated_used]):
+        print("  Config is in sync with current defaults.")
+    print()
+
+
+
+
 def serve_api(workspace_root: Path, host: str, port: int) -> None:
     app = create_app(workspace_root)
     uvicorn.run(app, host=host, port=port)
@@ -126,6 +247,11 @@ def main() -> None:
         serve_api(workspace_root, args.host, args.port)
     elif args.command == "lmstudio-check":
         lmstudio_check(workspace_root)
+    elif args.command == "migrate":
+        run_migrate(workspace_root)
+    elif args.command == "config":
+        if args.config_command == "migrate":
+            run_config_migrate(workspace_root)
 
 
 if __name__ == "__main__":

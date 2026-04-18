@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from harness.migrations.runner import apply_migrations, check_version
+
 
 class SemanticSQLiteStore:
     """SQLite FTS plus embeddings table default backend."""
@@ -18,12 +20,8 @@ class SemanticSQLiteStore:
 
     def _init_db(self) -> None:
         with self._connect() as conn:
-            conn.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS semantic_docs USING fts5(doc_id, content, metadata)"
-            )
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS semantic_embeddings (doc_id TEXT PRIMARY KEY, embedding_json TEXT NOT NULL)"
-            )
+            check_version(conn, "semantic_store")
+            apply_migrations(conn, "semantic_store")
 
     def embed_and_store(self, doc_id: str, text: str, metadata: dict[str, Any], embedding: list[float]) -> None:
         with self._connect() as conn:
