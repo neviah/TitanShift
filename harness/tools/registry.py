@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from typing import Callable
-from datetime import datetime, timezone
 
+from harness.api.hooks import ApiHooks
+from harness.api.hooks import HookPayload
 from harness.runtime.config import ConfigManager
 from harness.tools.definitions import ToolDefinition
 
@@ -95,10 +97,14 @@ class ToolRegistry:
         self.policy = policy
         self._tools: dict[str, ToolDefinition] = {}
         self._audit_sink = audit_sink
+        self._hooks: ApiHooks | None = None
         self._rollback_store: Any | None = None  # RollbackStore — set after construction
         # Per-category concurrency caps
         self._shell_semaphore = asyncio.Semaphore(max(1, max_concurrent_shell_evals))
         self._browser_semaphore = asyncio.Semaphore(max(1, max_concurrent_browser_sessions))
+
+    def set_hooks(self, hooks: ApiHooks) -> None:
+        self._hooks = hooks
 
     def set_rollback_store(self, store: Any) -> None:
         """Wire in a RollbackStore so file mutations are snapshotted before execution."""
@@ -134,17 +140,47 @@ class ToolRegistry:
         args: dict[str, Any],
         bypass_policy: bool = False,
         task_id: str | None = None,
+        hook_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         tool = self.get_tool(name)
         if tool is None:
             self._emit_audit(name=name, status="denied", reason="tool_not_found", args=args)
             raise KeyError(f"Tool not found: {name}")
 
+        effective_args = dict(args)
+        tenant_id = str((hook_context or {}).get("tenant_id", "_system_"))
+        call_index = int((hook_context or {}).get("call_index", 0))
+        hook_payload = {
+            "task_id": task_id or "",
+            "tenant_id": tenant_id,
+            "tool_name": name,
+            "tool_args": dict(effective_args),
+            "call_index": call_index,
+            "allowed_tools": list((hook_context or {}).get("allowed_tools", []) or []),
+        }
+        if self._hooks is not None:
+            directives = await self._hooks.execute("PreToolUse", hook_payload)
+            for directive in directives:
+                if not isinstance(directive, dict):
+                    continue
+                action = str(directive.get("action", "")).strip().lower()
+                if action == "replace_args" and isinstance(directive.get("modified_args"), dict):
+                    effective_args = dict(directive["modified_args"])
+                if action == "abort":
+                    message = str(directive.get("error_message") or "Tool call blocked by hook")
+                    self._emit_audit(name=name, status="denied", reason="hook_aborted", args=effective_args)
+                    return {
+                        "ok": False,
+                        "error": message,
+                        "aborted_by_hook": True,
+                        "tool": name,
+                    }
+
         # Skip policy checks if bypass_policy is True (e.g., superpowered mode with approvals)
         if not bypass_policy:
-            allowed, reason = self.policy.evaluate_tool(tool, args)
+            allowed, reason = self.policy.evaluate_tool(tool, effective_args)
             if not allowed:
-                self._emit_audit(name=name, status="denied", reason=reason, args=args)
+                self._emit_audit(name=name, status="denied", reason=reason, args=effective_args)
                 raise PermissionError(f"Tool blocked by deny-all policy: {name}")
         else:
             reason = "bypassed_for_superpowered_mode"
@@ -155,7 +191,7 @@ class ToolRegistry:
             from pathlib import Path as _Path
             if name in MUTATING_TOOLS:
                 for path_key in ("path", "source_path", "target_path"):
-                    raw_path = args.get(path_key)
+                    raw_path = effective_args.get(path_key)
                     if raw_path:
                         try:
                             self._rollback_store.snapshot(task_id, _Path(str(raw_path)))
@@ -163,10 +199,10 @@ class ToolRegistry:
                             pass  # Snapshot failure must never block execution.
 
         if tool.handler is None:
-            self._emit_audit(name=name, status="allowed", reason="no_handler", args=args)
+            self._emit_audit(name=name, status="allowed", reason="no_handler", args=effective_args)
             return {"ok": True, "message": f"Tool {name} has no handler in phase 1"}
 
-        self._emit_audit(name=name, status="allowed", reason=reason, args=args)
+        self._emit_audit(name=name, status="allowed", reason=reason, args=effective_args)
 
         # Enforce per-category concurrency caps
         caps = tool.capabilities or []
@@ -176,13 +212,41 @@ class ToolRegistry:
         is_browser = any(c.startswith("browser.") for c in caps) or \
                      name in ("browser_action",)
 
-        if is_shell:
-            async with self._shell_semaphore:
-                return await tool.handler(args)
-        elif is_browser:
-            async with self._browser_semaphore:
-                return await tool.handler(args)
-        return await tool.handler(args)
+        started_at = datetime.now(timezone.utc)
+        error_message: str | None = None
+        result: dict[str, Any]
+        try:
+            if is_shell:
+                async with self._shell_semaphore:
+                    result = await tool.handler(effective_args)
+            elif is_browser:
+                async with self._browser_semaphore:
+                    result = await tool.handler(effective_args)
+            else:
+                result = await tool.handler(effective_args)
+        except Exception as exc:
+            error_message = str(exc)
+            result = {"ok": False, "error": error_message}
+            raise
+        finally:
+            if self._hooks is not None:
+                duration_ms = (datetime.now(timezone.utc) - started_at).total_seconds() * 1000.0
+                await self._hooks.emit(
+                    HookPayload(
+                        event="PostToolUse",
+                        data={
+                            "task_id": task_id or "",
+                            "tenant_id": tenant_id,
+                            "tool_name": name,
+                            "tool_args": dict(effective_args),
+                            "result": result,
+                            "error": error_message,
+                            "duration_ms": duration_ms,
+                            "call_index": call_index,
+                        },
+                    )
+                )
+        return result
 
     def find_tools_by_capability(self, capability: str) -> list[ToolDefinition]:
         """Find all tools that have a specific capability."""

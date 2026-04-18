@@ -2794,6 +2794,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
         # Thread tenant context through for downstream isolation checks
         task_input["tenant_id"] = tenant.tenant_id
+        task_input["allowed_tools"] = list(tenant.allowed_tools)
 
         task = Task(
             id=str(uuid.uuid4()),
@@ -2905,8 +2906,11 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     # ── /runs — async submit + poll + SSE stream ──────────────────────────────
 
-    @app.post("/runs", dependencies=[Depends(require_read_api_key)])
-    async def submit_run(body: ChatRequest) -> JSONResponse:
+    @app.post("/runs")
+    async def submit_run(
+        body: ChatRequest,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> JSONResponse:
         """Submit a run and return a run_id immediately.  Poll GET /runs/{run_id}."""
         run_id = uuid.uuid4().hex
 
@@ -2917,6 +2921,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             "workflow_mode": body.workflow_mode or "lightning",
             "budget": (body.budget or {}) if hasattr(body, "budget") else {},
             "workspace_root": str(_active_workspace["root"]).replace("\\", "/"),
+            "tenant_id": tenant.tenant_id,
+            "allowed_tools": list(tenant.allowed_tools),
         }
         available_tools = runtime.tools.list_tools()
         task_input["available_tools"] = [
@@ -3105,8 +3111,11 @@ def create_app(workspace_root: Path) -> FastAPI:
             ],
         )
 
-    @app.post("/chat/stream", dependencies=[Depends(require_read_api_key)])
-    async def chat_stream(body: ChatRequest) -> StreamingResponse:
+    @app.post("/chat/stream")
+    async def chat_stream(
+        body: ChatRequest,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> StreamingResponse:
         """SSE endpoint for streaming chat.
 
         Emits newline-delimited `data: {json}\\n\\n` events while the reactive
@@ -3142,6 +3151,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             if runtime.tools.preview_policy(t)[0]
         ]
         task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
+        task_input["tenant_id"] = tenant.tenant_id
+        task_input["allowed_tools"] = list(tenant.allowed_tools)
 
         task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
 

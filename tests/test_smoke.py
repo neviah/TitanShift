@@ -288,6 +288,41 @@ def test_artifact_default_verified_false_when_not_provided() -> None:
         source.unlink(missing_ok=True)
 
 
+def test_artifact_persistence_uses_tenant_namespace() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    workspace_root = Path(".").resolve()
+    source = workspace_root / ".harness" / "tenant-artifact-smoke.md"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("# Tenant Artifact\n", encoding="utf-8")
+    try:
+        persisted, created_paths = runtime.orchestrator.state_machine._persist_tool_artifacts(
+            task_id="task-tenant-smoke",
+            tenant_id="tenant-alpha",
+            workspace_root=workspace_root,
+            tool_name="manual_tool",
+            tool_args={},
+            tool_result={
+                "artifacts": [
+                    {
+                        "artifact_id": "tenant-artifact-smoke",
+                        "kind": "document.markdown",
+                        "path": str(source),
+                        "mime_type": "text/markdown",
+                        "title": "Tenant Artifact",
+                        "summary": "tenant-scoped",
+                        "generator": "manual",
+                        "backend": "manual",
+                    }
+                ]
+            },
+        )
+        assert len(persisted) == 1
+        assert "/.titantshift/artifacts/tenant-alpha/task-tenant-smoke/" in persisted[0]["path"].replace("\\", "/")
+        assert any("tenant-alpha/task-tenant-smoke" in path.replace("\\", "/") for path in created_paths)
+    finally:
+        source.unlink(missing_ok=True)
+
+
 def test_artifact_preview_endpoint_serves_safe_artifact() -> None:
     app = create_app(Path(".").resolve())
     client = TestClient(app, normalize_runtime=False)

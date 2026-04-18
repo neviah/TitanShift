@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from urllib.parse import quote_plus
 from typing import Any, AsyncIterator
 
+from harness.api.hooks import ApiHooks
+from harness.api.hooks import HookPayload
 from harness.model.adapter import ModelRegistry, ModelRequest, ToolCall
 from harness.runtime.config import ConfigManager
 from harness.runtime.types import Task, TaskResult
@@ -25,11 +27,13 @@ class ReactiveStateMachine:
         config: ConfigManager,
         tools: ToolRegistry,
         skills: SkillRegistry = None,
+        hooks: ApiHooks | None = None,
     ) -> None:
         self.models = models
         self.config = config
         self.tools = tools
         self.skills = skills
+        self.hooks = hooks
 
     def _normalize_tool_call(self, tool_call: ToolCall, task_description: str) -> ToolCall:
         name = tool_call.name.strip()
@@ -250,6 +254,7 @@ class ReactiveStateMachine:
         self,
         *,
         task_id: str,
+        tenant_id: str = "_system_",
         workspace_root: Path,
         tool_name: str,
         tool_args: dict[str, Any],
@@ -268,7 +273,11 @@ class ReactiveStateMachine:
             "image/jpeg",
             "image/webp",
         }
-        run_root = (workspace_root / ".titantshift" / "artifacts" / task_id).resolve()
+        run_root = (
+            (workspace_root / ".titantshift" / "artifacts" / task_id)
+            if tenant_id == "_system_"
+            else (workspace_root / ".titantshift" / "artifacts" / tenant_id / task_id)
+        ).resolve()
         persisted: list[dict[str, Any]] = []
         created_paths: list[str] = []
 
@@ -339,6 +348,27 @@ class ReactiveStateMachine:
             artifact_meta_path.write_text(json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8")
             created_paths.append(str(artifact_meta_path).replace("\\", "/"))
             persisted.append(record)
+            if self.hooks is not None:
+                try:
+                    asyncio.get_running_loop().create_task(
+                        self.hooks.emit(
+                            HookPayload(
+                                event="ArtifactEmit",
+                                data={
+                                    "task_id": task_id,
+                                    "tenant_id": tenant_id,
+                                    "artifact_id": artifact_id,
+                                    "kind": record["kind"],
+                                    "path": record["path"],
+                                    "mime_type": record["mime_type"],
+                                    "title": record["title"],
+                                    "generator": record["generator"],
+                                },
+                            )
+                        )
+                    )
+                except RuntimeError:
+                    pass
 
         return persisted, created_paths
 
@@ -509,6 +539,9 @@ class ReactiveStateMachine:
         total_tokens = model.estimate_tokens(task.description)
         response = None
         workspace_root_path = Path(str(workspace_root or ".")).resolve()
+        tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
+        allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
+        llm_call_index = 0
 
         # Prepend prior conversation turns so the model has full context
         for prior in conversation_history:
@@ -545,16 +578,55 @@ class ReactiveStateMachine:
                         mandatory_tools,
                         allow_support_tools=False,
                     )
+                llm_messages = list(messages)
+                if self.hooks is not None:
+                    directives = await self.hooks.execute(
+                        "PreLLMCall",
+                        {
+                            "task_id": task.id,
+                            "tenant_id": tenant_id,
+                            "model": model.model_id,
+                            "messages": llm_messages,
+                            "tools_schema": active_tool_defs or [],
+                            "call_index": llm_call_index,
+                        },
+                    )
+                    for directive in directives:
+                        if not isinstance(directive, dict):
+                            continue
+                        if str(directive.get("action", "")).strip().lower() == "inject_message" and isinstance(directive.get("injected_message"), dict):
+                            llm_messages = [directive["injected_message"], *llm_messages]
                 response = await asyncio.wait_for(
                     model.generate(ModelRequest(
                         prompt="",
                         system_prompt=system_prompt,
-                        messages=messages,
+                        messages=llm_messages,
                         tool_definitions=active_tool_defs,
                         timeout_s=max(5.0, min(float(getattr(model, "timeout_s", 45.0)), budget["max_duration_ms"] / 1000.0)),
                     )),
                     timeout=budget["max_duration_ms"] / 1000.0,
                 )
+                if self.hooks is not None:
+                    await self.hooks.emit(
+                        HookPayload(
+                            event="PostLLMCall",
+                            data={
+                                "task_id": task.id,
+                                "tenant_id": tenant_id,
+                                "model": response.model_id,
+                                "response_text": response.text,
+                                "tool_calls": [
+                                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                                    for tc in (response.tool_calls or [])
+                                ],
+                                "input_tokens": total_tokens,
+                                "output_tokens": model.estimate_tokens(response.text),
+                                "duration_ms": 0.0,
+                                "call_index": llm_call_index,
+                            },
+                        )
+                    )
+                llm_call_index += 1
             except asyncio.TimeoutError:
                 if last_tool_result_lines:
                     fallback = (
@@ -650,7 +722,7 @@ class ReactiveStateMachine:
                     total_tokens += model.estimate_tokens(correction)
                     continue
 
-            for tc in normalized_tool_calls:
+            for call_index, tc in enumerate(normalized_tool_calls):
                 used_tools.append(tc.name)
                 if self._is_skill_like_pseudo_call(tc):
                     tool_content = json.dumps(
@@ -671,7 +743,17 @@ class ReactiveStateMachine:
                     continue
                 try:
                     # Bypass policy checks in superpowered mode since it has approval gates
-                    result = await self.tools.execute_tool(tc.name, tc.arguments, bypass_policy=is_superpowered, task_id=task.id)
+                    result = await self.tools.execute_tool(
+                        tc.name,
+                        tc.arguments,
+                        bypass_policy=is_superpowered,
+                        task_id=task.id,
+                        hook_context={
+                            "tenant_id": tenant_id,
+                            "allowed_tools": allowed_tools,
+                            "call_index": call_index,
+                        },
+                    )
                     tool_result: dict[str, Any] | Any = result
                 except PermissionError as exc:
                     tool_errors.append(f"{tc.name}: {exc}")
@@ -680,7 +762,17 @@ class ReactiveStateMachine:
                             "url": f"https://duckduckgo.com/html/?q={quote_plus(task.description)}"
                         }
                         try:
-                            fallback = await self.tools.execute_tool("web_fetch", fallback_args, bypass_policy=is_superpowered, task_id=task.id)
+                            fallback = await self.tools.execute_tool(
+                                "web_fetch",
+                                fallback_args,
+                                bypass_policy=is_superpowered,
+                                task_id=task.id,
+                                hook_context={
+                                    "tenant_id": tenant_id,
+                                    "allowed_tools": allowed_tools,
+                                    "call_index": call_index,
+                                },
+                            )
                             tool_result = {
                                 "ok": True,
                                 "fallback": "web_fetch",
@@ -712,6 +804,7 @@ class ReactiveStateMachine:
                         updated_paths.extend(str(path) for path in updated if str(path).strip())
                     persisted_artifacts, artifact_created_paths = self._persist_tool_artifacts(
                         task_id=task.id,
+                        tenant_id=tenant_id,
                         workspace_root=workspace_root_path,
                         tool_name=tc.name,
                         tool_args=tc.arguments,
@@ -909,6 +1002,9 @@ class ReactiveStateMachine:
         workspace_root_path = Path(str(workspace_root or ".")).resolve()
         workflow_mode_str = str(task.input.get("workflow_mode", "lightning") if task.input else "lightning")
         is_superpowered = workflow_mode_str.lower() == "superpowered"
+        tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
+        allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
+        llm_call_index = 0
 
         try:
             for step in range(budget["max_steps"]):
@@ -924,16 +1020,55 @@ class ReactiveStateMachine:
                         active_tool_defs = self._build_active_tool_definitions(requested_tools, allow_support_tools=False)
                     if (not requested_tools or used_requested_tools) and mandatory_tools and len(used_mandatory_tools) < len(mandatory_tools):
                         active_tool_defs = self._build_active_tool_definitions(mandatory_tools, allow_support_tools=False)
+                    llm_messages = list(messages)
+                    if self.hooks is not None:
+                        directives = await self.hooks.execute(
+                            "PreLLMCall",
+                            {
+                                "task_id": task.id,
+                                "tenant_id": tenant_id,
+                                "model": model.model_id,
+                                "messages": llm_messages,
+                                "tools_schema": active_tool_defs or [],
+                                "call_index": llm_call_index,
+                            },
+                        )
+                        for directive in directives:
+                            if not isinstance(directive, dict):
+                                continue
+                            if str(directive.get("action", "")).strip().lower() == "inject_message" and isinstance(directive.get("injected_message"), dict):
+                                llm_messages = [directive["injected_message"], *llm_messages]
                     response = await asyncio.wait_for(
                         model.generate(ModelRequest(
                             prompt="",
                             system_prompt=system_prompt,
-                            messages=messages,
+                            messages=llm_messages,
                             tool_definitions=active_tool_defs,
                             timeout_s=max(5.0, min(float(getattr(model, "timeout_s", 45.0)), budget["max_duration_ms"] / 1000.0)),
                         )),
                         timeout=budget["max_duration_ms"] / 1000.0,
                     )
+                    if self.hooks is not None:
+                        await self.hooks.emit(
+                            HookPayload(
+                                event="PostLLMCall",
+                                data={
+                                    "task_id": task.id,
+                                    "tenant_id": tenant_id,
+                                    "model": response.model_id,
+                                    "response_text": response.text,
+                                    "tool_calls": [
+                                        {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                                        for tc in (response.tool_calls or [])
+                                    ],
+                                    "input_tokens": total_tokens,
+                                    "output_tokens": model.estimate_tokens(response.text),
+                                    "duration_ms": 0.0,
+                                    "call_index": llm_call_index,
+                                },
+                            )
+                        )
+                    llm_call_index += 1
                 except (asyncio.TimeoutError, RuntimeError):
                     yield {"type": "error", "message": "Model timed out"}
                     return
@@ -957,7 +1092,7 @@ class ReactiveStateMachine:
                 }
 
                 tool_result_lines: list[str] = []
-                for tc in self._normalize_calls_for_stream(response.tool_calls):
+                for call_index, tc in enumerate(self._normalize_calls_for_stream(response.tool_calls)):
                     used_tools.append(tc.name)
                     if self._is_skill_like_pseudo_call(tc):
                         tool_content = json.dumps({"ok": True, "skill_like_call": tc.name})
@@ -966,7 +1101,17 @@ class ReactiveStateMachine:
                         yield {"type": "tool_result", "step": step, "tool": tc.name, "ok": True, "summary": "skill-like call redirected"}
                         continue
                     try:
-                        tool_result: Any = await self.tools.execute_tool(tc.name, tc.arguments, bypass_policy=is_superpowered, task_id=task.id)
+                        tool_result: Any = await self.tools.execute_tool(
+                            tc.name,
+                            tc.arguments,
+                            bypass_policy=is_superpowered,
+                            task_id=task.id,
+                            hook_context={
+                                "tenant_id": tenant_id,
+                                "allowed_tools": allowed_tools,
+                                "call_index": call_index,
+                            },
+                        )
                     except PermissionError as exc:
                         tool_errors.append(f"{tc.name}: {exc}")
                         tool_result = {"ok": False, "error": str(exc)}
@@ -983,6 +1128,7 @@ class ReactiveStateMachine:
                             updated_paths.extend(str(p) for p in up if str(p).strip())
                         persisted_artifacts, artifact_created = self._persist_tool_artifacts(
                             task_id=task.id,
+                            tenant_id=tenant_id,
                             workspace_root=workspace_root_path,
                             tool_name=tc.name,
                             tool_args=tc.arguments,

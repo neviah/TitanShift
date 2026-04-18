@@ -14,12 +14,17 @@ from typing import Any
 import httpx
 import yaml
 
+from harness.artifacts.backends import ArtifactBackendRegistry
+from harness.artifacts.backends import ArtifactRenderRequest
+from harness.artifacts.backends import ArtifactRenderResult
 from harness.execution.runner import ExecutionDeniedError, ExecutionModule
 from harness.tools.definitions import ToolDefinition
 from harness.tools.registry import ToolRegistry
 
 
 def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> None:
+    artifact_backends = ArtifactBackendRegistry()
+
     def _resolve_workspace_path(raw_path: str) -> Path:
         candidate = Path(raw_path)
         return candidate.resolve() if candidate.is_absolute() else (execution.default_cwd / candidate).resolve()
@@ -751,7 +756,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
 
         doc.build(story)
 
-    async def generate_report_handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _render_document_backend(request: ArtifactRenderRequest) -> ArtifactRenderResult:
+        args = request.args
         title = str(args.get("title") or "Generated Report").strip() or "Generated Report"
         output_format = str(args.get("format") or "markdown").strip().lower()
         raw_target_path = str(args.get("target_path") or "outputs/reports").strip()
@@ -879,15 +885,31 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                 "safe_inline": True,
             },
         }
-        return {
-            "ok": True,
-            "title": title,
-            "format": output_format,
-            "path": normalized_path,
-            "created_paths": [] if existed_before else [normalized_path],
-            "updated_paths": [normalized_path] if existed_before else [],
-            "artifacts": [artifact],
-        }
+        return ArtifactRenderResult(
+            backend=request.backend,
+            payload={
+                "ok": True,
+                "title": title,
+                "format": output_format,
+                "path": normalized_path,
+                "created_paths": [] if existed_before else [normalized_path],
+                "updated_paths": [normalized_path] if existed_before else [],
+                "artifacts": [artifact],
+            },
+            artifacts=[artifact],
+        )
+
+    artifact_backends.register("document_backend", _render_document_backend)
+
+    async def generate_report_handler(args: dict[str, Any]) -> dict[str, Any]:
+        result = await artifact_backends.render(
+            ArtifactRenderRequest(
+                backend="document_backend",
+                generator="generate_report",
+                args=args,
+            )
+        )
+        return result.payload
 
     tools.register_tool(
         ToolDefinition(
@@ -1047,7 +1069,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         lines.append('</svg>')
         return '\n'.join(lines)
 
-    async def generate_chart_handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _render_chart_backend(request: ArtifactRenderRequest) -> ArtifactRenderResult:
+        args = request.args
         title = str(args.get("title") or "Chart").strip() or "Chart"
         chart_type = str(args.get("chart_type") or "bar").strip().lower()
         raw_data = args.get("data") or []
@@ -1137,17 +1160,33 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             },
             "preview": {"safe_inline": True},
         }
-        return {
-            "ok": True,
-            "title": title,
-            "chart_type": chart_type,
-            "format": output_format,
-            "path": normalized_path,
-            "data_points": len(data_rows),
-            "created_paths": [] if existed_before else [normalized_path],
-            "updated_paths": [normalized_path] if existed_before else [],
-            "artifacts": [artifact],
-        }
+        return ArtifactRenderResult(
+            backend=request.backend,
+            payload={
+                "ok": True,
+                "title": title,
+                "chart_type": chart_type,
+                "format": output_format,
+                "path": normalized_path,
+                "data_points": len(data_rows),
+                "created_paths": [] if existed_before else [normalized_path],
+                "updated_paths": [normalized_path] if existed_before else [],
+                "artifacts": [artifact],
+            },
+            artifacts=[artifact],
+        )
+
+    artifact_backends.register("chart_backend", _render_chart_backend)
+
+    async def generate_chart_handler(args: dict[str, Any]) -> dict[str, Any]:
+        result = await artifact_backends.render(
+            ArtifactRenderRequest(
+                backend="chart_backend",
+                generator="generate_chart",
+                args=args,
+            )
+        )
+        return result.payload
 
     tools.register_tool(
         ToolDefinition(
@@ -1283,7 +1322,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         lines.append('</svg>')
         return '\n'.join(lines)
 
-    async def generate_svg_asset_handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _render_vector_backend(request: ArtifactRenderRequest) -> ArtifactRenderResult:
+        args = request.args
         kind = str(args.get("kind") or "badge").strip().lower()
         title = str(args.get("title") or kind).strip() or kind
         raw_target_path = str(args.get("target_path") or "outputs/assets").strip()
@@ -1354,15 +1394,31 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             },
             "preview": {"safe_inline": True},
         }
-        return {
-            "ok": True,
-            "title": title,
-            "kind": kind,
-            "path": normalized_path,
-            "created_paths": [] if existed_before else [normalized_path],
-            "updated_paths": [normalized_path] if existed_before else [],
-            "artifacts": [artifact],
-        }
+        return ArtifactRenderResult(
+            backend=request.backend,
+            payload={
+                "ok": True,
+                "title": title,
+                "kind": kind,
+                "path": normalized_path,
+                "created_paths": [] if existed_before else [normalized_path],
+                "updated_paths": [normalized_path] if existed_before else [],
+                "artifacts": [artifact],
+            },
+            artifacts=[artifact],
+        )
+
+    artifact_backends.register("vector_backend", _render_vector_backend)
+
+    async def generate_svg_asset_handler(args: dict[str, Any]) -> dict[str, Any]:
+        result = await artifact_backends.render(
+            ArtifactRenderRequest(
+                backend="vector_backend",
+                generator="generate_svg_asset",
+                args=args,
+            )
+        )
+        return result.payload
 
     tools.register_tool(
         ToolDefinition(
@@ -1397,7 +1453,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
-    async def generate_hyperframes_scene_handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _render_hyperframes_backend(request: ArtifactRenderRequest) -> ArtifactRenderResult:
+        args = request.args
         title = str(args.get("title") or "Hyperframes Scene").strip() or "Hyperframes Scene"
         raw_target_path = str(args.get("target_path") or "outputs/videos").strip()
         overwrite = bool(args.get("overwrite", False))
@@ -1568,23 +1625,39 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "preview": None,
         }
 
-        return {
-            "ok": True,
-            "title": title,
-            "composition_id": composition_id,
-            "scene_path": scene_norm,
-            "render_job_path": job_norm,
-            "output_mp4": output_mp4,
-            "created_paths": [
-                *([] if scene_existed_before else [scene_norm]),
-                *([] if job_existed_before else [job_norm]),
-            ],
-            "updated_paths": [
-                *([scene_norm] if scene_existed_before else []),
-                *([job_norm] if job_existed_before else []),
-            ],
-            "artifacts": [scene_artifact, job_artifact],
-        }
+        return ArtifactRenderResult(
+            backend=request.backend,
+            payload={
+                "ok": True,
+                "title": title,
+                "composition_id": composition_id,
+                "scene_path": scene_norm,
+                "render_job_path": job_norm,
+                "output_mp4": output_mp4,
+                "created_paths": [
+                    *([] if scene_existed_before else [scene_norm]),
+                    *([] if job_existed_before else [job_norm]),
+                ],
+                "updated_paths": [
+                    *([scene_norm] if scene_existed_before else []),
+                    *([job_norm] if job_existed_before else []),
+                ],
+                "artifacts": [scene_artifact, job_artifact],
+            },
+            artifacts=[scene_artifact, job_artifact],
+        )
+
+    artifact_backends.register("hyperframes_backend", _render_hyperframes_backend)
+
+    async def generate_hyperframes_scene_handler(args: dict[str, Any]) -> dict[str, Any]:
+        result = await artifact_backends.render(
+            ArtifactRenderRequest(
+                backend="hyperframes_backend",
+                generator="generate_hyperframes_scene",
+                args=args,
+            )
+        )
+        return result.payload
 
     tools.register_tool(
         ToolDefinition(

@@ -122,7 +122,36 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     skills.register_code_handler("safe_shell_command", _safe_shell_handler)
     health.set("skills", "healthy", {"count": len(skills.list_skills())})
 
-    orchestrator = Orchestrator(config=cfg, event_bus=bus, memory=memory, models=models, skills=skills, tools=tools)
+    hooks = ApiHooks()
+    tools.set_hooks(hooks)
+    health.set("api_hooks", "healthy")
+
+    async def tenant_tool_filter(payload: dict[str, object]) -> dict[str, object]:
+        allowed_tools = [str(row).strip() for row in (payload.get("allowed_tools") or []) if str(row).strip()]
+        tool_name = str(payload.get("tool_name") or "").strip()
+        if allowed_tools and tool_name not in allowed_tools:
+            return {
+                "action": "abort",
+                "error_message": f"Tool '{tool_name}' is not allowed for this tenant",
+            }
+        return {"action": "allow"}
+
+    hooks.register("PreToolUse", tenant_tool_filter, label="tenant_tool_filter", priority=10)
+
+    async def run_telemetry_hook(payload: dict[str, object]) -> None:
+        logger.log("RUN_STOP", payload)
+
+    hooks.register("Stop", run_telemetry_hook, label="run_telemetry", priority=50)
+
+    orchestrator = Orchestrator(
+        config=cfg,
+        event_bus=bus,
+        memory=memory,
+        models=models,
+        skills=skills,
+        tools=tools,
+        hooks=hooks,
+    )
     health.set("orchestrator", "healthy")
 
     for tool in tools.list_tools():
@@ -149,9 +178,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
                 memory.graph_add_edge(skill_node, tool_node, "requires_tool")
             if not memory.graph_has_edge(tool_node, skill_node):
                 memory.graph_add_edge(tool_node, skill_node, "enables_skill")
-
-    hooks = ApiHooks()
-    health.set("api_hooks", "healthy")
 
     module_loader = ModuleLoader(modules_root=workspace_root / cfg.get("runtime.module_path", "modules"))
     workspace_import_root = str(workspace_root.resolve())

@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from harness.api.hooks import ApiHooks
+from harness.api.hooks import HookPayload
 from harness.memory.manager import MemoryManager
 from harness.model.adapter import ModelRegistry
 from harness.orchestrator.task_store import TaskStore
@@ -54,6 +56,7 @@ class Orchestrator:
     models: ModelRegistry
     skills: SkillRegistry
     tools: ToolRegistry
+    hooks: ApiHooks
     state_machine: ReactiveStateMachine = field(init=False)
     enable_subagents: bool = field(init=False)
     role_templates: dict[str, RoleTemplate] = field(init=False)
@@ -61,7 +64,7 @@ class Orchestrator:
     agents: dict[str, AgentRecord] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools, self.skills)
+        self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools, self.skills, self.hooks)
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         self.role_templates = self._build_default_role_templates()
         # Use SQLite-backed TaskStore so task history survives restarts.
@@ -576,6 +579,7 @@ class Orchestrator:
     async def run_reactive_task(self, task: Task) -> TaskResult:
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         tenant_id = str(task.input.get("tenant_id", "_system_"))
+        final_result: TaskResult | None = None
         self.task_store.create(task, tenant_id=tenant_id)
         self.task_store.mark_started(task.id)
         review_result: dict[str, object] | None = None
@@ -596,6 +600,20 @@ class Orchestrator:
             workflow_mode = self._resolve_workflow_mode(task)
             task.input["workflow_mode"] = workflow_mode
             _telemetry["workflow_mode"] = workflow_mode
+            await self.hooks.emit(
+                HookPayload(
+                    event="SessionStart",
+                    data={
+                        "task_id": task.id,
+                        "tenant_id": tenant_id,
+                        "description": task.description,
+                        "workflow_mode": workflow_mode,
+                        "model_backend": str(task.input.get("model_backend", self.config.get("model.default_backend", "local_stub"))),
+                        "started_at": _start.isoformat(),
+                        "metadata": dict(task.input),
+                    },
+                )
+            )
 
             missing_approvals = self._collect_missing_approvals(task, workflow_mode)
             if missing_approvals:
@@ -628,6 +646,7 @@ class Orchestrator:
                     error=gate_message,
                 )
                 _telemetry["gate_blocked"] = True
+                final_result = result
                 self.task_store.mark_completed(result)
                 try:
                     self._persist_run_to_memory(task, result)
@@ -668,6 +687,7 @@ class Orchestrator:
                             success=False,
                             error=msg,
                         )
+                        final_result = result
                         self.task_store.mark_completed(result)
                         try:
                             self._persist_run_to_memory(task, result)
@@ -699,6 +719,7 @@ class Orchestrator:
                             success=False,
                             error=msg,
                         )
+                        final_result = result
                         self.task_store.mark_completed(result)
                         try:
                             self._persist_run_to_memory(task, result)
@@ -741,6 +762,7 @@ class Orchestrator:
                     },
                 )
                 result = TaskResult(task_id=task.id, output={}, success=False, error=f"Unhandled runtime error: {exc}")
+            final_result = result
             self.task_store.mark_completed(result)
             try:
                 self._persist_run_to_memory(task, result)
@@ -752,6 +774,22 @@ class Orchestrator:
         finally:
             _telemetry["duration_ms"] = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
             await self.event_bus.publish("WORKFLOW_TELEMETRY", _telemetry)
+            await self.hooks.emit(
+                HookPayload(
+                    event="Stop",
+                    data={
+                        "task_id": task.id,
+                        "tenant_id": tenant_id,
+                        "success": bool(final_result.success) if final_result is not None else False,
+                        "error": final_result.error if final_result is not None else None,
+                        "total_tool_calls": len(final_result.output.get("used_tools", [])) if final_result is not None and isinstance(final_result.output, dict) else 0,
+                        "total_llm_calls": 0,
+                        "duration_ms": _telemetry["duration_ms"],
+                        "artifacts": list(final_result.output.get("artifacts", [])) if final_result is not None and isinstance(final_result.output, dict) else [],
+                        "output": dict(final_result.output) if final_result is not None and isinstance(final_result.output, dict) else {},
+                    },
+                )
+            )
 
     async def spawn_subagent(self, _task: Task) -> str:
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
