@@ -2930,7 +2930,11 @@ def create_app(workspace_root: Path) -> FastAPI:
             if task_rec is None:
                 raise HTTPException(status_code=403, detail="Task not found or access denied")
         task_rec_any = runtime.orchestrator.task_store.get(task_id)
-        store_status = str((task_rec_any or {}).get("status", "")).strip().lower()
+        if isinstance(task_rec_any, dict):
+            store_status_raw = task_rec_any.get("status", "")
+        else:
+            store_status_raw = getattr(task_rec_any, "status", "")
+        store_status = str(store_status_raw or "").strip().lower()
         was_running = runtime.cancellation.is_running(task_id) or store_status == "running"
         cancelled = runtime.cancellation.cancel(task_id)
 
