@@ -12,10 +12,11 @@
       }
     },
     "superpowered_mode": {
-      "require_spec_approval": true,
-      "require_plan_approval": true,
       "require_task_reviews": true,
       "require_verification_before_done": true,
+      "disable_run_timeout": true,
+      "run_timeout_seconds": 0,
+      "disable_budget_timeout": true,
       "artifact_paths": {
         "specs_dir": "documents/specs",
         "plans_dir": "documents/plans"
@@ -26,7 +27,8 @@
         "subagent-driven-development"
       ],
       "review_loop_max_iterations": 3,
-      "skip_plan_phase": false
+      "require_spec_approval": true,
+      "require_plan_approval": true
     },
     "skill_execution_timeout_s": 15.0
   },
@@ -114,7 +116,7 @@
   },
   "api": {
     "require_api_key": false,
-    "api_key": "N9Hao_1FrB1Q9yhjqFBco--_7GJhScyCKcpBpethWDc",
+    "api_key": "qmzjMr6du7AW_FB2BVF7i8ifZI7L2cH2WVhdmcrHeXE",
     "require_admin_api_key": false,
     "admin_api_key": "supersecretadminkey456"
   },

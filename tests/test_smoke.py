@@ -4420,10 +4420,6 @@ def test_roles_templates_endpoint_returns_superpowered_roles() -> None:
 
 def test_chat_superpowered_blocks_without_required_approvals() -> None:
     app = create_app(Path(".").resolve())
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
-    # Skip the actual LLM plan phase in this unit test (avoids extra model calls)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.skip_plan_phase", True)
     client = TestClient(app)
     approvals_path = Path(".harness/approvals.json")
     original_approvals: str | None = None
@@ -4554,10 +4550,6 @@ def test_artifact_lifecycle_approve_and_revoke() -> None:
 def test_superpowered_gate_includes_plan_draft() -> None:
     """When Superpowered mode blocks, the response includes a plan_draft in the output."""
     app = create_app(Path(".").resolve())
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
-    # Allow the plan phase to run (skip_plan_phase = False is the default)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.skip_plan_phase", False)
     client = TestClient(app)
     approvals_path = Path(".harness/approvals.json")
     original_approvals: str | None = None
@@ -4593,10 +4585,60 @@ def test_superpowered_gate_includes_plan_draft() -> None:
 
 def test_approve_plan_rejection_returns_ok_false() -> None:
     """POST /tasks/{task_id}/approve-plan with approved=false returns approved=False."""
+
+def test_superpowered_phase_sequence_always_enforced() -> None:
+    """Spec+plan approval gate always fires for superpowered mode — no bypass via config.
+
+    This test sends a real-world feature request in superpowered mode without
+    any approval flags and verifies that:
+      1. The gate blocks execution (success=False, mode='approval-gate').
+      2. Both 'spec' and 'plan' approvals are listed as missing.
+      3. The plan phase ran and returned a plan_draft dict.
+      4. The task is marked pending_plan_approval.
+
+    No config override can skip these steps — the phase sequence is hardcoded.
+    """
     app = create_app(Path(".").resolve())
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.skip_plan_phase", True)
+    client = TestClient(app)
+    approvals_path = Path(".harness/approvals.json")
+    original_approvals: str | None = None
+    if approvals_path.exists():
+        original_approvals = approvals_path.read_text(encoding="utf-8")
+        approvals_path.unlink()
+
+    try:
+        response = client.post(
+            "/chat",
+            json={
+                "prompt": "Add a dark mode toggle to the settings panel",
+                "model_backend": "local_stub",
+                "workflow_mode": "superpowered",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+
+        # Gate must always block — no approvals were supplied
+        assert body["success"] is False
+        assert body["mode"] == "approval-gate"
+        assert body["workflow_mode"] == "superpowered"
+        assert body["missing_approvals"] == ["spec", "plan"]
+        assert body.get("status") == "pending_plan_approval"
+
+        # Plan phase must always run — plan_draft is present even with local_stub
+        assert "plan_draft" in body
+        assert isinstance(body["plan_draft"], dict)
+    finally:
+        if original_approvals is not None:
+            approvals_path.parent.mkdir(parents=True, exist_ok=True)
+            approvals_path.write_text(original_approvals, encoding="utf-8")
+        elif approvals_path.exists():
+            approvals_path.unlink()
+
+
+def test_approve_plan_rejection_returns_ok_false() -> None:
+    """POST /tasks/{task_id}/approve-plan with approved=false returns approved=False."""
+    app = create_app(Path(".").resolve())
     client = TestClient(app)
     approvals_path = Path(".harness/approvals.json")
     original_approvals: str | None = None
@@ -4639,146 +4681,6 @@ def test_approve_plan_rejection_returns_ok_false() -> None:
 def test_approve_plan_proceeds_to_implementation() -> None:
     """POST /tasks/{task_id}/approve-plan with approved=true triggers implementation."""
     app = create_app(Path(".").resolve())
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.skip_plan_phase", True)
-    # Disable the review loop for this test so it completes via reactive run
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_task_reviews", False)
-    client = TestClient(app)
-    approvals_path = Path(".harness/approvals.json")
-    original_approvals: str | None = None
-    if approvals_path.exists():
-        original_approvals = approvals_path.read_text(encoding="utf-8")
-        approvals_path.unlink()
-
-    try:
-        gate_resp = client.post(
-            "/chat",
-            json={
-                "prompt": "Add a loading spinner",
-                "model_backend": "local_stub",
-                "workflow_mode": "superpowered",
-            },
-        )
-        assert gate_resp.status_code == 200
-        tasks_resp = client.get("/tasks")
-        task_id = tasks_resp.json()[0]["task_id"]
-
-        # Approve with overridden plan_tasks
-        approve_resp = client.post(
-            f"/tasks/{task_id}/approve-plan",
-            json={
-                "approved": True,
-                "plan_tasks": [{"title": "Add spinner component", "description": "Create LoadingSpinner.tsx"}],
-            },
-        )
-        assert approve_resp.status_code == 200
-        body = approve_resp.json()
-        assert body["ok"] is True
-        assert body["approved"] is True
-        assert body["source_task_id"] == task_id
-        # A new task_id must be issued for the implementation run
-        assert body["task_id"] != task_id
-        assert isinstance(body.get("response"), str)
-    finally:
-        if original_approvals is not None:
-            approvals_path.parent.mkdir(parents=True, exist_ok=True)
-            approvals_path.write_text(original_approvals, encoding="utf-8")
-        elif approvals_path.exists():
-            approvals_path.unlink()
-
-
-def test_superpowered_gate_includes_plan_draft() -> None:
-    """When Superpowered mode blocks, the response includes a plan_draft in the output."""
-    app = create_app(Path(".").resolve())
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
-    # Allow the plan phase to run (skip_plan_phase = False is the default)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.skip_plan_phase", False)
-    client = TestClient(app)
-    approvals_path = Path(".harness/approvals.json")
-    original_approvals: str | None = None
-    if approvals_path.exists():
-        original_approvals = approvals_path.read_text(encoding="utf-8")
-        approvals_path.unlink()
-
-    try:
-        response = client.post(
-            "/chat",
-            json={
-                "prompt": "Add a logout button to the UI",
-                "model_backend": "local_stub",
-                "workflow_mode": "superpowered",
-            },
-        )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["success"] is False
-        assert body["mode"] == "approval-gate"
-        # plan_draft must be present in output (may be empty dict if planner failed gracefully)
-        assert "plan_draft" in body
-        assert isinstance(body["plan_draft"], dict)
-        # task output must have pending_plan_approval status
-        assert body.get("status") == "pending_plan_approval"
-    finally:
-        if original_approvals is not None:
-            approvals_path.parent.mkdir(parents=True, exist_ok=True)
-            approvals_path.write_text(original_approvals, encoding="utf-8")
-        elif approvals_path.exists():
-            approvals_path.unlink()
-
-
-def test_approve_plan_rejection_returns_ok_false() -> None:
-    """POST /tasks/{task_id}/approve-plan with approved=false returns approved=False."""
-    app = create_app(Path(".").resolve())
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.skip_plan_phase", True)
-    client = TestClient(app)
-    approvals_path = Path(".harness/approvals.json")
-    original_approvals: str | None = None
-    if approvals_path.exists():
-        original_approvals = approvals_path.read_text(encoding="utf-8")
-        approvals_path.unlink()
-
-    try:
-        # First: trigger the gate to create a pending task
-        gate_resp = client.post(
-            "/chat",
-            json={
-                "prompt": "Add search to the dashboard",
-                "model_backend": "local_stub",
-                "workflow_mode": "superpowered",
-            },
-        )
-        assert gate_resp.status_code == 200
-        tasks_resp = client.get("/tasks")
-        task_id = tasks_resp.json()[0]["task_id"]
-
-        # Reject the plan
-        reject_resp = client.post(
-            f"/tasks/{task_id}/approve-plan",
-            json={"approved": False},
-        )
-        assert reject_resp.status_code == 200
-        body = reject_resp.json()
-        assert body["ok"] is True
-        assert body["approved"] is False
-        assert body["success"] is False
-    finally:
-        if original_approvals is not None:
-            approvals_path.parent.mkdir(parents=True, exist_ok=True)
-            approvals_path.write_text(original_approvals, encoding="utf-8")
-        elif approvals_path.exists():
-            approvals_path.unlink()
-
-
-def test_approve_plan_proceeds_to_implementation() -> None:
-    """POST /tasks/{task_id}/approve-plan with approved=true triggers implementation."""
-    app = create_app(Path(".").resolve())
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.skip_plan_phase", True)
     # Disable the review loop for this test so it completes via reactive run
     app.state.runtime.config.set("orchestrator.superpowered_mode.require_task_reviews", False)
     client = TestClient(app)
@@ -4828,8 +4730,6 @@ def test_approve_plan_proceeds_to_implementation() -> None:
 def test_workflow_metrics_endpoint_reports_lightning_and_superpowered() -> None:
     app = create_app(Path(".").resolve())
     app.state.runtime.config.set("orchestrator.enable_subagents", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_spec_approval", True)
-    app.state.runtime.config.set("orchestrator.superpowered_mode.require_plan_approval", True)
     app.state.runtime.config.set("orchestrator.superpowered_mode.require_task_reviews", True)
     client = TestClient(app)
 

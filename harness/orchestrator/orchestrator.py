@@ -669,7 +669,13 @@ class Orchestrator:
         return "superpowered" if self.should_use_superpowered_mode(task.description) else "lightning"
 
     def _collect_missing_approvals(self, task: Task, workflow_mode: str) -> list[str]:
-        """Collect missing required approvals for Superpowered mode tasks."""
+        """Collect missing required approvals for Superpowered mode tasks.
+
+        Both spec and plan approval are always required for superpowered mode —
+        there is no config toggle to skip them.  This ensures every superpowered
+        run goes through the full brainstorm → spec → plan → implement → review
+        phase sequence without exception.
+        """
         if workflow_mode != "superpowered":
             return []
 
@@ -677,18 +683,14 @@ class Orchestrator:
         if not isinstance(approvals, dict):
             approvals = {}
 
-        missing: list[str] = []
-        require_spec = bool(self.config.get("orchestrator.superpowered_mode.require_spec_approval", True))
-        require_plan = bool(self.config.get("orchestrator.superpowered_mode.require_plan_approval", True))
-
         spec_approved = bool(task.input.get("spec_approved", False)) or bool(approvals.get("spec", False))
         plan_approved = bool(task.input.get("plan_approved", False)) or bool(approvals.get("plan", False))
 
-        if require_spec and not spec_approved:
+        missing: list[str] = []
+        if not spec_approved:
             missing.append("spec")
-        if require_plan and not plan_approved:
+        if not plan_approved:
             missing.append("plan")
-
         return missing
 
     async def run_reactive_task(self, task: Task) -> TaskResult:
@@ -739,11 +741,12 @@ class Orchestrator:
                 # spec + plan and return it in pending_plan_approval status so the frontend
                 # can display the plan and let the user approve or reject it.
                 plan_draft: dict[str, object] = {}
-                if not bool(self.config.get("orchestrator.superpowered_mode.skip_plan_phase", False)):
-                    try:
-                        plan_draft = await self._run_plan_phase(task)
-                    except Exception as _plan_exc:
-                        plan_draft = {"ok": False, "error": str(_plan_exc)}
+                # Always run the plan phase — the brainstorm → spec → plan sequence
+                # is not optional and cannot be bypassed via config.
+                try:
+                    plan_draft = await self._run_plan_phase(task)
+                except Exception as _plan_exc:
+                    plan_draft = {"ok": False, "error": str(_plan_exc)}
 
                 gate_message = (
                     "Superpowered mode requires plan approval before implementation. "
