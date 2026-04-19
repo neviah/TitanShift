@@ -111,6 +111,18 @@ class Orchestrator:
                 goal="Run evidence-based validation before marking work complete.",
                 required_skills=["verification-before-completion"],
             ),
+            "planner": RoleTemplate(
+                role_key="planner",
+                role_name="Planner Agent",
+                goal=(
+                    "Explore the codebase in READ-ONLY mode, produce a structured spec and "
+                    "step-by-step implementation plan for user approval. Do NOT create, edit, "
+                    "or delete any files. Output must be JSON with keys: "
+                    "\"spec\" (string), \"plan\" (string), \"plan_tasks\" (list of objects with "
+                    "\"title\" and \"description\" keys), \"acceptance_criteria\" (list of strings)."
+                ),
+                required_skills=["brainstorming"],
+            ),
         }
 
     def list_role_templates(self) -> list[dict[str, object]]:
@@ -197,6 +209,109 @@ class Orchestrator:
         if available_skills:
             await self.assign_skills_to_agent(agent_id, available_skills)
         return agent_id
+
+    async def _run_plan_phase(self, parent_task: Task) -> dict[str, object]:
+        """Run a read-only planning subagent that produces spec + plan + plan_tasks.
+
+        Mirrors Claude Code's EnterPlanMode → codebase exploration → ExitPlanMode
+        pattern.  The planner role runs with workflow_mode=lightning (no review loop)
+        and is instructed to output structured JSON only — no file mutations.
+
+        Returns a dict with keys:
+            spec            – high-level requirement description
+            plan            – step-by-step implementation strategy
+            plan_tasks      – list of {"title", "description"} dicts for the review loop
+            acceptance_criteria – list of verifiable completion criteria
+            raw_response    – full model output for debugging
+            ok              – True when parsing succeeded, False on failure
+            error           – error message on failure
+        """
+        template = self.role_templates.get("planner")
+        planner_goal = template.goal if template else "Produce a spec and plan."
+
+        planner_task = Task(
+            id=f"{parent_task.id}:planner:{uuid.uuid4().hex[:8]}",
+            description=(
+                f"[Planner Agent — READ-ONLY]\n\n"
+                f"Original request:\n{parent_task.description}\n\n"
+                f"{planner_goal}\n\n"
+                "CRITICAL CONSTRAINTS:\n"
+                "- You may ONLY use read-only tools: read_file, read_context, index_project, "
+                "  file_search, grep_search, list_dir, semantic_search.\n"
+                "- You may NOT use write_file, replace_in_file, append_file, patch_file, "
+                "  run_tests, run_project_check, or any tool that modifies state.\n"
+                "- Your ENTIRE response must be valid JSON with exactly these keys:\n"
+                '  {"spec": "...", "plan": "...", "plan_tasks": [{"title": "...", "description": "..."}], '
+                '   "acceptance_criteria": ["..."]}\n'
+                "- Do not wrap the JSON in markdown fences."
+            ),
+            input={
+                "model_backend": parent_task.input.get(
+                    "model_backend",
+                    self.config.get("model.default_backend", "local_stub"),
+                ),
+                "workflow_mode": "lightning",
+                # Only allow read-only tools
+                "requested_tools": [
+                    "read_file", "read_context", "index_project",
+                    "file_search", "grep_search", "list_dir",
+                ],
+            },
+        )
+
+        try:
+            result = await self.state_machine.run_task(planner_task)
+            raw = str(result.output.get("response", "")).strip()
+        except Exception as exc:
+            return {"ok": False, "error": f"Plan phase invocation failed: {exc}", "raw_response": ""}
+
+        # Strip optional markdown fences (```json ... ```)
+        clean = raw
+        if clean.startswith("```"):
+            lines = clean.splitlines()
+            # Drop first and last fence lines
+            inner = [ln for ln in lines[1:] if not ln.strip().startswith("```")]
+            clean = "\n".join(inner).strip()
+
+        try:
+            parsed: dict[str, object] = json.loads(clean)
+        except (json.JSONDecodeError, ValueError):
+            # Try to salvage a partial JSON block via a best-effort search
+            import re as _re
+            m = _re.search(r"\{[\s\S]+\}", clean)
+            if m:
+                try:
+                    parsed = json.loads(m.group(0))
+                except Exception:
+                    parsed = {}
+            else:
+                parsed = {}
+
+        spec = str(parsed.get("spec", parent_task.description[:300]))
+        plan = str(parsed.get("plan", raw[:800]))
+        plan_tasks_raw = parsed.get("plan_tasks", [])
+        plan_tasks: list[dict[str, object]] = (
+            [t for t in plan_tasks_raw if isinstance(t, dict)]
+            if isinstance(plan_tasks_raw, list)
+            else [{"title": parent_task.description[:120], "description": plan}]
+        )
+        if not plan_tasks:
+            plan_tasks = [{"title": parent_task.description[:120], "description": plan}]
+        acceptance_raw = parsed.get("acceptance_criteria", [])
+        acceptance_criteria: list[str] = (
+            [str(c) for c in acceptance_raw if c]
+            if isinstance(acceptance_raw, list)
+            else []
+        )
+
+        return {
+            "ok": True,
+            "spec": spec,
+            "plan": plan,
+            "plan_tasks": plan_tasks,
+            "acceptance_criteria": acceptance_criteria,
+            "raw_response": raw,
+        }
 
     async def _run_superpowered_review_loop(
         self,
@@ -618,9 +733,23 @@ class Orchestrator:
             missing_approvals = self._collect_missing_approvals(task, workflow_mode)
             if missing_approvals:
                 required_chain = self.skills.get_superpowered_initial_chain()
+
+                # Run the read-only plan phase first — mirror Claude Code's EnterPlanMode.
+                # Instead of immediately blocking the user with a raw error, generate a
+                # spec + plan and return it in pending_plan_approval status so the frontend
+                # can display the plan and let the user approve or reject it.
+                plan_draft: dict[str, object] = {}
+                if not bool(self.config.get("orchestrator.superpowered_mode.skip_plan_phase", False)):
+                    try:
+                        plan_draft = await self._run_plan_phase(task)
+                    except Exception as _plan_exc:
+                        plan_draft = {"ok": False, "error": str(_plan_exc)}
+
                 gate_message = (
-                    "Superpowered mode requires approvals before implementation. "
-                    f"Missing approvals: {', '.join(missing_approvals)}."
+                    "Superpowered mode requires plan approval before implementation. "
+                    f"Missing approvals: {', '.join(missing_approvals)}. "
+                    "Review the plan_draft and resubmit with spec_approved=true, plan_approved=true "
+                    "(and optionally override plan_tasks) to proceed with implementation."
                 )
                 await self.event_bus.publish(
                     "MODULE_ERROR",
@@ -638,9 +767,11 @@ class Orchestrator:
                     output={
                         "response": gate_message,
                         "mode": "approval-gate",
+                        "status": "pending_plan_approval",
                         "workflow_mode": workflow_mode,
                         "missing_approvals": missing_approvals,
                         "required_skill_chain": required_chain,
+                        "plan_draft": plan_draft,
                     },
                     success=False,
                     error=gate_message,

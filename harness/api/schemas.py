@@ -38,6 +38,8 @@ class ChatResponse(BaseModel):
     workflow_mode: str | None = None
     missing_approvals: list[str] | None = None
     required_skill_chain: list[str] | None = None
+    status: str | None = None
+    plan_draft: dict[str, Any] | None = None
     error: str | None = None
     estimated_total_tokens: int | None = None
     task_template_id: str | None = None
@@ -1046,6 +1048,34 @@ class TaskResumeRequest(BaseModel):
     workflow_mode: str | None = None
     reuse_history: bool = True
     include_prior_output: bool = True
+
+
+class PlanTask(BaseModel):
+    title: str
+    description: str = ""
+
+
+class ApprovePlanRequest(BaseModel):
+    """Approve (or reject) the plan draft produced by the Superpowered plan phase.
+
+    On approval the orchestrator will proceed with implementation + review loop.
+    Optionally override plan_tasks to refine what the review loop executes.
+    """
+    approved: bool = True
+    plan_tasks: list[PlanTask] | None = None  # override planner's tasks if provided
+    spec_notes: str | None = None             # optional user notes added to spec
+    model_backend: str | None = None
+
+
+class ApprovePlanResponse(BaseModel):
+    ok: bool
+    source_task_id: str
+    task_id: str
+    approved: bool
+    success: bool
+    response: str
+    workflow_mode: str | None = None
+    error: str | None = None
 
 
 class TaskResumeResponse(BaseModel):
