@@ -14,7 +14,7 @@ export function AgentTab() {
 
   const children = useMemo(() => {
     if (!rootAgent) return []
-    return (agents ?? []).filter((a) => a.agent_id !== rootAgent.agent_id)
+    return (agents ?? []).filter((a) => a.agent_id !== rootAgent.agent_id && a.active)
   }, [agents, rootAgent])
 
   if (loading) return <p className={styles.empty}>Loading agents...</p>

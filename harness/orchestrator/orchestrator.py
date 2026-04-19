@@ -954,6 +954,8 @@ class Orchestrator:
             return result
 
         finally:
+            self.deactivate_agents(lightning_spawned_ids)
+            self.deactivate_agents(self._collect_review_agent_ids(review_result))
             _telemetry["duration_ms"] = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
             await self.event_bus.publish("WORKFLOW_TELEMETRY", _telemetry)
             await self.hooks.emit(
@@ -1098,6 +1100,44 @@ class Orchestrator:
 
     def get_agent(self, agent_id: str) -> AgentRecord | None:
         return self.agents.get(agent_id)
+
+    def deactivate_agents(self, agent_ids: list[str]) -> None:
+        for agent_id in agent_ids:
+            agent = self.agents.get(agent_id)
+            if agent is None or agent.agent_id == "main-agent":
+                continue
+            agent.active = False
+
+    def _collect_review_agent_ids(self, review_result: dict[str, object] | None) -> list[str]:
+        if not isinstance(review_result, dict):
+            return []
+        agent_ids: list[str] = []
+        task_results = review_result.get("task_results", [])
+        if isinstance(task_results, list):
+            for item in task_results:
+                if not isinstance(item, dict):
+                    continue
+                for key in (
+                    "implementer_agent_id",
+                    "spec_reviewer_agent_id",
+                    "code_reviewer_agent_id",
+                    "verifier_agent_id",
+                ):
+                    value = str(item.get(key, "")).strip()
+                    if value:
+                        agent_ids.append(value)
+        last_item = review_result.get("last_item_result")
+        if isinstance(last_item, dict):
+            for key in (
+                "implementer_agent_id",
+                "spec_reviewer_agent_id",
+                "code_reviewer_agent_id",
+                "verifier_agent_id",
+            ):
+                value = str(last_item.get(key, "")).strip()
+                if value:
+                    agent_ids.append(value)
+        return list(dict.fromkeys(agent_ids))
 
     def list_agents(self) -> list[dict]:
         return [asdict(r) for r in sorted(self.agents.values(), key=lambda x: x.created_at)]
