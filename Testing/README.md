@@ -81,3 +81,9 @@ Fail any test run that writes generated artifacts outside `Testing/`.
 Suggested check:
 - Compare all `created_paths` and `updated_paths` against the `Testing/` prefix.
 - Mark run failed on first violation.
+
+Validator command:
+
+```bash
+python scripts/validate_testing_outputs.py --workspace-root . --testing-root Testing --strict-report --require-existing-paths
+```
