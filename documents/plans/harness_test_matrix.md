@@ -3,6 +3,25 @@
 ## Purpose
 This matrix defines repeatable tests for reliability, skill usage, and creator workflows.
 
+## Test Artifact Location Policy
+All test-generated artifacts must be written under a dedicated testing root to avoid repository clutter.
+
+Required location
+- Use `Testing/` as the top-level folder for all matrix runs.
+- Use per-suite subfolders:
+	- `Testing/P0_core_reliability/`
+	- `Testing/P1_frontend_quality/`
+	- `Testing/P2_web_file_integrity/`
+	- `Testing/P3_skill_activation/`
+	- `Testing/P4_creator_use_cases/`
+	- `Testing/P5_regression_gate/`
+
+Rules
+- No generated test files in repo root.
+- Each run writes to `Testing/<suite>/<timestamp_or_run_id>/`.
+- Keep raw outputs (generated files), tool telemetry, and summary report together per run.
+- Include at least one `report.json` per run with pass/fail and evidence paths.
+
 ## P0 Core Reliability (Blocker)
 1. Mode routing
 - Verify lightning prompt resolves to lightning in task output.
@@ -45,6 +64,11 @@ This matrix defines repeatable tests for reliability, skill usage, and creator w
 
 5. Non-trivial quality bar
 - Assert modern typography, spacing system, color contrast, and clear hierarchy.
+
+6. Video landing companion assets
+- Prompt for a landing page plus a short promo video concept package.
+- Assert generation of storyboard/shot list artifact and scene timing breakdown.
+- Assert all outputs are saved under `Testing/P1_frontend_quality/...`.
 
 ## P2 Web + File Workflow Integrity
 1. Fetch then write
@@ -93,6 +117,32 @@ For each skill test, assert:
 4. File refactor and test-update workflow.
 5. Multi-artifact delivery (doc + code + media manifest).
 
+6. Video generation workflow (media artifacts)
+- Prompt for a creator-ready video package:
+	- script,
+	- shot list,
+	- scene timing CSV,
+	- voiceover text,
+	- thumbnail prompt,
+	- optional render manifest JSON.
+- Assert artifacts are created under `Testing/P4_creator_use_cases/video_generation/...`.
+- Assert outputs include machine-usable metadata (durations, aspect ratio, target platform).
+
+7. Office + PDF artifact workflow (officecli)
+- Prompt for business artifacts from one brief:
+	- Word document (`.docx`),
+	- Excel workbook (`.xlsx`),
+	- PowerPoint deck (`.pptx`),
+	- PDF export (`.pdf`) when requested.
+- Assert officecli tool invocation is present in telemetry when Office outputs are requested.
+- Assert generated files are non-empty and located under `Testing/P4_creator_use_cases/office_pdf/...`.
+- Assert naming convention includes run id and artifact purpose.
+
+8. Artifact flood guard
+- Run mixed creator prompt (web + code + office + media).
+- Assert no generated file path is outside `Testing/`.
+- Fail run if any root-level artifact is created.
+
 ## P5 Regression Gate
 Required green checks before release:
 1. P0 suite 100% pass.
@@ -100,3 +150,5 @@ Required green checks before release:
 3. No zombie running tasks in task store.
 4. No response-side effect mismatch in sampled runs.
 5. Superpowered and stream paths both complete for representative creator prompts.
+6. Video-generation use case pass with complete metadata outputs.
+7. Office + PDF artifact scenario pass with telemetry evidence and files under `Testing/` only.
