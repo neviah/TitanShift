@@ -377,8 +377,23 @@ class Orchestrator:
                         "workflow_mode": "lightning",
                     },
                 )
-                impl_timeout_s = float(
-                    self.config.get("orchestrator.superpowered_mode.implementer_timeout_s", 300.0)
+                configured_impl_timeout = float(
+                    self.config.get("orchestrator.superpowered_mode.implementer_timeout_s", 0.0)
+                )
+                selected_backend = str(
+                    (parent_task.input or {}).get(
+                        "model_backend",
+                        self.config.get("model.default_backend", "local_stub"),
+                    )
+                )
+                model_adapter = self.models.select_model(selected_backend)
+                model_timeout_s = float(getattr(model_adapter, "timeout_s", 0.0) or 0.0)
+                run_timeout_s = float(self.config.get("execution.run_timeout_seconds", 300.0))
+                impl_timeout_s = max(
+                    configured_impl_timeout,
+                    model_timeout_s,
+                    run_timeout_s,
+                    300.0,
                 )
                 try:
                     impl_task_result = await asyncio.wait_for(

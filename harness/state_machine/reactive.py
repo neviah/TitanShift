@@ -532,6 +532,8 @@ class ReactiveStateMachine:
             "Use web_fetch for general web lookups only when a specific requested tool is not required.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file. "
             "Do not merely describe the files when you can create them.",
+            "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
+            "For frontend page generation, default to a self-contained HTML file with embedded CSS unless the user explicitly requests separate files.",
             "After completing file operations, summarize what was created and where. Do not paste full file contents "
             "unless the user explicitly asks to see the code.",
             "Only emit tool calls for actual tools from the provided tool schema. Never emit tool calls for skills "
@@ -590,6 +592,8 @@ class ReactiveStateMachine:
         created_paths: list[str] = []
         updated_paths: list[str] = []
         artifacts: list[dict[str, Any]] = []
+        invalid_tool_seen = False
+        recovered_after_invalid_tool = False
         final_text = ""
         last_model_id = model.model_id
         total_tokens = model.estimate_tokens(task.description)
@@ -751,6 +755,14 @@ class ReactiveStateMachine:
             last_model_id = response.model_id
 
             if not response.tool_calls:
+                if invalid_tool_seen and not recovered_after_invalid_tool:
+                    correction = (
+                        "You previously attempted non-existent tools. Retry using only valid tools from schema "
+                        "(for page generation, use write_file/append_file with full content text)."
+                    )
+                    messages.append({"role": "user", "content": correction})
+                    total_tokens += model.estimate_tokens(correction)
+                    continue
                 if mandatory_tools:
                     missing = [
                         name for name in mandatory_tools
@@ -856,6 +868,8 @@ class ReactiveStateMachine:
                         },
                     )
                     tool_result: dict[str, Any] | Any = result
+                    if invalid_tool_seen and isinstance(tool_result, dict) and bool(tool_result.get("ok", False)):
+                        recovered_after_invalid_tool = True
                 except PermissionError as exc:
                     tool_errors.append(f"{tc.name}: {exc}")
                     if tc.name == "shell_command":
@@ -890,6 +904,8 @@ class ReactiveStateMachine:
                         tool_result = {"ok": False, "error": str(exc)}
                 except Exception as exc:
                     tool_errors.append(f"{tc.name}: {exc}")
+                    if "tool not found" in str(exc).lower():
+                        invalid_tool_seen = True
                     tool_result = {"ok": False, "error": str(exc)}
 
                 proof = self._extract_browser_proof(tc.name, tc.arguments, tool_result)
@@ -1093,6 +1109,8 @@ class ReactiveStateMachine:
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
             "When you need live information, use the most specific available tool for the user request.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file.",
+            "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
+            "For frontend page generation, default to a self-contained HTML file with embedded CSS unless the user explicitly requests separate files.",
             "After completing file operations, summarize what was created and where.",
             "Only emit tool calls for actual tools from the provided tool schema.",
         ]
