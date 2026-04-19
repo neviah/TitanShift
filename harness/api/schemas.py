@@ -954,6 +954,13 @@ class SuperpoweredModeStats(WorkflowModeStats):
     avg_review_iterations: float | None = None
 
 
+class ToolUsageStat(BaseModel):
+    tool_name: str
+    call_count: int
+    task_count: int
+    calls_per_task: float | None = None
+
+
 class WorkflowMetrics(BaseModel):
     lightning: WorkflowModeStats
     superpowered: SuperpoweredModeStats
@@ -961,6 +968,7 @@ class WorkflowMetrics(BaseModel):
     total_successful_tasks: int = 0
     total_failed_tasks: int = 0
     overall_success_rate: float | None = None
+    tool_stats: list[ToolUsageStat] = []
 
 
 class TaskSearchRequest(BaseModel):
@@ -994,6 +1002,19 @@ class TaskRollbackResponse(BaseModel):
     ok: bool
     restored_paths: list[str]
     error: str | None = None
+
+
+class TaskTimelineEvent(BaseModel):
+    seq: int
+    kind: str
+    tool: str | None = None
+    detail: str | None = None
+
+
+class TaskTimelineResponse(BaseModel):
+    task_id: str
+    status: str
+    events: list[TaskTimelineEvent]
 
 
 class TaskOutputBlock(BaseModel):

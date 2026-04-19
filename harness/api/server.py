@@ -149,6 +149,9 @@ from harness.api.schemas import (
     TaskOutputBlock,
     TaskResumeRequest,
     TaskResumeResponse,
+    TaskTimelineEvent,
+    TaskTimelineResponse,
+    ToolUsageStat,
     ApiKeyStatusResponse,
     ApiKeyRotateResponse,
     ApiKeyRecord,
@@ -3373,6 +3376,48 @@ def create_app(workspace_root: Path) -> FastAPI:
             error=result.error,
         )
 
+    @app.get("/tasks/{task_id}/timeline", response_model=TaskTimelineResponse, dependencies=[Depends(require_read_api_key)])
+    async def get_task_timeline(task_id: str, tenant: TenantContext = Depends(require_read_api_key)) -> TaskTimelineResponse:
+        """Return an ordered sequence of tool-call and patch events from a completed task run."""
+        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        record = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant_filter)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        output = record.output if isinstance(record.output, dict) else {}
+        events: list[TaskTimelineEvent] = []
+        seq = 0
+
+        # 1. Tool calls from used_tools list
+        raw_tools = output.get("used_tools", [])
+        if isinstance(raw_tools, str):
+            try:
+                import json as _json
+                raw_tools = _json.loads(raw_tools)
+            except Exception:
+                raw_tools = []
+        if isinstance(raw_tools, list):
+            for tool_name in raw_tools:
+                if isinstance(tool_name, str) and tool_name:
+                    events.append(TaskTimelineEvent(seq=seq, kind="tool_call", tool=tool_name))
+                    seq += 1
+
+        # 2. File patches from patch_summaries
+        for patch in (output.get("patch_summaries") or []):
+            if isinstance(patch, dict):
+                detail = patch.get("path") or patch.get("file") or str(patch)
+                events.append(TaskTimelineEvent(seq=seq, kind="patch", detail=str(detail)))
+                seq += 1
+
+        # 3. Context provenance entries
+        for prov in (output.get("context_provenance") or []):
+            if isinstance(prov, dict):
+                detail = prov.get("path") or prov.get("purpose") or str(prov)
+                events.append(TaskTimelineEvent(seq=seq, kind="context", detail=str(detail)))
+                seq += 1
+
+        return TaskTimelineResponse(task_id=task_id, status=record.status, events=events)
+
     @app.post("/tasks/search", response_model=TaskSearchResponse, dependencies=[Depends(require_read_api_key)])
     async def search_tasks(body: TaskSearchRequest) -> TaskSearchResponse:
         """Full-text search over prior task outputs stored in semantic memory."""
@@ -5764,6 +5809,41 @@ def create_app(workspace_root: Path) -> FastAPI:
         total_successful = sum(1 for p in payloads if p.get("success") is True)
         total_failed = sum(1 for p in payloads if p.get("success") is False)
 
+        # ── Per-tool usage stats ──────────────────────────────────────────────
+        tool_call_counts: dict[str, int] = {}
+        tool_task_sets: dict[str, set[str]] = {}
+        for row in runtime.orchestrator.list_tasks():
+            if not isinstance(row, dict):
+                continue
+            row_output = row.get("output", {}) if isinstance(row.get("output", {}), dict) else {}
+            raw_tools = row_output.get("used_tools", [])
+            if isinstance(raw_tools, str):
+                try:
+                    import json as _json
+                    raw_tools = _json.loads(raw_tools)
+                except Exception:
+                    raw_tools = []
+            if not isinstance(raw_tools, list):
+                raw_tools = []
+            tid = str(row.get("task_id", ""))
+            for tool_name in raw_tools:
+                if not isinstance(tool_name, str) or not tool_name:
+                    continue
+                tool_call_counts[tool_name] = tool_call_counts.get(tool_name, 0) + 1
+                tool_task_sets.setdefault(tool_name, set()).add(tid)
+
+        tool_stats_list: list[ToolUsageStat] = []
+        for tool_name, call_count in sorted(tool_call_counts.items(), key=lambda x: -x[1]):
+            task_count = len(tool_task_sets.get(tool_name, set()))
+            tool_stats_list.append(
+                ToolUsageStat(
+                    tool_name=tool_name,
+                    call_count=call_count,
+                    task_count=task_count,
+                    calls_per_task=round(call_count / task_count, 2) if task_count else None,
+                )
+            )
+
         return WorkflowMetrics(
             lightning=WorkflowModeStats(**lightning_stats),
             superpowered=SuperpoweredModeStats(
@@ -5781,6 +5861,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             total_successful_tasks=total_successful,
             total_failed_tasks=total_failed,
             overall_success_rate=round(total_successful / total, 3) if total else None,
+            tool_stats=tool_stats_list,
         )
 
     # ── /health ───────────────────────────────────────────────────────────────

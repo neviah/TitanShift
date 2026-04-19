@@ -4974,6 +4974,49 @@ def test_workflow_metrics_returns_enhanced_fields() -> None:
     assert "overall_success_rate" in body
 
 
+def test_workflow_metrics_tool_stats_present() -> None:
+    """GET /metrics/workflow returns a tool_stats list after at least one task run."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    client.post("/chat", json={"prompt": "tool stats test", "model_backend": "local_stub"})
+
+    response = client.get("/metrics/workflow")
+    assert response.status_code == 200
+    body = response.json()
+    assert "tool_stats" in body
+    assert isinstance(body["tool_stats"], list)
+    # If any tools were called, each entry has the expected shape
+    for stat in body["tool_stats"]:
+        assert "tool_name" in stat
+        assert "call_count" in stat
+        assert "task_count" in stat
+
+
+def test_task_timeline_endpoint_returns_events() -> None:
+    """GET /tasks/{task_id}/timeline returns an ordered event list for a completed task."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    first = client.post(
+        "/chat",
+        json={"prompt": "timeline test run", "model_backend": "local_stub"},
+    )
+    assert first.status_code == 200
+    task_id = first.json().get("task_id")
+    assert task_id
+
+    response = client.get(f"/tasks/{task_id}/timeline")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_id"] == task_id
+    assert "status" in body
+    assert isinstance(body["events"], list)
+    for event in body["events"]:
+        assert "seq" in event
+        assert "kind" in event
+
+
 def test_task_list_survives_app_restart(tmp_path: Path) -> None:
     """Tasks created in one app instance are visible in a fresh instance (durable store)."""
     import uuid as _uuid
