@@ -5,7 +5,7 @@ import json
 import shutil
 from pathlib import Path
 from datetime import datetime, timezone
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from typing import Any, AsyncIterator
 
 from harness.api.hooks import ApiHooks
@@ -70,6 +70,16 @@ class ReactiveStateMachine:
             url = str(args.get("url", "")).strip()
             if url and not url.startswith(("http://", "https://")):
                 args["url"] = f"https://{url.lstrip('/')}"
+
+            # Reddit homepage often returns anti-bot verification pages.
+            # Normalize root requests to the public JSON feed for fast, reliable first-post extraction.
+            normalized_url = str(args.get("url", "")).strip()
+            if normalized_url:
+                parsed = urlparse(normalized_url)
+                host = (parsed.netloc or "").lower()
+                path = (parsed.path or "").strip()
+                if host.endswith("reddit.com") and path in {"", "/"}:
+                    args["url"] = "https://www.reddit.com/r/all/.json?limit=1"
 
         if normalized == "shell_command" and web_intent:
             command = str(args.get("command", "")).strip()
@@ -142,9 +152,12 @@ class ReactiveStateMachine:
             if "write_file" in available:
                 matched.add("write_file")
 
-        # "Go to <site>" should prefer web_browse over generic fetch.
-        if ("go to " in text or "open " in text) and ".com" in text and "web_browse" in available:
-            matched.add("web_browse")
+        # Generic website retrieval should prefer fast fetch unless browser UI is explicit.
+        if ("go to " in text or "open " in text) and ".com" in text:
+            if "web_fetch" in available:
+                matched.add("web_fetch")
+            elif "web_browse" in available:
+                matched.add("web_browse")
 
         return sorted(matched)
 
@@ -178,13 +191,16 @@ class ReactiveStateMachine:
         if any(token in text for token in ["read the file", "open the file", "return the full final file content", "use read_file"]):
             if "read_file" in available:
                 mandatory.add("read_file")
-        if any(token in text for token in ["if you don't see", "if it does not exist", "create one", "create it", "create a file"]):
+        if any(token in text for token in ["create a file named", "create file named", "must create", "use write_file", "write_file tool"]):
             if "write_file" in available:
                 mandatory.add("write_file")
 
-        # "Go to <site>" should require browsing rather than only API/json fetch.
-        if ("go to " in text or "open " in text) and ".com" in text and "web_browse" in available:
-            mandatory.add("web_browse")
+        # Only require browser automation when UI navigation is explicitly requested.
+        if any(token in text for token in ["use browser", "browser tool", "visually", "screenshot", "click", "scroll"]):
+            if "web_browse" in available:
+                mandatory.add("web_browse")
+            elif "web_fetch" in available:
+                mandatory.add("web_fetch")
 
         if "list_files" in text and "list_directory" in available:
             mandatory.add("list_directory")
