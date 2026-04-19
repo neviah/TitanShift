@@ -18,7 +18,7 @@ class ChatHistoryMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    prompt: str = Field(min_length=1)
+    prompt: str = Field(min_length=1, max_length=32000)
     history: list[ChatHistoryMessage] | None = None
     model_backend: str | None = None
     budget: BudgetOverride | None = None

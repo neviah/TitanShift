@@ -19,6 +19,7 @@ from urllib.parse import quote_plus, urlparse
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
 from harness.api.audit import render_audit_text, run_audit
@@ -185,6 +186,14 @@ T = TypeVar("T")
 def create_app(workspace_root: Path) -> FastAPI:
     runtime: RuntimeContext = build_runtime(workspace_root)
     app = FastAPI(title="TitantShift Harness API", version="0.3.1")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Api-Key", "Authorization"],
+        expose_headers=["X-Trace-ID", "Retry-After"],
+    )
     app.state.runtime = runtime
     emergency_fix_history: dict[str, dict[str, Any]] = {}
 
@@ -3209,6 +3218,16 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
 
+        # Honour the same concurrency cap as /chat to prevent stream endpoint bypass.
+        if _run_queue.at_capacity:
+            retry_after = _run_queue.retry_after_seconds()
+            return Response(
+                content='{"detail":"Too many concurrent runs. Retry shortly."}',
+                status_code=429,
+                media_type="application/json",
+                headers={"Retry-After": str(retry_after)},
+            )
+
         async def _event_generator():
             try:
                 async for event in runtime.orchestrator.state_machine.run_task_stream(task):
@@ -3606,7 +3625,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def workspace_info() -> dict[str, str]:
         return {"root": str(_active_workspace["root"]).replace("\\", "/")}
 
-    @app.post("/workspace/set-root", dependencies=[Depends(require_read_api_key)])
+    @app.post("/workspace/set-root", dependencies=[Depends(require_admin_api_key)])
     async def workspace_set_root(body: dict[str, str]) -> dict[str, str]:
         raw = body.get("path", "").strip()
         if not raw:
@@ -6060,7 +6079,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         return HarnessAuditResponse.model_validate(report)
 
     # ── /metrics (Prometheus text format) ────────────────────────────────────
-    @app.get("/metrics")
+    @app.get("/metrics", dependencies=[Depends(require_read_api_key)])
     async def prometheus_metrics() -> Response:
         """Prometheus-compatible metrics endpoint."""
         lines: list[str] = []
