@@ -5042,3 +5042,120 @@ def test_task_list_survives_app_restart(tmp_path: Path) -> None:
     assert record is not None, "Task should be visible from a fresh runtime"
     assert record.status == "completed"
 
+
+# ── Phase 6: execution safety, auth hardening, rollback/cancel ──────────────
+
+def test_cancel_task_endpoint_returns_cancel_status() -> None:
+    """POST /tasks/{task_id}/cancel returns cancelled and was_running flags."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    first = client.post("/chat", json={"prompt": "cancel test task", "model_backend": "local_stub"})
+    assert first.status_code == 200
+    task_id = first.json().get("task_id")
+    assert task_id
+
+    resp = client.post(f"/tasks/{task_id}/cancel")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["task_id"] == task_id
+    assert "cancelled" in body
+    assert "was_running" in body
+    assert isinstance(body["cancelled"], bool)
+    assert isinstance(body["was_running"], bool)
+
+
+def test_rollback_returns_404_when_no_snapshots() -> None:
+    """POST /tasks/{task_id}/rollback returns 404 when task has no file snapshots."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    first = client.post("/chat", json={"prompt": "rollback no-snap task", "model_backend": "local_stub"})
+    assert first.status_code == 200
+    task_id = first.json().get("task_id")
+    assert task_id
+
+    # The stub doesn't write files so there will be no rollback snapshots
+    resp = client.post(f"/tasks/{task_id}/rollback")
+    # Must be either 404 (no snapshots) or 409 (still running); never 500
+    assert resp.status_code in (404, 409)
+
+
+def test_expired_api_key_is_rejected() -> None:
+    """An API key whose expires_at is in the past must be rejected with 401/403."""
+    from harness.api.key_store import KeyStore
+    import tempfile, os
+    from datetime import datetime, timezone, timedelta
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = KeyStore(Path(tmpdir) / "keys.db")
+        expired_ts = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        _record, raw_key = store.create_key(
+            description="expired-test",
+            scope="read",
+            expires_at=expired_ts,
+        )
+        # authenticate() must return None for an expired key
+        result = store.authenticate(raw_key)
+        assert result is None, "Expired key should not authenticate"
+
+
+def test_per_key_rotation_issues_new_key_and_invalidates_old() -> None:
+    """POST /api-keys/{key_id}/rotate returns a new raw key; old key is revoked."""
+    from harness.api.key_store import KeyStore
+    import tempfile, os
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = KeyStore(Path(tmpdir) / "keys.db")
+        record, raw_key = store.create_key(description="rotate-test", scope="read")
+
+        # Old key must authenticate before rotation
+        assert store.authenticate(raw_key) is not None
+
+        result = store.rotate_key(record.id)
+        assert result is not None
+        new_record, new_raw_key = result
+
+        # New key must be different and authenticate successfully
+        assert new_raw_key != raw_key
+        assert new_record.id != record.id
+        assert store.authenticate(new_raw_key) is not None
+
+        # Old key must now be rejected
+        assert store.authenticate(raw_key) is None
+
+        # Audit trail on old key should include rotated_out event
+        old_events = store.get_events(record.id)
+        event_types = [e.event_type for e in old_events]
+        assert "rotated_out" in event_types
+
+        # Audit trail on new key should include rotated_in event
+        new_events = store.get_events(new_record.id)
+        new_event_types = [e.event_type for e in new_events]
+        assert "rotated_in" in new_event_types
+
+
+def test_per_key_rotation_http_endpoint() -> None:
+    """POST /api-keys/{key_id}/rotate via HTTP returns new key_id and raw_key."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    # Create a key via API
+    created = client.post(
+        "/api-keys",
+        json={"description": "http-rotate-test", "scope": "read"},
+    )
+    assert created.status_code == 200
+    key_id = created.json()["key_id"]
+
+    # Rotate it
+    rotated = client.post(f"/api-keys/{key_id}/rotate")
+    assert rotated.status_code == 200
+    body = rotated.json()
+    assert body["ok"] is True
+    assert body["old_key_id"] == key_id
+    assert body["key_id"] != key_id
+    assert isinstance(body.get("raw_key"), str)
+    assert len(body["raw_key"]) > 10
+
+

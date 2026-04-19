@@ -271,6 +271,52 @@ class KeyStore:
             finally:
                 conn.close()
 
+    def rotate_key(self, key_id: str) -> tuple[KeyRecord, str] | None:
+        """Revoke the existing key and issue a new one with the same metadata.
+
+        Returns (new_record, raw_key) on success, or None if the key was not found.
+        The new key inherits the original description, scope, tenant_id, allowed_tools,
+        and expires_at.  A ``rotated`` audit event is appended to both the old and new ids.
+        """
+        old = self.get_key(key_id)
+        if old is None:
+            return None
+        # Create replacement first so we never have a window with no valid key
+        new_record, raw_key = self.create_key(
+            description=old.description,
+            scope=old.scope,
+            expires_at=old.expires_at,
+            tenant_id=old.tenant_id,
+            allowed_tools=old.allowed_tools or [],
+        )
+        now = _now_iso()
+        with self._lock:
+            conn = self._connect()
+            try:
+                # Revoke the old key
+                conn.execute(
+                    "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+                    (now, key_id),
+                )
+                # Audit on old key: rotated_out
+                conn.execute(
+                    "INSERT INTO api_key_events (key_id, event_type, occurred_at, metadata)"
+                    " VALUES (?,?,?,?)",
+                    (key_id, "rotated_out", now,
+                     f'{{"replaced_by": "{new_record.id}"}}'),
+                )
+                # Audit on new key: rotated_in
+                conn.execute(
+                    "INSERT INTO api_key_events (key_id, event_type, occurred_at, metadata)"
+                    " VALUES (?,?,?,?)",
+                    (new_record.id, "rotated_in", now,
+                     f'{{"replaced": "{key_id}"}}'),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        return new_record, raw_key
+
     # ------------------------------------------------------------------
     # Authentication
     # ------------------------------------------------------------------

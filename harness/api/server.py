@@ -161,6 +161,7 @@ from harness.api.schemas import (
     ApiKeyEventRecord,
     ApiKeyEventsResponse,
     RevokeApiKeyResponse,
+    RotateApiKeyResponse,
     WorkspaceFileResponse,
     WorkspaceTreeNode,
     ToolSummary,
@@ -3096,6 +3097,29 @@ def create_app(workspace_root: Path) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail="Key not found or already revoked")
         return RevokeApiKeyResponse(ok=True, key_id=key_id)
+
+    @app.post(
+        "/api-keys/{key_id}/rotate",
+        response_model=RotateApiKeyResponse,
+        dependencies=[Depends(require_admin_api_key)],
+    )
+    async def rotate_api_key(key_id: str) -> RotateApiKeyResponse:
+        """Revoke the specified key and issue a replacement with the same scope/metadata.
+
+        The new raw key is returned exactly once.  Audit events are written for
+        both the old key (``rotated_out``) and the new key (``rotated_in``).
+        """
+        result = _key_store.rotate_key(key_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Key not found")
+        new_record, raw_key = result
+        return RotateApiKeyResponse(
+            ok=True,
+            old_key_id=key_id,
+            key_id=new_record.id,
+            raw_key=raw_key,
+            record=_record_to_schema(new_record),
+        )
 
     @app.get(
         "/api-keys/{key_id}/events",

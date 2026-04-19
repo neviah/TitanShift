@@ -795,6 +795,14 @@ class RevokeApiKeyResponse(BaseModel):
     key_id: str
 
 
+class RotateApiKeyResponse(BaseModel):
+    ok: bool
+    old_key_id: str
+    key_id: str
+    raw_key: str
+    record: "ApiKeyRecord"
+
+
 class IncidentReportExportRequest(BaseModel):
     path: str = Field(min_length=1)
     task_id: str | None = None
