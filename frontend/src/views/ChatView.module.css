@@ -274,6 +274,30 @@
   font-size: 12px;
 }
 
+.helpHint {
+  color: var(--text-secondary);
+  background: color-mix(in oklab, var(--bg-elevated) 78%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.retryBtn {
+  margin-top: 8px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.retryBtn:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
 .approvalCard {
   margin-top: 14px;
   align-self: flex-start;

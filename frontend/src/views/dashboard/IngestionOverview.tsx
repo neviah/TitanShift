@@ -1,5 +1,5 @@
 import { usePolling } from '../../hooks/usePolling'
-import { fetchIngestionOverview, graphifyIngest } from '../../api/client'
+import { fetchIngestionOverview, graphifyIngest, normalizeApiError } from '../../api/client'
 import styles from './IngestionOverview.module.css'
 import { RefreshCw, Zap, AlertCircle, CheckCircle } from 'lucide-react'
 import { useState } from 'react'
@@ -43,7 +43,7 @@ export function IngestionOverview() {
       }
     } catch (e) {
       setIngestState('error')
-      setIngestError(e instanceof Error ? e.message : String(e))
+      setIngestError(normalizeApiError(e))
     }
   }
 

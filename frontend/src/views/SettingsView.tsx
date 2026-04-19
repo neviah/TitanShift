@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchConfig, updateConfig } from '../api/client'
+import { fetchConfig, normalizeApiError, updateConfig } from '../api/client'
 import { useSchedulerTask } from '../contexts/SchedulerTaskContext'
 import styles from './SettingsView.module.css'
 import { Save, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
@@ -51,7 +51,7 @@ export function SettingsView() {
       setDirty({})
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(normalizeApiError(e))
     } finally {
       setLoading(false)
     }

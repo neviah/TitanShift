@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Copy, RotateCcw } from 'lucide-react'
-import { approveArtifact, cancelTask, fetchArtifacts, fetchConfig, revokeArtifactApproval, sendChat } from '../api/client'
+import { approveArtifact, cancelTask, fetchArtifacts, fetchConfig, normalizeApiError, revokeArtifactApproval, sendChat } from '../api/client'
 import { useChatSessions } from '../contexts/ChatSessionsContext'
 import { useTaskDrafts } from '../contexts/TaskDraftsContext'
 import { useSchedulerTask } from '../contexts/SchedulerTaskContext'
@@ -39,6 +39,7 @@ export function ChatView() {
   const [timelineOpen, setTimelineOpen] = useState(true)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [lastPrompt, setLastPrompt] = useState<string | null>(null)
   const { state: streamState, startStream, cancelStream } = useTaskStream()
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
@@ -54,7 +55,7 @@ export function ChatView() {
     return userMessages.length >= 4 || totalChars >= 500
   }, [messages])
 
-  const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending])
+  const canSend = useMemo(() => input.trim().length > 0 && !sending && !cancelling, [input, sending, cancelling])
   const streamEnabled = useMemo(() => liveRun || workflowMode === 'superpowered', [liveRun, workflowMode])
   const streamRunning = streamState.status === 'connecting' || streamState.status === 'streaming'
   const planTaskCount = useMemo(
@@ -62,6 +63,19 @@ export function ChatView() {
     [planTasksText],
   )
   const isTaskQueueMode = concurrencyMode === 'single-run' && isTaskRunning
+  const authOrConnectivityHint = useMemo(() => {
+    if (!error) return null
+    if (error.includes('API authentication failed')) {
+      return 'TitanShift uses local API keys for endpoint access. No account login is required.'
+    }
+    if (error.includes('admin API key')) {
+      return 'This operation needs an admin local API key. Update key settings and retry.'
+    }
+    if (error.includes('Cannot reach TitanShift backend')) {
+      return 'Start the backend with titanshift serve-api, then retry the request.'
+    }
+    return null
+  }, [error])
 
   useEffect(() => {
     let mounted = true
@@ -124,6 +138,7 @@ export function ChatView() {
   async function sendPrompt(rawText: string, options?: { replay?: boolean }) {
     const text = rawText.trim()
     if (!text || sending) return
+    setLastPrompt(text)
 
     // Capture history BEFORE appending the new user message — appendMessage
     // queues a React state update that hasn't re-rendered yet at this point,
@@ -152,7 +167,7 @@ export function ChatView() {
       try {
         await startStream(requestBody)
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        setError(normalizeApiError(e))
         setWorkflowPhase('error')
         setSending(false)
       }
@@ -207,7 +222,8 @@ export function ChatView() {
         setError(result.error)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const msg = normalizeApiError(e)
+      setError(msg)
       appendMessage({ role: 'assistant', text: 'Request failed. Check Health and provider settings, then try again.' })
       setWorkflowPhase('error')
     } finally {
@@ -229,8 +245,10 @@ export function ChatView() {
       setError(streamState.error)
       setWorkflowPhase('error')
       setSending(false)
+      setCancelling(false)
     } else if (streamState.status === 'idle') {
       setSending(false)
+      setCancelling(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamState.status])
@@ -247,7 +265,9 @@ export function ChatView() {
     } catch {
       // Best-effort stop: always end local stream state.
       cancelStream()
+      setError('Stop request was sent, but the backend may still be finishing the run.')
     } finally {
+      setCurrentTaskId(null)
       setCancelling(false)
       setSending(false)
     }
@@ -289,7 +309,7 @@ export function ChatView() {
         await sendPrompt(blockedPrompt, { replay: true })
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(normalizeApiError(e))
     } finally {
       setApprovalBusy(false)
     }
@@ -314,9 +334,18 @@ export function ChatView() {
       if (artifactType === 'spec') setSpecApproved(approve)
       if (artifactType === 'plan') setPlanApproved(approve)
       await refreshArtifacts()
+      setError(null)
+    } catch (e) {
+      setError(normalizeApiError(e))
     } finally {
       setArtifactBusy(false)
     }
+  }
+
+  async function retryLastPrompt() {
+    if (!lastPrompt || sending) return
+    setError(null)
+    await sendPrompt(lastPrompt, { replay: true })
   }
 
   function promoteCurrentSession() {
@@ -555,7 +584,13 @@ export function ChatView() {
           </div>
         )}
         {promoteMsg && <p className={`${styles.error} text-info`}>{promoteMsg}</p>}
+        {authOrConnectivityHint && <p className={`${styles.error} ${styles.helpHint}`}>{authOrConnectivityHint}</p>}
         {error && <p className={`${styles.error} text-error`}>{error}</p>}
+        {error && lastPrompt && !sending && (
+          <button className={styles.retryBtn} onClick={() => void retryLastPrompt()}>
+            Retry Last Prompt
+          </button>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

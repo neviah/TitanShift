@@ -52,6 +52,7 @@ import {
   sendChat,
   setSchedulerJobEnabled,
   triggerSchedulerTick,
+  normalizeApiError,
 } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
 import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
@@ -333,7 +334,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
       setExecutionResult(draftId, outputs.join('\n').slice(0, 1000))
     } catch (e) {
-      setExecutionResult(draftId, e instanceof Error ? e.message : String(e))
+      setExecutionResult(draftId, normalizeApiError(e))
     } finally {
       finishExecution(draftId)
       setExecutingDraftId(null)

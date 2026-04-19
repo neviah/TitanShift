@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchTasks, fetchTaskDetail, fetchWorkflowMetrics, searchTasks } from '../api/client'
+import { fetchTasks, fetchTaskDetail, fetchWorkflowMetrics, normalizeApiError, searchTasks } from '../api/client'
 import type { TaskSummary, TaskDetail, WorkflowMetrics } from '../api/types'
 import styles from './TasksView.module.css'
 
@@ -97,7 +97,7 @@ export function TasksView() {
     setMetricsError(null)
     fetchWorkflowMetrics()
       .then((m) => setMetrics(m))
-      .catch((e: unknown) => setMetricsError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setMetricsError(normalizeApiError(e)))
       .finally(() => setLoadingMetrics(false))
   }, [])
 

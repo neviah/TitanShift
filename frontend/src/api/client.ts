@@ -45,12 +45,37 @@ type AuthScope = 'read' | 'admin'
 const LOCAL_READ_KEY = 'titanshift-api-key'
 const LOCAL_ADMIN_KEY = 'titanshift-admin-api-key'
 
+export class ApiClientError extends Error {
+  status: number | null
+  statusText: string | null
+  path: string
+  authScope: AuthScope
+  responseBody: string
+
+  constructor(args: {
+    message: string
+    path: string
+    authScope: AuthScope
+    status?: number | null
+    statusText?: string | null
+    responseBody?: string
+  }) {
+    super(args.message)
+    this.name = 'ApiClientError'
+    this.status = args.status ?? null
+    this.statusText = args.statusText ?? null
+    this.path = args.path
+    this.authScope = args.authScope
+    this.responseBody = args.responseBody ?? ''
+  }
+}
+
 function isLocalhost(): boolean {
   if (typeof window === 'undefined') return false
   return window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
 }
 
-function getStoredApiKey(scope: AuthScope): string {
+export function getStoredApiKey(scope: AuthScope): string {
   if (typeof window === 'undefined') return ''
   const storageKey = scope === 'admin' ? LOCAL_ADMIN_KEY : LOCAL_READ_KEY
   const stored = window.localStorage.getItem(storageKey)?.trim() ?? ''
@@ -65,6 +90,65 @@ function getStoredApiKey(scope: AuthScope): string {
   return ''
 }
 
+function parseBackendErrorMessage(rawBody: string): string {
+  const body = rawBody.trim()
+  if (!body) return ''
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>
+    const detail = parsed.detail
+    if (typeof detail === 'string' && detail.trim()) return detail.trim()
+    if (Array.isArray(detail) && detail.length > 0) {
+      const first = detail[0]
+      if (typeof first === 'string' && first.trim()) return first.trim()
+      if (first && typeof first === 'object' && 'msg' in first) {
+        const msg = (first as { msg?: unknown }).msg
+        if (typeof msg === 'string' && msg.trim()) return msg.trim()
+      }
+    }
+    if (typeof parsed.error === 'string' && parsed.error.trim()) return parsed.error.trim()
+    if (typeof parsed.message === 'string' && parsed.message.trim()) return parsed.message.trim()
+  } catch {
+    // Ignore parse errors and return raw body below.
+  }
+  return body
+}
+
+export function normalizeApiError(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    const backendMessage = parseBackendErrorMessage(error.responseBody)
+    if (error.status === 401) {
+      return 'API authentication failed. Configure a valid local TitanShift API key. No account login is required.'
+    }
+    if (error.status === 403) {
+      if (error.authScope === 'admin') {
+        return 'This action requires an admin API key. Update the local admin key and retry.'
+      }
+      return 'Permission denied by the local API key policy.'
+    }
+    if (error.status === 404) {
+      return 'Requested API route was not found. Confirm TitanShift backend version and endpoint compatibility.'
+    }
+    if (error.status === 0 || error.status === null) {
+      return 'Cannot reach TitanShift backend. Start the local API server and verify network/connectivity settings.'
+    }
+    if (backendMessage) {
+      return `API request failed (${error.status}): ${backendMessage}`
+    }
+    return `API request failed (${error.status ?? 'unknown'}${error.statusText ? ` ${error.statusText}` : ''}).`
+  }
+
+  if (error instanceof TypeError) {
+    const msg = error.message.toLowerCase()
+    if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed')) {
+      return 'Cannot reach TitanShift backend. Start the local API server and verify network/connectivity settings.'
+    }
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return String(error)
+}
+
 function deriveSkillName(skillId: string): string {
   const cleaned = skillId.trim()
   if (!cleaned) return 'Untitled skill'
@@ -77,17 +161,36 @@ function deriveSkillName(skillId: string): string {
 
 async function request<T>(path: string, init?: RequestInit, authScope: AuthScope = 'read'): Promise<T> {
   const apiKey = getStoredApiKey(authScope)
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { 'x-api-key': apiKey } : {}),
-      ...init?.headers,
-    },
-    ...init,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { 'x-api-key': apiKey } : {}),
+        ...init?.headers,
+      },
+      ...init,
+    })
+  } catch (error) {
+    throw new ApiClientError({
+      message: normalizeApiError(error),
+      path,
+      authScope,
+      status: 0,
+      statusText: 'NETWORK_ERROR',
+    })
+  }
+
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`${res.status} ${res.statusText}: ${body}`)
+    throw new ApiClientError({
+      message: `${res.status} ${res.statusText}`,
+      path,
+      authScope,
+      status: res.status,
+      statusText: res.statusText,
+      responseBody: body,
+    })
   }
   return res.json() as Promise<T>
 }

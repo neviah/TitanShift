@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { API_BASE } from '../api/client'
+import { API_BASE, ApiClientError, getStoredApiKey, normalizeApiError } from '../api/client'
 
 export type StreamEventType = 'start' | 'step' | 'tool_result' | 'text_delta' | 'done' | 'error' | 'eof' | 'artifact_emit'
 
@@ -30,12 +30,7 @@ export interface TaskStreamState {
 }
 
 function getApiKey(): string {
-  if (typeof window === 'undefined') return ''
-  return (
-    window.localStorage.getItem('titanshift-api-key')?.trim() ||
-    window.localStorage.getItem('titanshift-admin-api-key')?.trim() ||
-    ''
-  )
+  return getStoredApiKey('read') || getStoredApiKey('admin')
 }
 
 export function useTaskStream() {
@@ -91,7 +86,15 @@ export function useTaskStream() {
         })
 
         if (!res.ok) {
-          const msg = `Stream request failed: ${res.status} ${res.statusText}`
+          const body = await res.text().catch(() => '')
+          const msg = normalizeApiError(new ApiClientError({
+            message: `${res.status} ${res.statusText}`,
+            path: '/chat/stream',
+            authScope: 'read',
+            status: res.status,
+            statusText: res.statusText,
+            responseBody: body,
+          }))
           setState((prev) => ({ ...prev, status: 'error', error: msg }))
           return
         }
@@ -180,8 +183,11 @@ export function useTaskStream() {
           return prev
         })
       } catch (err) {
-        if ((err as Error).name === 'AbortError') return
-        const msg = err instanceof Error ? err.message : String(err)
+        if ((err as Error).name === 'AbortError') {
+          setState((prev) => ({ ...prev, status: 'idle', error: null }))
+          return
+        }
+        const msg = normalizeApiError(err)
         setState((prev) => ({ ...prev, status: 'error', error: msg }))
       }
     },
@@ -191,7 +197,7 @@ export function useTaskStream() {
   const cancelStream = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
-    setState((prev) => (prev.status === 'streaming' ? { ...prev, status: 'idle' } : prev))
+    setState((prev) => ({ ...prev, status: 'idle', error: null }))
   }, [])
 
   // Cleanup on unmount

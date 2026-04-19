@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Plus, RefreshCw, Trash2, ChevronDown, ChevronRight, Copy, Check, AlertTriangle, Key } from 'lucide-react'
-import { listApiKeys, createApiKey, revokeApiKey, fetchApiKeyEvents } from '../api/client'
+import { listApiKeys, createApiKey, revokeApiKey, fetchApiKeyEvents, normalizeApiError } from '../api/client'
 import type { ApiKeyRecord, ApiKeyEventRecord } from '../api/types'
 import styles from './KeyManagementView.module.css'
 
@@ -187,7 +187,7 @@ function AuditPanel({ keyId }: AuditPanelProps) {
     setLoading(true)
     fetchApiKeyEvents(keyId)
       .then((r) => { setEvents(r.events); setError(null) })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setError(normalizeApiError(e)))
       .finally(() => setLoading(false))
   }, [keyId])
 
@@ -299,7 +299,7 @@ export function KeyManagementView() {
       setKeys(res.keys)
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(normalizeApiError(e))
     } finally {
       setLoading(false)
     }
@@ -315,7 +315,7 @@ export function KeyManagementView() {
       setPendingRawKey(res.raw_key)
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(normalizeApiError(e))
     } finally {
       setCreating(false)
     }
@@ -329,7 +329,7 @@ export function KeyManagementView() {
       setRevokeTarget(null)
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(normalizeApiError(e))
     } finally {
       setRevoking(false)
     }
@@ -356,6 +356,7 @@ export function KeyManagementView() {
       </div>
 
       {error && <p className={`${styles.hint} ${styles.errorText}`}>{error}</p>}
+      <p className={styles.hint}>TitanShift is local-first. API keys protect local API routes and do not require account login.</p>
       {loading && <p className={styles.hint}>Loading…</p>}
 
       {!loading && keys.length === 0 && (
