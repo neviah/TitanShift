@@ -48,6 +48,12 @@ See:
 - documents/: design docs and plans
 - release_notes/: versioned release notes
 
+## User Documentation
+
+- Setup Guide: documents/guides/setup-guide.md
+- Tool Reference: documents/guides/tool-reference.md
+- Configuration Guide: documents/guides/configuration-guide.md
+
 ## Quick Start
 
 1. Create and activate a virtual environment.
@@ -58,13 +64,19 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-3. Run the API:
+3. Run first-time setup:
 
 ```bash
-python -m harness --workspace . serve-api --host 127.0.0.1 --port 8000
+titanshift init
 ```
 
-4. (Optional) Run the frontend:
+4. Run the API:
+
+```bash
+titanshift serve-api --host 127.0.0.1 --port 8000
+```
+
+5. (Optional) Run the frontend:
 
 ```bash
 cd frontend
@@ -72,7 +84,7 @@ npm install
 npm run dev
 ```
 
-5. (Optional) Install the `officecli` binary to enable Office document tools (`officecli_create_document`, `officecli_add_element`, `officecli_view_document`, `officecli_set_properties`, `officecli_merge_template`, `officecli_batch`):
+6. (Optional) Install the `officecli` binary to enable Office document tools (`officecli_create_document`, `officecli_add_element`, `officecli_view_document`, `officecli_set_properties`, `officecli_merge_template`, `officecli_batch`):
 
 **macOS / Linux**
 ```bash
@@ -86,7 +98,7 @@ irm https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.ps1 | iex
 
 Verify: `officecli --version`. If not found after install, open a new terminal and try again.
 
-6. Run tests:
+7. Run tests:
 
 ```bash
 python -m pytest -q -p no:warnings
