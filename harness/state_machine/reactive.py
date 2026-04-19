@@ -131,6 +131,21 @@ class ReactiveStateMachine:
             if "list_directory" in available:
                 matched.add("list_directory")
 
+        # File-operation intent mapping for natural phrasing.
+        if any(token in text for token in ["append a new line", "append new line", "append a line", "append to "]):
+            if "append_file" in available:
+                matched.add("append_file")
+        if any(token in text for token in ["read_file", "read the file", "open the file", "return the full final file content"]):
+            if "read_file" in available:
+                matched.add("read_file")
+        if any(token in text for token in ["create one", "create it", "create a file", "if you don't see", "if it does not exist"]):
+            if "write_file" in available:
+                matched.add("write_file")
+
+        # "Go to <site>" should prefer web_browse over generic fetch.
+        if ("go to " in text or "open " in text) and ".com" in text and "web_browse" in available:
+            matched.add("web_browse")
+
         return sorted(matched)
 
     def _detect_mandatory_tools(self, task_description: str) -> list[str]:
@@ -146,15 +161,30 @@ class ReactiveStateMachine:
                 mandatory.add(tool_name)
 
         # Common alias phrasing that should map to concrete tools.
-            alias_map = {
-                "web_browse": ["use browser", "use the browser", "browser tool"],
-                "append_file": ["use append_file_tool", "append_file_tool", "append file tool"],
-                "read_file": ["use read_file_tool", "read_file_tool", "read file tool"],
-                "write_file": ["use write_file_tool", "write_file_tool", "write file tool"],
-            }
-            for tool_name, aliases in alias_map.items():
-                if tool_name in available and any(alias in text for alias in aliases):
-                    mandatory.add(tool_name)
+        alias_map = {
+            "web_browse": ["use browser", "use the browser", "browser tool"],
+            "append_file": ["use append_file_tool", "append_file_tool", "append file tool"],
+            "read_file": ["use read_file_tool", "read_file_tool", "read file tool"],
+            "write_file": ["use write_file_tool", "write_file_tool", "write file tool"],
+        }
+        for tool_name, aliases in alias_map.items():
+            if tool_name in available and any(alias in text for alias in aliases):
+                mandatory.add(tool_name)
+
+        # Enforce natural-language file mutation intents as mandatory operations.
+        if any(token in text for token in ["append a new line", "append new line", "append a line", "append to "]):
+            if "append_file" in available:
+                mandatory.add("append_file")
+        if any(token in text for token in ["read the file", "open the file", "return the full final file content", "use read_file"]):
+            if "read_file" in available:
+                mandatory.add("read_file")
+        if any(token in text for token in ["if you don't see", "if it does not exist", "create one", "create it", "create a file"]):
+            if "write_file" in available:
+                mandatory.add("write_file")
+
+        # "Go to <site>" should require browsing rather than only API/json fetch.
+        if ("go to " in text or "open " in text) and ".com" in text and "web_browse" in available:
+            mandatory.add("web_browse")
 
         if "list_files" in text and "list_directory" in available:
             mandatory.add("list_directory")
