@@ -124,17 +124,22 @@ For each skill test, assert:
 	- scene timing CSV,
 	- voiceover text,
 	- thumbnail prompt,
-	- optional render manifest JSON.
+	- HyperFrames scene + render-job JSON.
 - Assert artifacts are created under `Testing/P4_creator_use_cases/video_generation/...`.
 - Assert outputs include machine-usable metadata (durations, aspect ratio, target platform).
+- Assert `generate_hyperframes_scene` appears in tool telemetry for deterministic video runs.
+- Assert artifacts include kinds `video.hyperframes.scene` and `video.hyperframes.render_job`.
+- Assert render-job metadata includes `composition_id`, `scene_path`, and intended `output_mp4`.
+- Note: current implementation guarantees scene/job generation; MP4 render execution is performed by HyperFrames runtime/CLI from that job config.
 
 7. Office + PDF artifact workflow (officecli)
 - Prompt for business artifacts from one brief:
 	- Word document (`.docx`),
 	- Excel workbook (`.xlsx`),
 	- PowerPoint deck (`.pptx`),
-	- PDF export (`.pdf`) when requested.
+	- PDF report (`.pdf`) when requested.
 - Assert officecli tool invocation is present in telemetry when Office outputs are requested.
+- Assert `generate_report` with `format=pdf` is used for deterministic PDF generation.
 - Assert generated files are non-empty and located under `Testing/P4_creator_use_cases/office_pdf/...`.
 - Assert naming convention includes run id and artifact purpose.
 
