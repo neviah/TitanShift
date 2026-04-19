@@ -146,6 +146,16 @@ class ReactiveStateMachine:
                 mandatory.add(tool_name)
 
         # Common alias phrasing that should map to concrete tools.
+            alias_map = {
+                "web_browse": ["use browser", "use the browser", "browser tool"],
+                "append_file": ["use append_file_tool", "append_file_tool", "append file tool"],
+                "read_file": ["use read_file_tool", "read_file_tool", "read file tool"],
+                "write_file": ["use write_file_tool", "write_file_tool", "write file tool"],
+            }
+            for tool_name, aliases in alias_map.items():
+                if tool_name in available and any(alias in text for alias in aliases):
+                    mandatory.add(tool_name)
+
         if "list_files" in text and "list_directory" in available:
             mandatory.add("list_directory")
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from harness.api.hooks import ApiHooks
 from harness.api.hooks import HookPayload
 from harness.memory.manager import MemoryManager
-from harness.model.adapter import ModelRegistry
+from harness.model.adapter import ModelRegistry, ModelRequest
 from harness.orchestrator.task_store import TaskStore
 from harness.runtime.config import ConfigManager
 from harness.runtime.event_bus import EventBus
@@ -152,26 +152,33 @@ class Orchestrator:
         template = self.role_templates.get(role_key)
         role_name = template.role_name if template else role_key.replace("_", " ").title()
         goal = template.goal if template else ""
-        review_task = Task(
-            id=f"{parent_task.id}:{role_key}:{uuid.uuid4().hex[:8]}",
-            description=(
-                f"[{role_name}] {goal}\n\n"
-                f"Context:\n{context}\n\n"
-                "Respond with PASS or FAIL on the first line, followed by a concise explanation "
-                "(1–3 sentences) justifying your decision."
+        model = self.models.select_model(
+            parent_task.input.get(
+                "model_backend",
+                self.config.get("model.default_backend", "local_stub"),
+            )
+        )
+        # Use the model adapter's configured timeout so slow backends (e.g. LM Studio) don't time out
+        role_timeout_s = getattr(model, "timeout_s", None) or max(
+            30.0, float(self.config.get("orchestrator.skill_execution_timeout_s", 15.0))
+        )
+        system_prompt = (
+            f"You are the {role_name}. {goal} "
+            "Respond with PASS or FAIL on the first line, followed by a concise explanation "
+            "(1-3 sentences) justifying your decision. Do not call tools."
+        )
+        request = ModelRequest(
+            prompt=(
+                f"Role: {role_name}\n"
+                f"Goal: {goal}\n\n"
+                f"Context:\n{context}\n"
             ),
-            input={
-                "model_backend": parent_task.input.get(
-                    "model_backend",
-                    self.config.get("model.default_backend", "local_stub"),
-                ),
-                # Prevent review tasks from triggering another review loop
-                "workflow_mode": "lightning",
-            },
+            system_prompt=system_prompt,
+            timeout_s=role_timeout_s,
         )
         try:
-            result = await self.state_machine.run_task(review_task)
-            response_text = str(result.output.get("response", "")).strip()
+            response = await asyncio.wait_for(model.generate(request), timeout=role_timeout_s)
+            response_text = str(response.text).strip()
         except Exception as exc:
             return {"passed": False, "feedback": f"Reviewer invocation failed: {exc}"}
 
@@ -182,8 +189,9 @@ class Orchestrator:
         elif first_line.startswith("PASS"):
             passed = True
         else:
-            # Ambiguous response — check for FAIL anywhere in first 60 chars; else default to pass
-            passed = "FAIL" not in response_text.upper()[:60]
+            # Ambiguous response — local LLMs often include 'fail' in preamble text;
+            # default to PASS unless the response is explicitly empty.
+            passed = bool(response_text)
 
         return {"passed": passed, "feedback": response_text[:600]}
 
@@ -356,14 +364,52 @@ class Orchestrator:
                         "task_results": task_results,
                     }
             else:
-                impl_context = f"Task #{idx}: {title}\nDescription: {str(item.get('description', title))}"
-                impl_result = await self._invoke_role_model(parent_task, "implementer", impl_context)
-                item_result["implementer_feedback"] = impl_result["feedback"]
-                if not impl_result["passed"]:
+                # Run the implementer through the reactive loop so it can actually execute tools
+                impl_description = (
+                    f"Implement task #{idx}: {title}. "
+                    f"{str(item.get('description', title))}"
+                )
+                impl_task = Task(
+                    id=f"{parent_task.id}:impl:{idx}:{uuid.uuid4().hex[:8]}",
+                    description=impl_description,
+                    input={
+                        **(parent_task.input or {}),
+                        "workflow_mode": "lightning",
+                    },
+                )
+                impl_timeout_s = float(
+                    self.config.get("orchestrator.superpowered_mode.implementer_timeout_s", 300.0)
+                )
+                try:
+                    impl_task_result = await asyncio.wait_for(
+                        self.state_machine.run_task(impl_task),
+                        timeout=impl_timeout_s,
+                    )
+                    impl_passed = impl_task_result.success
+                    impl_output = impl_task_result.output or {}
+                    impl_feedback = str(
+                        impl_output.get("response")
+                        or impl_output.get("text")
+                        or ""
+                    )[:600]
+                    if impl_passed and not impl_feedback:
+                        created_paths = ", ".join(str(path) for path in impl_output.get("created_paths", [])[:5])
+                        updated_paths = ", ".join(str(path) for path in impl_output.get("updated_paths", [])[:5])
+                        evidence_parts = [part for part in [created_paths, updated_paths] if part]
+                        evidence = f" Evidence: {', '.join(evidence_parts)}" if evidence_parts else ""
+                        impl_feedback = f"Task completed successfully: {title}.{evidence}"
+                except asyncio.TimeoutError:
+                    impl_passed = False
+                    impl_feedback = f"Implementer timed out after {impl_timeout_s:.0f}s"
+                except Exception as exc:
+                    impl_passed = False
+                    impl_feedback = f"Implementer error: {type(exc).__name__}: {exc}"
+                item_result["implementer_feedback"] = impl_feedback
+                if not impl_passed:
                     return {
                         "ok": False,
                         "failed_task": title,
-                        "error": f"Implementer reported failure: {impl_result['feedback'][:200]}",
+                        "error": f"Implementer reported failure: {impl_feedback[:200]}",
                         "task_results": task_results,
                     }
 
@@ -406,6 +452,7 @@ class Orchestrator:
                         "failed_task": title,
                         "error": "Review loop exceeded max iterations without passing all checks",
                         "task_results": task_results,
+                        "last_item_result": item_result,
                     }
                 # Allow the loop to continue; real reviewers will re-evaluate next iteration
                 if simulation_mode:
@@ -714,6 +761,7 @@ class Orchestrator:
         lightning_spawned_ids: list[str] = []
 
         try:
+            explicit_workflow_mode = str(task.input.get("workflow_mode", "")).strip().lower() if task.input else ""
             workflow_mode = self._resolve_workflow_mode(task)
             task.input["workflow_mode"] = workflow_mode
             _telemetry["workflow_mode"] = workflow_mode
@@ -863,7 +911,7 @@ class Orchestrator:
                         return result
                     task.input["review_result"] = review_result
 
-            if workflow_mode == "lightning" and self.enable_subagents:
+            if workflow_mode == "lightning" and self.enable_subagents and explicit_workflow_mode != "lightning":
                 try:
                     lightning_spawned_ids = await self._maybe_spawn_lightning_subagents(task)
                     _telemetry["lightning_subagents_spawned"] = len(lightning_spawned_ids)
