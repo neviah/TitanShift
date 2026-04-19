@@ -124,9 +124,11 @@ For each skill test, assert:
 	- scene timing CSV,
 	- voiceover text,
 	- thumbnail prompt,
+	- Remotion MP4 render artifact,
 	- HyperFrames scene + render-job JSON.
 - Assert artifacts are created under `Testing/P4_creator_use_cases/video_generation/...`.
 - Assert outputs include machine-usable metadata (durations, aspect ratio, target platform).
+- Assert `generate_remotion_video` produces an actual `.mp4` file in the target path.
 - Assert `generate_hyperframes_scene` appears in tool telemetry for deterministic video runs.
 - Assert artifacts include kinds `video.hyperframes.scene` and `video.hyperframes.render_job`.
 - Assert render-job metadata includes `composition_id`, `scene_path`, and intended `output_mp4`.

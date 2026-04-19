@@ -255,6 +255,19 @@ def test_generate_hyperframes_scene_tool_emits_scene_and_render_job() -> None:
     assert "suggested_cli" in job
 
 
+def test_generate_remotion_video_tool_registered() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    tool = runtime.tools.get_tool("generate_remotion_video")
+    assert tool is not None
+    assert tool.name == "generate_remotion_video"
+    assert "npm" in (tool.required_commands or [])
+    required = tool.parameters.get("required") if isinstance(tool.parameters, dict) else []
+    assert isinstance(required, list)
+    assert "project_path" in required
+    assert "entry" in required
+    assert "composition_id" in required
+
+
 def test_artifact_default_verified_false_when_not_provided() -> None:
     runtime = build_runtime(Path(".").resolve())
     workspace_root = Path(".").resolve()

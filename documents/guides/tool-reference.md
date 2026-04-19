@@ -123,6 +123,7 @@ The runtime includes built-in tools grouped into practical categories.
 - generate_report
 - generate_chart
 - generate_svg_asset
+- generate_remotion_video
 - generate_hyperframes_scene
 
 ### Optional integrations

@@ -87,3 +87,9 @@ Validator command:
 ```bash
 python scripts/validate_testing_outputs.py --workspace-root . --testing-root Testing --strict-report --require-existing-paths
 ```
+
+Preflight command:
+
+```bash
+python scripts/testing_preflight.py --workspace-root . --remotion-project frontend --testing-root Testing --require-officecli
+```

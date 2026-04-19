@@ -1459,6 +1459,207 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
+    async def _render_remotion_backend(request: ArtifactRenderRequest) -> ArtifactRenderResult:
+        args = request.args
+        title = str(args.get("title") or "Remotion Render").strip() or "Remotion Render"
+        raw_project_path = str(args.get("project_path") or "frontend").strip()
+        raw_entry = str(args.get("entry") or "src/index.tsx").strip()
+        composition_id = str(args.get("composition_id") or "Main").strip()
+        raw_target_path = str(args.get("target_path") or "outputs/videos").strip()
+        output_filename = str(args.get("output_filename") or "").strip()
+        overwrite = bool(args.get("overwrite", False))
+        timeout_s = max(60, int(args.get("timeout_s") or 1200))
+        codec = str(args.get("codec") or "h264").strip() or "h264"
+        width = int(args.get("width") or 0)
+        height = int(args.get("height") or 0)
+        fps = int(args.get("fps") or 0)
+        duration_in_frames = int(args.get("duration_in_frames") or 0)
+        crf = int(args.get("crf") or 0)
+
+        if not raw_project_path:
+            raise ValueError("project_path is required")
+        if not raw_entry:
+            raise ValueError("entry is required")
+        if not composition_id:
+            raise ValueError("composition_id is required")
+
+        project_dir = _resolve_workspace_path(raw_project_path)
+        if not project_dir.exists() or not project_dir.is_dir():
+            raise ValueError(f"project_path not found: {project_dir}")
+
+        package_json = project_dir / "package.json"
+        if not package_json.exists():
+            raise ValueError(f"project_path does not contain package.json: {project_dir}")
+
+        entry_path = Path(raw_entry)
+        if not entry_path.is_absolute():
+            entry_path = (project_dir / entry_path).resolve()
+        else:
+            entry_path = entry_path.resolve()
+        if not entry_path.exists():
+            raise ValueError(f"Remotion entry file not found: {entry_path}")
+
+        target_dir = _resolve_workspace_path(raw_target_path)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        request_payload = {
+            "title": title,
+            "project_path": str(project_dir),
+            "entry": str(entry_path),
+            "composition_id": composition_id,
+            "codec": codec,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "duration_in_frames": duration_in_frames,
+            "crf": crf,
+        }
+        request_hash = hashlib.sha256(
+            json.dumps(request_payload, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:12]
+        safe_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "remotion"
+        filename = output_filename or f"{safe_title}-{request_hash}.mp4"
+        if not filename.lower().endswith(".mp4"):
+            filename = f"{filename}.mp4"
+
+        output_path = (target_dir / filename).resolve()
+        existed_before = output_path.exists()
+        if existed_before and not overwrite:
+            raise ValueError(f"target video already exists and overwrite=false: {output_path}")
+
+        cmd_args: list[str] = [
+            "exec",
+            "remotion",
+            "render",
+            "--",
+            str(entry_path),
+            composition_id,
+            str(output_path),
+            "--codec",
+            codec,
+        ]
+        if width > 0:
+            cmd_args.extend(["--width", str(width)])
+        if height > 0:
+            cmd_args.extend(["--height", str(height)])
+        if fps > 0:
+            cmd_args.extend(["--fps", str(fps)])
+        if duration_in_frames > 0:
+            cmd_args.extend(["--duration-in-frames", str(duration_in_frames)])
+        if crf > 0:
+            cmd_args.extend(["--crf", str(crf)])
+        if overwrite:
+            cmd_args.append("--overwrite")
+
+        try:
+            result = await execution.run_command(
+                "npm",
+                *cmd_args,
+                cwd=str(project_dir),
+                timeout_s=timeout_s,
+            )
+        except ExecutionDeniedError as exc:
+            raise ValueError(
+                "Remotion render blocked by execution policy. Ensure npm is allowed in execution.allowed_command_prefixes."
+            ) from exc
+
+        if result.returncode != 0:
+            stderr_tail = result.stderr[-4000:]
+            stdout_tail = result.stdout[-2000:]
+            raise ValueError(
+                "Remotion render failed. "
+                f"exit_code={result.returncode}; stderr_tail={stderr_tail!r}; stdout_tail={stdout_tail!r}"
+            )
+
+        if not output_path.exists():
+            raise ValueError(
+                "Remotion completed without output file. "
+                f"Expected output at: {output_path}"
+            )
+
+        generated_at = datetime.now(timezone.utc).isoformat()
+        normalized_output = str(output_path).replace("\\", "/")
+        artifact = {
+            "artifact_id": f"{request_hash}-mp4",
+            "kind": "video.mp4",
+            "path": normalized_output,
+            "mime_type": "video/mp4",
+            "title": title,
+            "summary": "Rendered MP4 video via Remotion",
+            "generator": "generate_remotion_video",
+            "backend": "remotion_backend",
+            "verified": True,
+            "provenance": {
+                "request_hash": request_hash,
+                "generated_at": generated_at,
+                "project_path": str(project_dir).replace("\\", "/"),
+                "entry": str(entry_path).replace("\\", "/"),
+                "composition_id": composition_id,
+                "codec": codec,
+            },
+            "preview": None,
+        }
+
+        return ArtifactRenderResult(
+            backend=request.backend,
+            payload={
+                "ok": True,
+                "title": title,
+                "path": normalized_output,
+                "project_path": str(project_dir).replace("\\", "/"),
+                "entry": str(entry_path).replace("\\", "/"),
+                "composition_id": composition_id,
+                "created_paths": [] if existed_before else [normalized_output],
+                "updated_paths": [normalized_output] if existed_before else [],
+                "artifacts": [artifact],
+                "render_stdout": result.stdout,
+                "render_stderr": result.stderr,
+                "render_truncated": result.truncated,
+            },
+            artifacts=[artifact],
+        )
+
+    artifact_backends.register("remotion_backend", _render_remotion_backend)
+
+    async def generate_remotion_video_handler(args: dict[str, Any]) -> dict[str, Any]:
+        result = await artifact_backends.render(
+            ArtifactRenderRequest(
+                backend="remotion_backend",
+                generator="generate_remotion_video",
+                args=args,
+            )
+        )
+        return result.payload
+
+    tools.register_tool(
+        ToolDefinition(
+            name="generate_remotion_video",
+            description="Render an actual MP4 video via Remotion using npm exec remotion render and emit artifact metadata.",
+            required_commands=["npm"],
+            handler=generate_remotion_video_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Video title for metadata and default file naming"},
+                    "project_path": {"type": "string", "description": "Path to the Remotion project directory (must contain package.json)"},
+                    "entry": {"type": "string", "description": "Entry file path for Remotion bundle, relative to project_path or absolute"},
+                    "composition_id": {"type": "string", "description": "Remotion composition id to render"},
+                    "target_path": {"type": "string", "description": "Output directory path for rendered video"},
+                    "output_filename": {"type": "string", "description": "Optional output file name (.mp4 appended if missing)"},
+                    "codec": {"type": "string", "description": "Remotion codec (default h264)"},
+                    "width": {"type": "integer", "description": "Optional output width"},
+                    "height": {"type": "integer", "description": "Optional output height"},
+                    "fps": {"type": "integer", "description": "Optional output fps"},
+                    "duration_in_frames": {"type": "integer", "description": "Optional render duration in frames"},
+                    "crf": {"type": "integer", "description": "Optional quality setting"},
+                    "timeout_s": {"type": "integer", "description": "Render timeout in seconds (default 1200)"},
+                    "overwrite": {"type": "boolean", "description": "Whether existing output may be replaced"},
+                },
+                "required": ["project_path", "entry", "composition_id"],
+            },
+        )
+    )
+
     async def _render_hyperframes_backend(request: ArtifactRenderRequest) -> ArtifactRenderResult:
         args = request.args
         title = str(args.get("title") or "Hyperframes Scene").strip() or "Hyperframes Scene"
