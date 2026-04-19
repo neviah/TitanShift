@@ -3075,6 +3075,115 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             return "style"
         return "module"
 
+    def _resolve_local_import_target(workspace: Path, source_file: Path, raw_target: str) -> str | None:
+        """Resolve a relative import string to an indexed workspace-relative file path."""
+        target = raw_target.strip()
+        if not target.startswith("."):
+            return None
+
+        base = (source_file.parent / target).resolve()
+        candidates: list[Path] = []
+        if base.suffix:
+            candidates.append(base)
+        else:
+            for ext in (".py", ".ts", ".tsx", ".js", ".jsx"):
+                candidates.append(base.with_suffix(ext))
+            for ext in (".py", ".ts", ".tsx", ".js", ".jsx"):
+                candidates.append(base / f"index{ext}")
+
+        for candidate in candidates:
+            if candidate.is_file():
+                try:
+                    return str(candidate.relative_to(workspace)).replace("\\", "/")
+                except Exception:
+                    continue
+        return None
+
+    def _extract_import_targets(content: str, suffix: str) -> tuple[set[str], set[str]]:
+        """Return (local_import_strings, external_import_modules) from source text."""
+        local_targets: set[str] = set()
+        external_targets: set[str] = set()
+
+        if suffix == "py":
+            for line in content.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                m_from = re.match(r"from\s+([a-zA-Z0-9_\.]+)\s+import\s+", line)
+                if m_from:
+                    mod = m_from.group(1).strip()
+                    if mod.startswith("."):
+                        local_targets.add(mod)
+                    else:
+                        external_targets.add(mod.split(".")[0])
+                    continue
+                m_import = re.match(r"import\s+(.+)$", line)
+                if m_import:
+                    for part in m_import.group(1).split(","):
+                        mod = part.strip().split(" as ")[0].strip()
+                        if not mod:
+                            continue
+                        if mod.startswith("."):
+                            local_targets.add(mod)
+                        else:
+                            external_targets.add(mod.split(".")[0])
+            return local_targets, external_targets
+
+        if suffix in {"ts", "tsx", "js", "jsx"}:
+            patterns = [
+                r"from\s+['\"]([^'\"]+)['\"]",
+                r"import\s+['\"]([^'\"]+)['\"]",
+                r"require\(\s*['\"]([^'\"]+)['\"]\s*\)",
+            ]
+            for pattern in patterns:
+                for target in re.findall(pattern, content):
+                    if target.startswith("."):
+                        local_targets.add(target)
+                    else:
+                        external_targets.add(target.split("/")[0])
+        return local_targets, external_targets
+
+    def _extract_manifest_dependencies(path: Path, rel_path: str) -> set[str]:
+        """Extract dependency package names from common manifest files."""
+        name = path.name.lower()
+        deps: set[str] = set()
+        try:
+            if name == "package.json":
+                payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+                for key in ("dependencies", "devDependencies", "peerDependencies"):
+                    bucket = payload.get(key, {})
+                    if isinstance(bucket, dict):
+                        deps.update(str(pkg).strip() for pkg in bucket.keys() if str(pkg).strip())
+                return deps
+
+            if name == "requirements.txt":
+                for row in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                    line = row.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    line = line.split("#", 1)[0].strip()
+                    if line.startswith("-"):
+                        continue
+                    pkg = re.split(r"[<>=!~\[]", line, 1)[0].strip()
+                    if pkg:
+                        deps.add(pkg)
+                return deps
+
+            if name == "pyproject.toml":
+                content = path.read_text(encoding="utf-8", errors="replace")
+                dep_blocks = re.findall(r"dependencies\s*=\s*\[(.*?)\]", content, flags=re.DOTALL)
+                for block in dep_blocks:
+                    for entry in re.findall(r"['\"]([^'\"]+)['\"]", block):
+                        pkg = re.split(r"[<>=!~\[]", entry, 1)[0].strip()
+                        if pkg:
+                            deps.add(pkg)
+                return deps
+        except Exception:
+            return set()
+
+        _ = rel_path
+        return deps
+
     async def index_project_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw_root = args.get("root_path") or "."
         max_files = max(1, int(args.get("max_files") or 500))
@@ -3082,6 +3191,9 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         index_file = workspace / ".harness" / "project_index.json"
         indexed: list[dict[str, Any]] = []
         skipped = 0
+        import_edges: list[dict[str, str]] = []
+        dependency_edges: list[dict[str, str]] = []
+        dependency_names: set[str] = set()
 
         for path in sorted(workspace.rglob("*")):
             if not path.is_file():
@@ -3103,6 +3215,41 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         for item in indexed:
             kind_counts[item["kind"]] = kind_counts.get(item["kind"], 0) + 1
 
+        indexed_path_set = {str(item["path"]) for item in indexed}
+
+        for item in indexed:
+            rel = str(item["path"])
+            abs_path = workspace / rel
+            suffix = abs_path.suffix.lstrip(".").lower()
+
+            # Extract dependency graph edges from manifest files.
+            if item.get("kind") == "dependency_manifest":
+                deps = _extract_manifest_dependencies(abs_path, rel)
+                for dep in sorted(deps):
+                    dependency_names.add(dep)
+                    dependency_edges.append({
+                        "from": rel,
+                        "to": dep,
+                        "edge_type": "depends_on",
+                    })
+
+            # Extract import graph edges from source files.
+            if suffix not in {"py", "ts", "tsx", "js", "jsx"}:
+                continue
+            try:
+                content = abs_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            local_imports, _external_imports = _extract_import_targets(content, suffix)
+            for raw_target in sorted(local_imports):
+                resolved = _resolve_local_import_target(workspace, abs_path, raw_target)
+                if resolved and resolved in indexed_path_set:
+                    import_edges.append({
+                        "from": rel,
+                        "to": resolved,
+                        "edge_type": "imports",
+                    })
+
         index_file.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "workspace": str(workspace),
@@ -3110,6 +3257,11 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "total_files": len(indexed),
             "by_kind": kind_counts,
             "files": indexed,
+            "graph": {
+                "import_edges": import_edges,
+                "dependency_edges": dependency_edges,
+                "dependency_names": sorted(dependency_names),
+            },
         }
         index_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return {
@@ -3118,6 +3270,9 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "total_files_indexed": len(indexed),
             "skipped": skipped,
             "by_kind": kind_counts,
+            "import_edges_count": len(import_edges),
+            "dependency_edges_count": len(dependency_edges),
+            "dependency_names_count": len(dependency_names),
             "index_file": str(index_file.relative_to(workspace)).replace("\\", "/"),
             "updated_paths": [str(index_file)],
         }

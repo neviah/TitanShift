@@ -516,6 +516,29 @@ def test_index_project_classifies_files() -> None:
     assert idx["total_files"] == result["total_files_indexed"]
 
 
+def test_index_project_includes_graph_and_dependency_data() -> None:
+    runtime = build_runtime(Path(".").resolve())
+    result = asyncio.run(
+        runtime.tools.execute_tool(
+            "index_project",
+            {"root_path": "."},
+        )
+    )
+    assert result["ok"] is True
+    assert "import_edges_count" in result
+    assert "dependency_edges_count" in result
+    assert "dependency_names_count" in result
+
+    idx_path = Path(".harness") / "project_index.json"
+    idx = json.loads(idx_path.read_text(encoding="utf-8"))
+    graph = idx.get("graph", {})
+    assert isinstance(graph.get("import_edges", []), list)
+    assert isinstance(graph.get("dependency_edges", []), list)
+    assert isinstance(graph.get("dependency_names", []), list)
+    # This repo has dependency manifests, so at least one dependency should be discovered.
+    assert len(graph.get("dependency_names", [])) > 0
+
+
 def test_read_context_reads_explicit_paths() -> None:
     # Create a small test file for deterministic read
     test_file = Path(".harness") / "test-phase3-context.txt"
