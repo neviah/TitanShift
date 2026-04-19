@@ -270,6 +270,12 @@ def create_app(workspace_root: Path) -> FastAPI:
         runtime.orchestrator.state_machine.models = runtime.models
         runtime.health.set("models", "healthy", {"default": runtime.config.get("model.default_backend")})
 
+    def _reload_run_queue() -> None:
+        nonlocal _run_queue
+        max_concurrent_runs = int(runtime.config.get("execution.max_concurrent_runs", 4))
+        run_timeout_s = float(runtime.config.get("execution.run_timeout_seconds", 300))
+        _run_queue = RunQueue(max_workers=max_concurrent_runs, timeout_s=run_timeout_s)
+
     async def _scheduler_background_loop() -> None:
         interval_s = max(1.0, float(runtime.config.get("scheduler.auto_tick_interval_s", 1.0)))
         while not _scheduler_loop_stop.is_set():
@@ -2843,6 +2849,12 @@ def create_app(workspace_root: Path) -> FastAPI:
             and bool(runtime.config.get("orchestrator.superpowered_mode.disable_run_timeout", True))
         )
         run_timeout_s = _run_queue.timeout_s
+        if resolved_mode != "superpowered":
+            selected_backend = str(task.input.get("model_backend", runtime.config.get("model.default_backend", "local_stub")))
+            model_adapter = runtime.models.select_model(selected_backend)
+            model_timeout_s = float(getattr(model_adapter, "timeout_s", 0) or 0)
+            if model_timeout_s > 0:
+                run_timeout_s = max(run_timeout_s, model_timeout_s)
         if resolved_mode == "superpowered":
             configured_superpowered_timeout = float(
                 runtime.config.get("orchestrator.superpowered_mode.run_timeout_seconds", 0)
@@ -4065,6 +4077,8 @@ def create_app(workspace_root: Path) -> FastAPI:
             "model.lmstudio.model": runtime.config.get("model.lmstudio.model"),
             "model.lmstudio.timeout_s": runtime.config.get("model.lmstudio.timeout_s"),
             "orchestrator.enable_subagents": runtime.config.get("orchestrator.enable_subagents"),
+            "execution.run_timeout_seconds": runtime.config.get("execution.run_timeout_seconds"),
+            "execution.max_concurrent_runs": runtime.config.get("execution.max_concurrent_runs"),
             "scheduler.heartbeat_timeout_s": runtime.config.get("scheduler.heartbeat_timeout_s"),
             "state_machine.default_budget.max_steps": runtime.config.get("state_machine.default_budget.max_steps"),
             "state_machine.default_budget.max_tokens": runtime.config.get("state_machine.default_budget.max_tokens"),
@@ -4080,6 +4094,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         runtime.config.set(body.key, body.value)
         if body.key.startswith("model."):
             _reload_model_registry()
+        if body.key.startswith("execution."):
+            _reload_run_queue()
         runtime.logger.log("CONFIG_UPDATED", {"key": body.key})
         return ConfigUpdateResponse(ok=True, key=body.key, value=runtime.config.get(body.key))
 

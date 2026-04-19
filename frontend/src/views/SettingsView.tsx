@@ -28,6 +28,8 @@ interface ConfigState {
   'orchestrator.superpowered_mode.disable_run_timeout'?: boolean
   'orchestrator.superpowered_mode.run_timeout_seconds'?: number
   'orchestrator.superpowered_mode.disable_budget_timeout'?: boolean
+  'execution.run_timeout_seconds'?: number
+  'execution.max_concurrent_runs'?: number
   'tools.allow_network': boolean
   'tools.deny_all_by_default': boolean
   'state_machine.default_budget.max_steps': number
@@ -168,7 +170,7 @@ export function SettingsView() {
                     type="number"
                     className={styles.numInput}
                     min={1}
-                    max={300}
+                    max={1200}
                     value={Number(config['model.lmstudio.timeout_s'] ?? 45)}
                     onChange={(e) => patchLocal('model.lmstudio.timeout_s', Number(e.target.value))}
                   />
@@ -232,6 +234,21 @@ export function SettingsView() {
                 onChange={(v) => patchLocal('orchestrator.enable_subagents', v)}
               />
             </Field>
+
+            <Field label="Chat run timeout (seconds)">
+              <input
+                type="number"
+                className={styles.numInput}
+                min={30}
+                step={30}
+                max={1800}
+                value={Number(config['execution.run_timeout_seconds'] ?? 300)}
+                onChange={(e) => patchLocal('execution.run_timeout_seconds', Number(e.target.value))}
+              />
+            </Field>
+            <p className={styles.fieldHint}>
+              Applies to standard chat and lightning runs. The effective timeout is the higher of this value and the selected model adapter timeout.
+            </p>
 
             <Field label="Superpowered: remove run timeout">
               <Toggle
