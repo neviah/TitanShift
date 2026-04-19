@@ -25,7 +25,8 @@
         "writing-plans",
         "subagent-driven-development"
       ],
-      "review_loop_max_iterations": 3
+      "review_loop_max_iterations": 3,
+      "skip_plan_phase": false
     },
     "skill_execution_timeout_s": 15.0
   },
@@ -113,7 +114,7 @@
   },
   "api": {
     "require_api_key": false,
-    "api_key": "CBAF-7W1U86VCvXOxNP1jnxXeab5yS0D2E3h0jmJwqo",
+    "api_key": "N9Hao_1FrB1Q9yhjqFBco--_7GJhScyCKcpBpethWDc",
     "require_admin_api_key": false,
     "admin_api_key": "supersecretadminkey456"
   },
