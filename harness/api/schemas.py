@@ -996,6 +996,41 @@ class TaskRollbackResponse(BaseModel):
     error: str | None = None
 
 
+class TaskOutputBlock(BaseModel):
+    key: str
+    label: str
+    kind: str
+    value: Any
+
+
+class TaskOutputBlocksResponse(BaseModel):
+    task_id: str
+    status: str
+    blocks: list[TaskOutputBlock]
+
+
+class TaskResumeRequest(BaseModel):
+    prompt: str | None = None
+    history: list[ChatHistoryMessage] | None = None
+    model_backend: str | None = None
+    budget: BudgetOverride | None = None
+    workflow_mode: str | None = None
+    reuse_history: bool = True
+    include_prior_output: bool = True
+
+
+class TaskResumeResponse(BaseModel):
+    ok: bool
+    source_task_id: str
+    task_id: str
+    success: bool
+    response: str
+    model: str
+    mode: str
+    workflow_mode: str | None = None
+    error: str | None = None
+
+
 class ApiKeyStatusResponse(BaseModel):
     read_key_configured: bool
     admin_key_configured: bool

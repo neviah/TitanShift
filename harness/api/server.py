@@ -145,6 +145,10 @@ from harness.api.schemas import (
     TaskSummary,
     TaskCancelResponse,
     TaskRollbackResponse,
+    TaskOutputBlocksResponse,
+    TaskOutputBlock,
+    TaskResumeRequest,
+    TaskResumeResponse,
     ApiKeyStatusResponse,
     ApiKeyRotateResponse,
     ApiKeyRecord,
@@ -3262,11 +3266,112 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
 
     @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_read_api_key)])
-    async def get_task(task_id: str) -> TaskDetail:
-        task = runtime.orchestrator.get_task(task_id)
+    async def get_task(task_id: str, tenant: TenantContext = Depends(require_read_api_key)) -> TaskDetail:
+        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        task = runtime.orchestrator.get_task(task_id, tenant_id=tenant_filter)
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return TaskDetail(**task)
+
+    @app.get("/tasks/{task_id}/output/blocks", response_model=TaskOutputBlocksResponse, dependencies=[Depends(require_read_api_key)])
+    async def get_task_output_blocks(
+        task_id: str,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> TaskOutputBlocksResponse:
+        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        record = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant_filter)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        output = record.output if isinstance(record.output, dict) else {}
+        blocks: list[TaskOutputBlock] = []
+
+        def _add_block(key: str, label: str, kind: str, value: Any) -> None:
+            if value is None:
+                return
+            if isinstance(value, str) and not value.strip():
+                return
+            if isinstance(value, (list, dict)) and not value:
+                return
+            blocks.append(TaskOutputBlock(key=key, label=label, kind=kind, value=value))
+
+        _add_block("response", "Final Response", "text", output.get("response"))
+        _add_block("error", "Error", "text", record.error)
+        _add_block("used_tools", "Used Tools", "list", output.get("used_tools"))
+        _add_block("created_paths", "Created Paths", "list", output.get("created_paths"))
+        _add_block("updated_paths", "Updated Paths", "list", output.get("updated_paths"))
+        _add_block("patch_summaries", "Patch Summaries", "list", output.get("patch_summaries"))
+        _add_block("context_provenance", "Context Provenance", "list", output.get("context_provenance"))
+        _add_block("artifacts", "Artifacts", "list", output.get("artifacts"))
+        _add_block("test_failure_summary", "Test Failures", "list", output.get("test_failure_summary"))
+
+        return TaskOutputBlocksResponse(
+            task_id=task_id,
+            status=record.status,
+            blocks=blocks,
+        )
+
+    @app.post("/tasks/{task_id}/resume", response_model=TaskResumeResponse, dependencies=[Depends(require_read_api_key)])
+    async def resume_task(
+        task_id: str,
+        body: TaskResumeRequest,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> TaskResumeResponse:
+        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        source = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant_filter)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        source_output = source.output if isinstance(source.output, dict) else {}
+        prompt = str(body.prompt or source.description).strip()
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Cannot resume task with empty prompt")
+
+        history: list[dict[str, str]] = []
+        if body.reuse_history:
+            history.append({"role": "user", "content": source.description})
+            if body.include_prior_output:
+                prior_answer = str(source_output.get("response") or source.error or "").strip()
+                if prior_answer:
+                    history.append({"role": "assistant", "content": prior_answer})
+        if body.history:
+            history.extend([{"role": m.role, "content": m.content} for m in body.history])
+
+        model_backend = str(body.model_backend or source_output.get("model") or runtime.config.get("model.default_backend", "local_stub"))
+        workflow_mode = str(body.workflow_mode or source_output.get("workflow_mode") or "lightning")
+
+        task_input: dict[str, Any] = {
+            "model_backend": model_backend,
+            "workflow_mode": workflow_mode,
+            "budget": body.budget.model_dump(exclude_none=True) if body.budget else {},
+            "workspace_root": str(_active_workspace["root"]).replace("\\", "/"),
+            "tenant_id": tenant.tenant_id,
+            "allowed_tools": list(tenant.allowed_tools),
+        }
+        if history:
+            task_input["conversation_history"] = history
+
+        available_tools = runtime.tools.list_tools()
+        task_input["available_tools"] = [
+            {"name": t.name, "description": t.description or ""}
+            for t in available_tools
+            if runtime.tools.preview_policy(t)[0]
+        ]
+
+        resumed_task = Task(id=str(uuid.uuid4()), description=prompt, input=task_input)
+        result = await runtime.orchestrator.run_reactive_task(resumed_task)
+
+        return TaskResumeResponse(
+            ok=True,
+            source_task_id=task_id,
+            task_id=resumed_task.id,
+            success=result.success,
+            response=result.output.get("response", result.error or ""),
+            model=result.output.get("model", "unknown"),
+            mode=result.output.get("mode", "reactive"),
+            workflow_mode=result.output.get("workflow_mode"),
+            error=result.error,
+        )
 
     @app.post("/tasks/search", response_model=TaskSearchResponse, dependencies=[Depends(require_read_api_key)])
     async def search_tasks(body: TaskSearchRequest) -> TaskSearchResponse:

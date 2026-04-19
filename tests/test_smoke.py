@@ -4901,6 +4901,50 @@ def test_tasks_search_endpoint_returns_results() -> None:
         assert "snippet" in item
 
 
+def test_task_output_blocks_endpoint_returns_block_list() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    chat_resp = client.post(
+        "/chat",
+        json={"prompt": "phase5 output blocks test", "model_backend": "local_stub"},
+    )
+    assert chat_resp.status_code == 200
+    task_id = chat_resp.json().get("task_id")
+    assert task_id
+
+    response = client.get(f"/tasks/{task_id}/output/blocks")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_id"] == task_id
+    assert isinstance(body.get("blocks"), list)
+    assert any(block.get("key") == "response" for block in body.get("blocks", []))
+
+
+def test_task_resume_endpoint_creates_new_task() -> None:
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    first = client.post(
+        "/chat",
+        json={"prompt": "phase5 resume source", "model_backend": "local_stub"},
+    )
+    assert first.status_code == 200
+    source_task_id = first.json().get("task_id")
+    assert source_task_id
+
+    resumed = client.post(
+        f"/tasks/{source_task_id}/resume",
+        json={"prompt": "continue from prior result", "reuse_history": True},
+    )
+    assert resumed.status_code == 200
+    body = resumed.json()
+    assert body["ok"] is True
+    assert body["source_task_id"] == source_task_id
+    assert body["task_id"] != source_task_id
+    assert isinstance(body.get("response"), str)
+
+
 def test_workflow_metrics_returns_enhanced_fields() -> None:
     """GET /metrics/workflow returns the new success_rate and percentile fields."""
     app = create_app(Path(".").resolve())
