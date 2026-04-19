@@ -3229,6 +3229,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_input["allowed_tools"] = list(tenant.allowed_tools)
 
         task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
+        requested_mode = str(task_input.get("workflow_mode", "")).strip().lower()
 
         # Honour the same concurrency cap as /chat to prevent stream endpoint bypass.
         if _run_queue.at_capacity:
@@ -3242,8 +3243,32 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         async def _event_generator():
             try:
-                async for event in runtime.orchestrator.state_machine.run_task_stream(task):
-                    yield f"data: {json.dumps(event, default=str)}\n\n"
+                if requested_mode == "superpowered":
+                    # Superpowered streaming must execute through the orchestrator so plan/review
+                    # phases, role subagents, and mode-specific safeguards are honored.
+                    yield f"data: {json.dumps({'type': 'start', 'task_id': task.id, 'mode': 'superpowered'})}\n\n"
+                    result = await runtime.orchestrator.run_reactive_task(task)
+                    done_event = {
+                        "type": "done",
+                        "task_id": task.id,
+                        "success": bool(result.success),
+                        "response": result.output.get("response", result.error or ""),
+                        "model": result.output.get("model", "unknown"),
+                        "mode": result.output.get("mode", "reactive"),
+                        "workflow_mode": result.output.get("workflow_mode", "superpowered"),
+                        "used_tools": result.output.get("used_tools", []),
+                        "created_paths": result.output.get("created_paths", []),
+                        "updated_paths": result.output.get("updated_paths", []),
+                        "patch_summaries": result.output.get("patch_summaries", []),
+                        "context_provenance": result.output.get("context_provenance", []),
+                        "estimated_total_tokens": result.output.get("estimated_total_tokens"),
+                        "artifacts": result.output.get("artifacts", []),
+                        "error": result.error,
+                    }
+                    yield f"data: {json.dumps(done_event, default=str)}\n\n"
+                else:
+                    async for event in runtime.orchestrator.state_machine.run_task_stream(task):
+                        yield f"data: {json.dumps(event, default=str)}\n\n"
             except Exception as exc:
                 err = json.dumps({"type": "error", "message": str(exc)}, default=str)
                 yield f"data: {err}\n\n"

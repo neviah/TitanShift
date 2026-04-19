@@ -1148,6 +1148,7 @@ class ReactiveStateMachine:
 
         used_tools: list[str] = []
         tool_errors: list[str] = []
+        last_tool_result_lines: list[str] = []
         created_paths: list[str] = []
         updated_paths: list[str] = []
         artifacts: list[dict[str, Any]] = []
@@ -1255,7 +1256,24 @@ class ReactiveStateMachine:
                             )
                         )
                     llm_call_index += 1
-                except (asyncio.TimeoutError, RuntimeError):
+                except asyncio.TimeoutError:
+                    if last_tool_result_lines:
+                        final_text = (
+                            "Timed out while generating the final response, but tool results were collected:\n\n"
+                            + "\n".join(last_tool_result_lines)
+                        )
+                        yield {"type": "text_delta", "step": step, "text": final_text}
+                        break
+                    yield {"type": "error", "message": "Model timed out"}
+                    return
+                except RuntimeError as exc:
+                    if last_tool_result_lines and "timed out" in str(exc).lower():
+                        final_text = (
+                            "The model timed out while preparing the final write-up, but workspace/tool actions completed:\n\n"
+                            + "\n".join(last_tool_result_lines)
+                        )
+                        yield {"type": "text_delta", "step": step, "text": final_text}
+                        break
                     yield {"type": "error", "message": "Model timed out"}
                     return
 
@@ -1417,6 +1435,7 @@ class ReactiveStateMachine:
                     "role": "user",
                     "content": "Tool outputs are now available.\n" + "\n".join(tool_result_lines),
                 })
+                last_tool_result_lines = tool_result_lines.copy()
             else:
                 if not final_text:
                     final_text = "[Agent reached max steps without producing a final response]"
