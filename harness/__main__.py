@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import shutil
 import sqlite3
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -62,6 +64,13 @@ def build_parser() -> argparse.ArgumentParser:
     config_sub.add_parser(
         "migrate",
         help="Compare the on-disk harness.config.json against current defaults and show diffs",
+    )
+
+    init_cmd = sub.add_parser("init", help="Interactive first-run setup wizard")
+    init_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing harness.config.json without prompting",
     )
 
     return parser
@@ -219,6 +228,178 @@ def run_config_migrate(workspace_root: Path) -> None:
 
 
 
+# ── Init wizard ──────────────────────────────────────────────────────────────
+
+
+def _ask(prompt: str, default: str = "") -> str:
+    """Read a line from stdin, falling back to *default* on empty input."""
+    hint = f" [{default}]" if default else ""
+    try:
+        raw = input(f"{prompt}{hint}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise SystemExit(0)
+    return raw if raw else default
+
+
+def _ask_choice(prompt: str, choices: list[str], default_index: int = 0) -> str:
+    """Present a numbered menu and return the chosen value."""
+    for i, c in enumerate(choices, 1):
+        marker = " (default)" if i - 1 == default_index else ""
+        print(f"  [{i}] {c}{marker}")
+    while True:
+        raw = _ask(prompt, str(default_index + 1))
+        try:
+            idx = int(raw) - 1
+            if 0 <= idx < len(choices):
+                return choices[idx]
+        except ValueError:
+            pass
+        print(f"  Please enter a number between 1 and {len(choices)}.")
+
+
+def run_init(workspace_root: Path, force: bool = False) -> None:  # noqa: PLR0912
+    """Interactive setup wizard that writes harness.config.json."""
+    config_path = workspace_root / "harness.config.json"
+    _SEP = "─" * 52
+
+    print()
+    print("  TitanShift Setup Wizard")
+    print(_SEP)
+
+    if config_path.exists() and not force:
+        print(f"  A config already exists at {config_path.name}")
+        overwrite = _ask("  Overwrite it? (y/N)", "N").lower()
+        if overwrite != "y":
+            print("  Aborted. Run with --force to skip this prompt.")
+            return
+
+    # ── 1. Model backend ─────────────────────────────────────────────────────
+    print()
+    print("  [1/3] Model backend")
+    backend = _ask_choice(
+        "  Choose",
+        ["lmstudio", "openai_compatible", "local_stub"],
+        default_index=0,
+    )
+
+    lmstudio_url = "http://127.0.0.1:1234/v1"
+    lmstudio_model = ""
+    openai_url = ""
+    openai_key_env = "OPENAI_API_KEY"
+
+    if backend == "lmstudio":
+        print()
+        lmstudio_url = _ask("  LM Studio base URL", "http://127.0.0.1:1234/v1")
+        lmstudio_model = _ask("  Model name (blank = auto-detect)", "")
+    elif backend == "openai_compatible":
+        print()
+        openai_url = _ask("  API base URL", "https://api.openai.com/v1")
+        openai_key_env = _ask("  API key env var", "OPENAI_API_KEY")
+
+    # ── 2. Workflow mode ─────────────────────────────────────────────────────
+    print()
+    print("  [2/3] Workflow mode")
+    print("        lightning    – fast, single-step responses")
+    print("        superpowered – multi-phase (spec → plan → implement → review)")
+    workflow = _ask_choice("  Choose", ["lightning", "superpowered"], default_index=0)
+
+    # ── 3. Allow cloud adapters ───────────────────────────────────────────────
+    print()
+    print("  [3/3] Options")
+    cloud_raw = _ask("  Allow cloud model adapters? (y/N)", "N").lower()
+    allow_cloud = cloud_raw == "y"
+
+    # ── Build config ──────────────────────────────────────────────────────────
+    cfg: dict[str, Any] = {
+        "orchestrator": {
+            "enable_subagents": True,
+            "workflow_mode": workflow,
+            "lightning_mode": {
+                "auto_route_through_skills": False,
+                "max_tool_calls_per_response": 5,
+                "default_budget": {
+                    "max_steps": 60,
+                    "max_tokens": 12000,
+                    "max_duration_ms": 300000,
+                },
+            },
+            "superpowered_mode": {
+                "require_spec_approval": True,
+                "require_plan_approval": True,
+                "require_task_reviews": True,
+                "require_verification_before_done": True,
+                "disable_run_timeout": True,
+                "run_timeout_seconds": 0,
+                "disable_budget_timeout": True,
+                "skip_plan_phase": False,
+            },
+        },
+        "model": {
+            "default_backend": backend,
+            "allow_cloud_adapters": allow_cloud,
+        },
+        "memory": {
+            "semantic_backend": "sqlite",
+            "enable_chroma": False,
+            "graph_backend": "networkx",
+        },
+        "tools": {
+            "deny_all_by_default": False,
+            "allow_network": True,
+        },
+    }
+
+    if backend == "lmstudio":
+        cfg["model"]["lmstudio"] = {
+            "base_url": lmstudio_url,
+            "model": lmstudio_model,
+            "timeout_s": 180,
+            "max_tokens": 4096,
+            "temperature": 0.2,
+        }
+    elif backend == "openai_compatible":
+        cfg["model"]["openai_compatible"] = {
+            "base_url": openai_url,
+            "api_key_env": openai_key_env,
+            "timeout_s": 120,
+            "max_tokens": 4096,
+            "temperature": 0.2,
+        }
+
+    # ── Write config ──────────────────────────────────────────────────────────
+    # Back up existing config before overwriting
+    if config_path.exists():
+        backup = config_path.with_suffix(".json.bak")
+        shutil.copy2(config_path, backup)
+        print(f"\n  Backed up existing config to {backup.name}")
+
+    config_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+
+    # ── Create data directory ─────────────────────────────────────────────────
+    data_dir = workspace_root / "harness_data"
+    data_dir.mkdir(exist_ok=True)
+
+    # ── Next steps ────────────────────────────────────────────────────────────
+    print()
+    print(_SEP)
+    print("  Setup complete!")
+    print()
+    print(f"  Config written to:  {config_path.name}")
+    print(f"  Data directory:     harness_data/")
+    print()
+    print("  Next steps:")
+    if backend == "lmstudio":
+        print("    1. Start LM Studio and load a model")
+        print("    2. Run: titanshift lmstudio-check")
+    elif backend == "openai_compatible":
+        print(f"    1. Set the {openai_key_env} environment variable")
+    print("    titanshift serve-api       # start the backend API")
+    print("    titanshift run-task 'Hi'   # run a quick smoke test")
+    print(_SEP)
+    print()
+
+
 def serve_api(workspace_root: Path, host: str, port: int) -> None:
     app = create_app(workspace_root)
     uvicorn.run(app, host=host, port=port)
@@ -252,6 +433,8 @@ def main() -> None:
     elif args.command == "config":
         if args.config_command == "migrate":
             run_config_migrate(workspace_root)
+    elif args.command == "init":
+        run_init(workspace_root, force=args.force)
 
 
 if __name__ == "__main__":

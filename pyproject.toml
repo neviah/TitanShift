@@ -22,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 harness = "harness.__main__:main"
+titanshift = "harness.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["harness*"]
