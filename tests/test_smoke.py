@@ -634,6 +634,8 @@ def test_apply_wiring_dry_run_no_file_writes() -> None:
     )
     assert result["ok"] is True
     assert result["dry_run"] is True
+    assert isinstance(result.get("provenance"), list)
+    assert any("selection_reason" in row for row in result.get("provenance", []))
     # File must be unchanged
     assert app_tsx.read_text(encoding="utf-8") == original
 

@@ -3657,6 +3657,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         skipped: list[dict[str, Any]] = []
         updated_paths: list[str] = []
         patch_summaries: list[str] = []
+        provenance: list[dict[str, Any]] = []
 
         for proposal in proposals:
             if not isinstance(proposal, dict):
@@ -3678,14 +3679,29 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "reason": "manual patch_type â€” requires human action",
                     "instruction": proposal.get("manual_instruction", ""),
                 })
+                provenance.append({
+                    "path": target_file,
+                    "purpose": "wiring_target",
+                    "selection_reason": str(proposal.get("description") or proposal.get("manual_instruction") or "manual patch_type"),
+                })
                 continue
             if not target_path.is_file():
                 skipped.append({"file": target_file, "reason": "target file does not exist"})
+                provenance.append({
+                    "path": target_file,
+                    "purpose": "wiring_target",
+                    "selection_reason": str(proposal.get("description") or "target file does not exist"),
+                })
                 continue
             try:
                 current = target_path.read_text(encoding="utf-8")
             except Exception as exc:
                 skipped.append({"file": target_file, "reason": f"read error: {exc}"})
+                provenance.append({
+                    "path": target_file,
+                    "purpose": "wiring_target",
+                    "selection_reason": str(proposal.get("description") or f"read error: {exc}"),
+                })
                 continue
 
             updated = current
@@ -3759,8 +3775,35 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                 patch_summaries.append(
                     f"Wired {cname or target_file} into {target_file} ({patch_type})"
                 )
+                provenance.append({
+                    "path": target_file,
+                    "purpose": "wiring_target",
+                    "selection_reason": str(proposal.get("description") or patch_type),
+                })
             else:
                 skipped.append({"file": target_file, "reason": "no changes needed (already wired)"})
+                provenance.append({
+                    "path": target_file,
+                    "purpose": "wiring_target",
+                    "selection_reason": str(proposal.get("description") or "already wired"),
+                })
+
+        deduped_provenance: list[dict[str, Any]] = []
+        seen_provenance: set[tuple[str, str, str]] = set()
+        for item in provenance:
+            key = (
+                str(item.get("path", "")),
+                str(item.get("purpose", "")),
+                str(item.get("selection_reason", "")),
+            )
+            if key in seen_provenance:
+                continue
+            seen_provenance.add(key)
+            deduped_provenance.append({
+                "path": key[0],
+                "purpose": key[1],
+                "selection_reason": key[2],
+            })
 
         return {
             "ok": True,
@@ -3770,6 +3813,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             "skipped": skipped,
             "updated_paths": list(dict.fromkeys(updated_paths)),
             "patch_summaries": patch_summaries,
+            "provenance": deduped_provenance,
             "dry_run": dry_run,
         }
 

@@ -873,6 +873,11 @@ class ReactiveStateMachine:
                         patch_summaries.extend(
                             str(s).strip() for s in wiring_summaries if str(s).strip()
                         )
+                    wiring_prov = tool_result.get("provenance")
+                    if isinstance(wiring_prov, list):
+                        context_provenance.extend(
+                            item for item in wiring_prov if isinstance(item, dict)
+                        )
 
                 # ── PostToolUse hook ──────────────────────────────────────
                 if self.hooks is not None:
@@ -1257,6 +1262,9 @@ class ReactiveStateMachine:
                             ws = tool_result.get("patch_summaries")
                             if isinstance(ws, list):
                                 patch_summaries.extend(str(s).strip() for s in ws if str(s).strip())
+                            wiring_prov = tool_result.get("provenance")
+                            if isinstance(wiring_prov, list):
+                                context_provenance.extend(i for i in wiring_prov if isinstance(i, dict))
                             raw_diff = str(tool_result.get("diff", "") or "").strip()
                             if raw_diff:
                                 last_diff = raw_diff
