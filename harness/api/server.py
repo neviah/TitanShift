@@ -2929,11 +2929,18 @@ def create_app(workspace_root: Path) -> FastAPI:
             task_rec = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant.tenant_id)
             if task_rec is None:
                 raise HTTPException(status_code=403, detail="Task not found or access denied")
-        was_running = runtime.cancellation.is_running(task_id)
+        task_rec_any = runtime.orchestrator.task_store.get(task_id)
+        store_status = str((task_rec_any or {}).get("status", "")).strip().lower()
+        was_running = runtime.cancellation.is_running(task_id) or store_status == "running"
         cancelled = runtime.cancellation.cancel(task_id)
-        if cancelled:
+
+        # After API restarts, in-memory cancellation tokens are lost but task store can still
+        # show a task as running. In that case, force-close the stale task so UI does not retain
+        # zombie runs indefinitely.
+        if cancelled or (not cancelled and store_status == "running"):
             try:
                 runtime.orchestrator.task_store.mark_cancelled(task_id)
+                cancelled = True
             except Exception:
                 pass
         return TaskCancelResponse(task_id=task_id, cancelled=cancelled, was_running=was_running)
