@@ -15,6 +15,11 @@
         "max_tokens": 12000,
         "max_duration_ms": 90000
       }
+    },
+    "superpowered_mode": {
+      "disable_run_timeout": true,
+      "run_timeout_seconds": 0,
+      "disable_budget_timeout": true
     }
   },
   "skills": {

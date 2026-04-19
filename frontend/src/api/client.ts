@@ -31,7 +31,6 @@ import type {
   TaskRollbackResponse,
   ApiKeyStatusResponse,
   ApiKeyRotateResponse,
-  ApiKeyRecord,
   CreateApiKeyRequest,
   CreateApiKeyResponse,
   ApiKeyListResponse,

@@ -39,7 +39,7 @@ export function ChatView() {
   const [timelineOpen, setTimelineOpen] = useState(true)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
-  const { state: streamState, startStream } = useTaskStream()
+  const { state: streamState, startStream, cancelStream } = useTaskStream()
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
   const { concurrencyMode, isTaskRunning } = useSchedulerTask()
@@ -55,6 +55,8 @@ export function ChatView() {
   }, [messages])
 
   const canSend = useMemo(() => input.trim().length > 0 && !sending, [input, sending])
+  const streamEnabled = useMemo(() => liveRun || workflowMode === 'superpowered', [liveRun, workflowMode])
+  const streamRunning = streamState.status === 'connecting' || streamState.status === 'streaming'
   const planTaskCount = useMemo(
     () => planTasksText.split('\n').map((line) => line.trim()).filter(Boolean).length,
     [planTasksText],
@@ -88,7 +90,14 @@ export function ChatView() {
     setSelectedMessageIndexes([])
     setPendingApprovals([])
     setBlockedPrompt(null)
-  }, [currentSession.id])
+    cancelStream()
+  }, [cancelStream, currentSession.id])
+
+  useEffect(() => {
+    if (streamState.taskId) {
+      setCurrentTaskId(streamState.taskId)
+    }
+  }, [streamState.taskId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -133,7 +142,7 @@ export function ChatView() {
     setWorkflowPhase('routing')
 
     // ── Live Run (streaming) path ────────────────────────────────────────────
-    if (liveRun) {
+    if (streamEnabled) {
       const requestBody: Record<string, unknown> = {
         prompt: text,
         ...(priorMessages.length > 0 ? { history: priorMessages } : {}),
@@ -142,12 +151,9 @@ export function ChatView() {
       }
       try {
         await startStream(requestBody)
-        // Response will come via streamState; append a placeholder then update
-        // once done event arrives. We watch streamState in the effect below.
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
         setWorkflowPhase('error')
-      } finally {
         setSending(false)
       }
       return
@@ -217,13 +223,35 @@ export function ChatView() {
       appendMessage({ role: 'assistant', text: streamState.finalResponse })
       setWorkflowPhase('deliver')
       setSending(false)
+    } else if (streamState.status === 'done') {
+      setSending(false)
     } else if (streamState.status === 'error' && streamState.error) {
       setError(streamState.error)
       setWorkflowPhase('error')
       setSending(false)
+    } else if (streamState.status === 'idle') {
+      setSending(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamState.status])
+
+  async function stopActiveRun() {
+    if (cancelling) return
+    setCancelling(true)
+    try {
+      if (currentTaskId) {
+        await cancelTask(currentTaskId)
+      }
+      cancelStream()
+      setWorkflowPhase('idle')
+    } catch {
+      // Best-effort stop: always end local stream state.
+      cancelStream()
+    } finally {
+      setCancelling(false)
+      setSending(false)
+    }
+  }
 
   async function copyMessage(text: string, key: string) {
     try {
@@ -369,9 +397,9 @@ export function ChatView() {
               type="checkbox"
               checked={liveRun}
               onChange={(e) => setLiveRun(e.target.checked)}
-              disabled={sending}
+              disabled={sending || workflowMode === 'superpowered'}
             />
-            Live Run
+            {workflowMode === 'superpowered' ? 'Live Run (forced for Superpowered)' : 'Live Run'}
           </label>
           <span className={`badge ${workflowPhase === 'error' ? 'badge-error' : workflowPhase === 'approval' ? 'badge-warn' : 'badge-ok'}`}>
             {workflowPhase}
@@ -476,7 +504,7 @@ export function ChatView() {
             </div>
           </div>
         )}
-        {sending && !liveRun && (
+        {sending && !streamEnabled && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <StatusIndicator isActive />
             {currentTaskId && (
@@ -494,7 +522,7 @@ export function ChatView() {
             )}
           </div>
         )}
-        {liveRun && streamState.status !== 'idle' && (
+        {streamEnabled && streamState.status !== 'idle' && (
           <div>
             <button
               className={styles.collapseBtn}
@@ -506,6 +534,14 @@ export function ChatView() {
             </button>
             {timelineOpen && (
               <RunTimeline events={streamState.events} status={streamState.status} />
+            )}
+            {(streamRunning || sending) && (
+              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <StatusIndicator isActive />
+                <button className={styles.cancelBtn} disabled={cancelling} onClick={() => void stopActiveRun()}>
+                  {cancelling ? 'Stopping…' : 'Stop'}
+                </button>
+              </div>
             )}
             {streamState.status === 'done' && (
               <PreviewPanel

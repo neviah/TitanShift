@@ -25,6 +25,9 @@ interface ConfigState {
   'model.openai_compatible.api_key'?: string
   'model.openai_compatible.timeout_s'?: number
   'orchestrator.enable_subagents': boolean
+  'orchestrator.superpowered_mode.disable_run_timeout'?: boolean
+  'orchestrator.superpowered_mode.run_timeout_seconds'?: number
+  'orchestrator.superpowered_mode.disable_budget_timeout'?: boolean
   'tools.allow_network': boolean
   'tools.deny_all_by_default': boolean
   'state_machine.default_budget.max_steps': number
@@ -229,6 +232,35 @@ export function SettingsView() {
                 onChange={(v) => patchLocal('orchestrator.enable_subagents', v)}
               />
             </Field>
+
+            <Field label="Superpowered: remove run timeout">
+              <Toggle
+                checked={Boolean(config['orchestrator.superpowered_mode.disable_run_timeout'] ?? true)}
+                onChange={(v) => patchLocal('orchestrator.superpowered_mode.disable_run_timeout', v)}
+              />
+            </Field>
+
+            <Field label="Superpowered run timeout (seconds)">
+              <input
+                type="number"
+                className={styles.numInput}
+                min={0}
+                step={30}
+                value={Number(config['orchestrator.superpowered_mode.run_timeout_seconds'] ?? 0)}
+                disabled={Boolean(config['orchestrator.superpowered_mode.disable_run_timeout'] ?? true)}
+                onChange={(e) => patchLocal('orchestrator.superpowered_mode.run_timeout_seconds', Number(e.target.value))}
+              />
+            </Field>
+
+            <Field label="Superpowered: remove budget timeout">
+              <Toggle
+                checked={Boolean(config['orchestrator.superpowered_mode.disable_budget_timeout'] ?? true)}
+                onChange={(v) => patchLocal('orchestrator.superpowered_mode.disable_budget_timeout', v)}
+              />
+            </Field>
+            <p className={styles.fieldHint}>
+              When enabled, long Superpowered runs are not auto-stopped by timer limits. Use Stop in Chat to cancel manually.
+            </p>
 
           {/* ── Scheduler ── */}
           <Section title="Scheduler">

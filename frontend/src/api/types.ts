@@ -193,6 +193,8 @@ export interface ChatResponse {
   workflow_mode?: string | null
   missing_approvals?: string[] | null
   required_skill_chain?: string[] | null
+  status?: string | null
+  plan_draft?: Record<string, unknown> | null
   error: string | null
   estimated_total_tokens: number | null
   task_template_id?: string | null

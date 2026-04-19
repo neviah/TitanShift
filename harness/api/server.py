@@ -2828,9 +2828,24 @@ def create_app(workspace_root: Path) -> FastAPI:
         # Wrap in an asyncio.Task so it can be cancelled via POST /tasks/{id}/cancel.
         _run_coro = asyncio.create_task(runtime.orchestrator.run_reactive_task(task))
         runtime.cancellation.register(task.id, _run_coro)
+        resolved_mode = runtime.orchestrator._resolve_workflow_mode(task)
+        disable_timeout_for_superpowered = (
+            resolved_mode == "superpowered"
+            and bool(runtime.config.get("orchestrator.superpowered_mode.disable_run_timeout", True))
+        )
+        run_timeout_s = _run_queue.timeout_s
+        if resolved_mode == "superpowered":
+            configured_superpowered_timeout = float(
+                runtime.config.get("orchestrator.superpowered_mode.run_timeout_seconds", 0)
+            )
+            if configured_superpowered_timeout > 0:
+                run_timeout_s = configured_superpowered_timeout
         try:
-            # Enforce per-run wall-clock timeout via the run queue's configured value.
-            result = await asyncio.wait_for(_run_coro, timeout=_run_queue.timeout_s)
+            # Superpowered can run unbounded when explicitly configured; users can stop manually.
+            if disable_timeout_for_superpowered:
+                result = await _run_coro
+            else:
+                result = await asyncio.wait_for(_run_coro, timeout=run_timeout_s)
         except asyncio.TimeoutError:
             _run_coro.cancel()
             runtime.cancellation.unregister(task.id)
@@ -2840,7 +2855,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                 response="Run timed out.",
                 model="system",
                 mode="timeout",
-                error=f"Run exceeded timeout of {_run_queue.timeout_s}s.",
+                error=f"Run exceeded timeout of {run_timeout_s}s.",
                 task_id=task.id,
             )
         except asyncio.CancelledError:

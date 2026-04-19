@@ -18,6 +18,7 @@ export interface StreamArtifact {
 export interface TaskStreamState {
   events: StreamEvent[]
   status: 'idle' | 'connecting' | 'streaming' | 'done' | 'error'
+  taskId: string | null
   finalResponse: string | null
   error: string | null
   usedTools: string[]
@@ -41,6 +42,7 @@ export function useTaskStream() {
   const [state, setState] = useState<TaskStreamState>({
     events: [],
     status: 'idle',
+    taskId: null,
     finalResponse: null,
     error: null,
     usedTools: [],
@@ -65,6 +67,7 @@ export function useTaskStream() {
       setState({
         events: [],
         status: 'connecting',
+        taskId: null,
         finalResponse: null,
         error: null,
         usedTools: [],
@@ -119,6 +122,9 @@ export function useTaskStream() {
           setState((prev) => {
             const newEvents = [...prev.events, event]
             const updates: Partial<TaskStreamState> = { events: newEvents }
+            if (typeof event.task_id === 'string' && event.task_id.trim()) {
+              updates.taskId = event.task_id
+            }
             if (event.type === 'done') {
               updates.status = 'done'
               updates.finalResponse = typeof event.response === 'string' ? event.response : prev.finalResponse

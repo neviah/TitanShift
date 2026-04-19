@@ -611,16 +611,29 @@ class ReactiveStateMachine:
                             continue
                         if str(directive.get("action", "")).strip().lower() == "inject_message" and isinstance(directive.get("injected_message"), dict):
                             llm_messages = [directive["injected_message"], *llm_messages]
-                response = await asyncio.wait_for(
-                    model.generate(ModelRequest(
-                        prompt="",
-                        system_prompt=system_prompt,
-                        messages=llm_messages,
-                        tool_definitions=active_tool_defs,
-                        timeout_s=max(5.0, min(float(getattr(model, "timeout_s", 45.0)), budget["max_duration_ms"] / 1000.0)),
-                    )),
-                    timeout=budget["max_duration_ms"] / 1000.0,
+                max_duration_s: float | None = None
+                if int(budget["max_duration_ms"]) > 0:
+                    max_duration_s = budget["max_duration_ms"] / 1000.0
+                model_timeout_s = float(getattr(model, "timeout_s", 45.0))
+                effective_model_timeout = (
+                    max(5.0, min(model_timeout_s, max_duration_s))
+                    if max_duration_s is not None
+                    else max(5.0, model_timeout_s)
                 )
+                model_req = ModelRequest(
+                    prompt="",
+                    system_prompt=system_prompt,
+                    messages=llm_messages,
+                    tool_definitions=active_tool_defs,
+                    timeout_s=effective_model_timeout,
+                )
+                if max_duration_s is None:
+                    response = await model.generate(model_req)
+                else:
+                    response = await asyncio.wait_for(
+                        model.generate(model_req),
+                        timeout=max_duration_s,
+                    )
                 if self.hooks is not None:
                     await self.hooks.emit(
                         HookPayload(
@@ -1124,16 +1137,29 @@ class ReactiveStateMachine:
                                 continue
                             if str(directive.get("action", "")).strip().lower() == "inject_message" and isinstance(directive.get("injected_message"), dict):
                                 llm_messages = [directive["injected_message"], *llm_messages]
-                    response = await asyncio.wait_for(
-                        model.generate(ModelRequest(
-                            prompt="",
-                            system_prompt=system_prompt,
-                            messages=llm_messages,
-                            tool_definitions=active_tool_defs,
-                            timeout_s=max(5.0, min(float(getattr(model, "timeout_s", 45.0)), budget["max_duration_ms"] / 1000.0)),
-                        )),
-                        timeout=budget["max_duration_ms"] / 1000.0,
+                    max_duration_s: float | None = None
+                    if int(budget["max_duration_ms"]) > 0:
+                        max_duration_s = budget["max_duration_ms"] / 1000.0
+                    model_timeout_s = float(getattr(model, "timeout_s", 45.0))
+                    effective_model_timeout = (
+                        max(5.0, min(model_timeout_s, max_duration_s))
+                        if max_duration_s is not None
+                        else max(5.0, model_timeout_s)
                     )
+                    model_req = ModelRequest(
+                        prompt="",
+                        system_prompt=system_prompt,
+                        messages=llm_messages,
+                        tool_definitions=active_tool_defs,
+                        timeout_s=effective_model_timeout,
+                    )
+                    if max_duration_s is None:
+                        response = await model.generate(model_req)
+                    else:
+                        response = await asyncio.wait_for(
+                            model.generate(model_req),
+                            timeout=max_duration_s,
+                        )
                     if self.hooks is not None:
                         await self.hooks.emit(
                             HookPayload(
@@ -1402,8 +1428,20 @@ class ReactiveStateMachine:
             default_duration = int(
                 self.config.get("orchestrator.lightning_mode.default_budget.max_duration_ms", default_duration)
             )
+        elif workflow_mode == "superpowered":
+            default_steps = int(self.config.get("orchestrator.superpowered_mode.default_budget.max_steps", default_steps))
+            default_tokens = int(self.config.get("orchestrator.superpowered_mode.default_budget.max_tokens", default_tokens))
+            if bool(self.config.get("orchestrator.superpowered_mode.disable_budget_timeout", True)):
+                # 0 means unbounded wall-clock budget for superpowered runs.
+                default_duration = 0
+            else:
+                default_duration = int(
+                    self.config.get("orchestrator.superpowered_mode.default_budget.max_duration_ms", default_duration)
+                )
 
         req_budget = task.input.get("budget", {}) if task.input else {}
+        if not isinstance(req_budget, dict):
+            req_budget = {}
         return {
             "max_steps": int(req_budget.get("max_steps", default_steps)),
             "max_tokens": int(req_budget.get("max_tokens", default_tokens)),
