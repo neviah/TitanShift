@@ -102,6 +102,18 @@ export function CurrentRunTab() {
                 <span className="badge badge-dim">{String(taskDetail.output.workflow_mode)}</span>
               </div>
             )}
+            {typeof taskDetail?.output?.model === 'string' && taskDetail.output.model.length > 0 && (
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>Model Backend</span>
+                <span className="badge badge-dim">{String(taskDetail.output.model)}</span>
+              </div>
+            )}
+            {typeof taskDetail?.output?.provider_model === 'string' && taskDetail.output.provider_model.length > 0 && (
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>Provider Model</span>
+                <span className="badge badge-ok">{String(taskDetail.output.provider_model)}</span>
+              </div>
+            )}
             {readStringArray(taskDetail?.output?.used_tools).length > 0 && (
               <div className={styles.toolsBlock}>
                 <span className={styles.rowLabel}>Tools Used</span>

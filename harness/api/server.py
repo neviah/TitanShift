@@ -2896,6 +2896,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             success=result.success,
             response=result.output.get("response", result.error or ""),
             model=result.output.get("model", "unknown"),
+            provider_model=result.output.get("provider_model"),
             mode=result.output.get("mode", "reactive"),
             workflow_mode=result.output.get("workflow_mode"),
             missing_approvals=result.output.get("missing_approvals"),
@@ -2986,6 +2987,23 @@ def create_app(workspace_root: Path) -> FastAPI:
             "tenant_id": tenant.tenant_id,
             "allowed_tools": list(tenant.allowed_tools),
         }
+        # Mirror /chat approval-field mapping so superpowered runs don't hit the gate
+        if body.spec_approved is not None:
+            task_input["spec_approved"] = body.spec_approved
+        if body.plan_approved is not None:
+            task_input["plan_approved"] = body.plan_approved
+        if body.plan_tasks is not None:
+            task_input["plan_tasks"] = body.plan_tasks
+        if body.history:
+            task_input["conversation_history"] = [
+                {"role": m.role, "content": m.content} for m in body.history
+            ]
+        # Merge stored approvals when not explicitly provided in the request
+        stored_approvals = _load_approvals()
+        if "spec_approved" not in task_input and stored_approvals.get("spec"):
+            task_input["spec_approved"] = True
+        if "plan_approved" not in task_input and stored_approvals.get("plan"):
+            task_input["plan_approved"] = True
         available_tools = runtime.tools.list_tools()
         task_input["available_tools"] = [
             {"name": t.name, "description": t.description or ""}

@@ -545,6 +545,8 @@ class ReactiveStateMachine:
             "unless the user explicitly asks to see the code.",
             "Only emit tool calls for actual tools from the provided tool schema. Never emit tool calls for skills "
             "such as brainstorming, writing-plans, or subagent-driven-development.",
+            "Never invent placeholder values (for example fake URLs, dummy IDs, or lorem text) unless the user explicitly asks for placeholders. "
+            "If required data cannot be retrieved, report that clearly and do not write fabricated content.",
         ]
         if requested_tools:
             system_parts.append(
@@ -603,6 +605,7 @@ class ReactiveStateMachine:
         recovered_after_invalid_tool = False
         final_text = ""
         last_model_id = model.model_id
+        last_provider_model_id: str | None = None
         total_tokens = model.estimate_tokens(task.description)
         response = None
         workspace_root_path = Path(str(workspace_root or ".")).resolve()
@@ -714,6 +717,7 @@ class ReactiveStateMachine:
                                     {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
                                     for tc in (response.tool_calls or [])
                                 ],
+                                "provider_model": response.provider_model_id,
                                 "input_tokens": total_tokens,
                                 "output_tokens": model.estimate_tokens(response.text),
                                 "duration_ms": 0.0,
@@ -733,6 +737,7 @@ class ReactiveStateMachine:
                         output={
                             "response": fallback,
                             "model": last_model_id,
+                            "provider_model": last_provider_model_id,
                             "mode": "reactive",
                             "estimated_total_tokens": total_tokens,
                             "used_tools": used_tools,
@@ -751,6 +756,7 @@ class ReactiveStateMachine:
                         output={
                             "response": fallback,
                             "model": last_model_id,
+                            "provider_model": last_provider_model_id,
                             "mode": "reactive",
                             "estimated_total_tokens": total_tokens,
                             "used_tools": used_tools,
@@ -760,6 +766,7 @@ class ReactiveStateMachine:
                 raise
 
             last_model_id = response.model_id
+            last_provider_model_id = response.provider_model_id
 
             if not response.tool_calls:
                 if invalid_tool_seen and not recovered_after_invalid_tool:
@@ -1059,6 +1066,7 @@ class ReactiveStateMachine:
             output={
                 "response": final_text,
                 "model": last_model_id,
+                "provider_model": last_provider_model_id,
                 "mode": "reactive",
                 "estimated_total_tokens": total_tokens,
                 "used_tools": used_tools,
@@ -1120,6 +1128,7 @@ class ReactiveStateMachine:
             "For frontend page generation, default to a self-contained HTML file with embedded CSS unless the user explicitly requests separate files.",
             "After completing file operations, summarize what was created and where.",
             "Only emit tool calls for actual tools from the provided tool schema.",
+            "Never invent placeholder values (for example fake URLs, dummy IDs, or lorem text) unless the user explicitly asks for placeholders.",
         ]
         if requested_tools:
             system_parts.append(
@@ -1163,6 +1172,7 @@ class ReactiveStateMachine:
         context_provenance: list[dict[str, Any]] = []
         final_text = ""
         last_model_id = model.model_id
+        last_provider_model_id: str | None = None
         total_tokens = model.estimate_tokens(task.description)
         workspace_root_path = Path(str(workspace_root or ".")).resolve()
         workflow_mode_str = str(task.input.get("workflow_mode", "lightning") if task.input else "lightning")
@@ -1255,6 +1265,7 @@ class ReactiveStateMachine:
                                         {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
                                         for tc in (response.tool_calls or [])
                                     ],
+                                    "provider_model": response.provider_model_id,
                                     "input_tokens": total_tokens,
                                     "output_tokens": model.estimate_tokens(response.text),
                                     "duration_ms": 0.0,
@@ -1285,6 +1296,7 @@ class ReactiveStateMachine:
                     return
 
                 last_model_id = response.model_id
+                last_provider_model_id = response.provider_model_id
 
                 if not response.tool_calls:
                     final_text = response.text
@@ -1471,6 +1483,7 @@ class ReactiveStateMachine:
             "success": bool(final_text and not final_text.startswith("[Agent reached")),
             "response": final_text,
             "model": last_model_id,
+            "provider_model": last_provider_model_id,
             "used_tools": used_tools,
             "created_paths": list(dict.fromkeys(created_paths)),
             "updated_paths": list(dict.fromkeys(updated_paths)),

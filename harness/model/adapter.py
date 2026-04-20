@@ -33,6 +33,7 @@ class ModelResponse:
     text: str
     model_id: str
     tool_calls: list[ToolCall] | None = None
+    provider_model_id: str | None = None
 
 
 class ModelAdapter(Protocol):
@@ -350,6 +351,8 @@ class CloudOpenAIAdapter:
 
         # Check for tool calls first
         raw_tool_calls = message0.get("tool_calls") or []
+        provider_model_id = str(body.get("model", "")).strip() or str(payload.get("model", "")).strip() or None
+
         if raw_tool_calls:
             tool_calls: list[ToolCall] = []
             for i, tc in enumerate(raw_tool_calls):
@@ -363,18 +366,28 @@ class CloudOpenAIAdapter:
                     name=fn.get("name", ""),
                     arguments=args,
                 ))
-            return ModelResponse(text="", model_id=self.model_id, tool_calls=tool_calls)
+            return ModelResponse(
+                text="",
+                model_id=self.model_id,
+                tool_calls=tool_calls,
+                provider_model_id=provider_model_id,
+            )
 
         content = str(message0.get("content", "")).strip() or str(message0.get("reasoning_content", "")).strip()
         parsed_tool_calls = self._extract_pseudo_tool_calls(content)
         if parsed_tool_calls:
-            return ModelResponse(text="", model_id=self.model_id, tool_calls=parsed_tool_calls)
+            return ModelResponse(
+                text="",
+                model_id=self.model_id,
+                tool_calls=parsed_tool_calls,
+                provider_model_id=provider_model_id,
+            )
         # Strip any unprocessed tool-call markup so raw syntax never reaches the chat UI
         _cleaned = re.sub(r'<\|?tool_call\|?>.*', '', content, flags=re.DOTALL | re.IGNORECASE).strip()
         content = _cleaned if _cleaned else content
         if not content:
             content = "[openai_compatible] empty response"
-        return ModelResponse(text=content, model_id=self.model_id)
+        return ModelResponse(text=content, model_id=self.model_id, provider_model_id=provider_model_id)
 
     def estimate_tokens(self, text: str) -> int:
         return max(1, len(text) // 4)
@@ -406,7 +419,12 @@ class LMStudioAdapter:
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
         response = await self._delegate.generate(request)
-        return ModelResponse(text=response.text, model_id=self.model_id, tool_calls=response.tool_calls)
+        return ModelResponse(
+            text=response.text,
+            model_id=self.model_id,
+            tool_calls=response.tool_calls,
+            provider_model_id=response.provider_model_id,
+        )
 
     def _extract_pseudo_tool_calls(self, content: str) -> list[ToolCall]:
         return self._delegate._extract_pseudo_tool_calls(content)

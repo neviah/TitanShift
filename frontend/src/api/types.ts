@@ -189,6 +189,7 @@ export interface ChatResponse {
   success: boolean
   response: string
   model: string
+  provider_model?: string | null
   mode: string
   workflow_mode?: string | null
   missing_approvals?: string[] | null

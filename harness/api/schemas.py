@@ -34,6 +34,7 @@ class ChatResponse(BaseModel):
     success: bool
     response: str
     model: str
+    provider_model: str | None = None
     mode: str
     workflow_mode: str | None = None
     missing_approvals: list[str] | None = None
