@@ -926,7 +926,8 @@ class Orchestrator:
                         return result
                     task.input["review_result"] = review_result
 
-            if workflow_mode == "lightning" and self.enable_subagents and explicit_workflow_mode != "lightning":
+            is_lightning_delegate = ":lightning:" in task.id
+            if workflow_mode == "lightning" and self.enable_subagents and not is_lightning_delegate:
                 try:
                     lightning_spawned_ids = await self._maybe_spawn_lightning_subagents(task)
                     _telemetry["lightning_subagents_spawned"] = len(lightning_spawned_ids)
