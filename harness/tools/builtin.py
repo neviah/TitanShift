@@ -499,11 +499,12 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         if not raw_path:
             raise ValueError("directory_path is required")
         target = _resolve_workspace_path(raw_path)
+        existed_before = target.exists()
         target.mkdir(parents=True, exist_ok=True)
         return {
             "ok": True,
             "path": str(target).replace("\\", "/"),
-            "created": True,
+            "created": not existed_before,
         }
 
     tools.register_tool(
