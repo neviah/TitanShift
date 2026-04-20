@@ -168,6 +168,8 @@
       "generate_report",
       "generate_chart",
       "generate_svg_asset",
+      "generate_remotion_video",
+      "generate_hyperframes_scene",
       "officecli_create_document",
       "officecli_add_element",
       "officecli_view_document",

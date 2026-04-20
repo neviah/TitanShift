@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "remotion:list": "npm exec remotion -- compositions remotion/index.tsx",
+    "remotion:render": "npm exec remotion -- render remotion/index.tsx HelloVideo ../Testing/P4_creator_use_cases/manual-remotion/hello-video.mp4"
   },
   "dependencies": {
     "lucide-react": "^1.8.0",
@@ -19,6 +21,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@remotion/bundler": "^4.0.448",
+    "@remotion/cli": "^4.0.448",
+    "@remotion/renderer": "^4.0.448",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -27,6 +32,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "remotion": "^4.0.448",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.0",
     "vite": "^8.0.4"

@@ -56,7 +56,7 @@ def _check_remotion(project_path: Path, *, required: bool = True, timeout_s: int
             detail="npm is not available on PATH",
         )
 
-    cmd = [npm_bin, "exec", "remotion", "--", "--version"]
+    cmd = [npm_bin, "exec", "remotion", "--", "versions"]
     try:
         proc = subprocess.run(
             cmd,

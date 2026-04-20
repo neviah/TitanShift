@@ -1463,7 +1463,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         args = request.args
         title = str(args.get("title") or "Remotion Render").strip() or "Remotion Render"
         raw_project_path = str(args.get("project_path") or "frontend").strip()
-        raw_entry = str(args.get("entry") or "src/index.tsx").strip()
+        raw_entry = str(args.get("entry") or "remotion/index.tsx").strip()
         composition_id = str(args.get("composition_id") or "Main").strip()
         raw_target_path = str(args.get("target_path") or "outputs/videos").strip()
         output_filename = str(args.get("output_filename") or "").strip()
