@@ -24,7 +24,6 @@ from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.skills.registry import SkillDefinition, SkillRegistry
 from harness.tools.builtin import register_builtin_tools
 from harness.tools.last30days import register_last30days_tools
-from harness.tools.officecli import register_officecli_tools
 from harness.tools.registry import PermissionPolicy, ToolRegistry
 
 
@@ -87,7 +86,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     health.set("execution", "healthy")
 
     register_builtin_tools(tools, execution)
-    register_officecli_tools(tools)
     register_last30days_tools(tools, cfg_skills=cfg.get("skills", {}))
 
     skills = SkillRegistry(skill_base_path=str(workspace_root / "harness" / "skills"))

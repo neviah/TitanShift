@@ -58,21 +58,16 @@ Note:
 - Current harness integration generates scene and render-job artifacts.
 - Actual MP4 rendering is executed by HyperFrames CLI/runtime from the generated render job.
 
-## Office and PDF Policy
+## Document Policy
 
-When validating business artifact workflows:
+When validating document artifact workflows:
 
-1. Use officecli tools for:
-- `.docx`
-- `.xlsx`
-- `.pptx`
+1. Use `generate_report` with `format=pdf` for deterministic PDF output.
 
-2. Use `generate_report` with `format=pdf` for deterministic PDF output.
+2. Store outputs under:
+- `Testing/P4_creator_use_cases/<run_id>/pdf/`
 
-3. Store outputs under:
-- `Testing/P4_creator_use_cases/<run_id>/office_pdf/`
-
-4. Verify generated files are non-empty and represented in telemetry/artifact metadata.
+3. Verify generated files are non-empty and represented in telemetry/artifact metadata.
 
 ## Flood Guard
 
@@ -91,5 +86,11 @@ python scripts/validate_testing_outputs.py --workspace-root . --testing-root Tes
 Preflight command:
 
 ```bash
-python scripts/testing_preflight.py --workspace-root . --remotion-project frontend --testing-root Testing --require-officecli
+python scripts/testing_preflight.py --workspace-root . --remotion-project frontend --testing-root Testing
+```
+
+Release-readiness command:
+
+```bash
+python scripts/run_release_readiness.py --workspace-root . --base-url http://127.0.0.1:8000 --testing-root Testing
 ```

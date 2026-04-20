@@ -12,11 +12,10 @@
       }
     },
     "superpowered_mode": {
+      "require_spec_approval": true,
+      "require_plan_approval": true,
       "require_task_reviews": true,
       "require_verification_before_done": true,
-      "disable_run_timeout": true,
-      "run_timeout_seconds": 0,
-      "disable_budget_timeout": true,
       "artifact_paths": {
         "specs_dir": "documents/specs",
         "plans_dir": "documents/plans"
@@ -27,8 +26,7 @@
         "subagent-driven-development"
       ],
       "review_loop_max_iterations": 3,
-      "require_spec_approval": true,
-      "require_plan_approval": true
+      "skip_plan_phase": false
     },
     "skill_execution_timeout_s": 15.0
   },
@@ -44,7 +42,7 @@
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "",
-      "timeout_s": 180,
+      "timeout_s": 600,
       "max_tokens": 4096,
       "temperature": 0.2
     }
@@ -85,8 +83,7 @@
       "npm",
       "curl",
       "dir",
-      "echo",
-      "officecli"
+      "echo"
     ]
   },
   "execution": {
@@ -102,7 +99,8 @@
       "echo"
     ],
     "max_runtime_s": 300,
-    "max_output_bytes": 32768
+    "max_output_bytes": 32768,
+    "run_timeout_seconds": 600
   },
   "state_machine": {
     "default_budget": {
@@ -116,7 +114,7 @@
   },
   "api": {
     "require_api_key": false,
-    "api_key": "qmzjMr6du7AW_FB2BVF7i8ifZI7L2cH2WVhdmcrHeXE",
+    "api_key": "JnKl5hbP0R5uH3mjO73yMeE6ytv4fSucfWo0-sAiqeY",
     "require_admin_api_key": false,
     "admin_api_key": "supersecretadminkey456"
   },

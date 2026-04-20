@@ -128,12 +128,6 @@ The runtime includes built-in tools grouped into practical categories.
 
 ### Optional integrations
 
-- officecli_create_document
-- officecli_add_element
-- officecli_view_document
-- officecli_set_properties
-- officecli_merge_template
-- officecli_batch
 - last30days_research
 
 ## Authentication behavior

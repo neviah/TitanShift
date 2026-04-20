@@ -294,17 +294,6 @@ def _tool_findings(runtime: RuntimeContext) -> list[dict[str, str]]:
                 "Set execution.allowed_command_prefixes to the minimum approved command set.",
             )
         )
-    officecli_tools = [tool for tool in tools if tool.name.startswith("officecli_")]
-    if officecli_tools and shutil.which("officecli") is None:
-        findings.append(
-            _finding(
-                "AUDIT-T003",
-                "info",
-                "OfficeCLI tools are registered without the binary",
-                "officecli tools are available in the registry but the officecli executable is not on PATH.",
-                "Install officecli or unregister those tools for this deployment.",
-            )
-        )
     if len(tools) > 50:
         findings.append(
             _finding(

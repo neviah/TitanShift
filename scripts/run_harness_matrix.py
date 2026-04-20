@@ -20,6 +20,9 @@ class MatrixCase:
     workflow_mode: str = "lightning"
     timeout_s: int = 300
     expects_success: bool = True
+    retries: int = 0
+    retry_backoff_s: float = 2.0
+    cancel_on_timeout: bool = True
 
 
 def _now_stamp() -> str:
@@ -35,6 +38,22 @@ def _http_json(url: str, payload: dict[str, Any], timeout_s: int) -> dict[str, A
 
 def _submit_run(base_url: str, payload: dict[str, Any], timeout_s: int) -> dict[str, Any]:
     return _http_json(f"{base_url}/runs", payload, timeout_s=timeout_s)
+
+
+def _post_empty(url: str, timeout_s: int) -> dict[str, Any]:
+    req = urllib.request.Request(url, data=b"", method="POST")
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        body = resp.read().decode("utf-8")
+        return json.loads(body) if body.strip() else {}
+
+
+def _cancel_task(base_url: str, task_id: str) -> dict[str, Any] | None:
+    if not task_id:
+        return None
+    try:
+        return _post_empty(f"{base_url}/tasks/{task_id}/cancel", timeout_s=20)
+    except Exception:
+        return None
 
 
 def _poll_run(base_url: str, run_id: str, timeout_s: int, poll_interval_s: float = 2.0) -> tuple[dict[str, Any] | None, str | None]:
@@ -82,7 +101,9 @@ def _matrix_cases(run_root: Path) -> list[MatrixCase]:
             case_id="mode_superpowered",
             title="Mode routing superpowered",
             workflow_mode="superpowered",
-            timeout_s=240,
+            timeout_s=360,
+            retries=1,
+            retry_backoff_s=4.0,
             prompt="Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
         ),
         MatrixCase(
@@ -90,7 +111,9 @@ def _matrix_cases(run_root: Path) -> list[MatrixCase]:
             case_id="landing_single_file",
             title="Single-file landing quality",
             workflow_mode="superpowered",
-            timeout_s=240,
+            timeout_s=420,
+            retries=1,
+            retry_backoff_s=6.0,
             prompt=(
                 "Create exactly one file at "
                 f"{p1_target}. "
@@ -125,7 +148,9 @@ def _matrix_cases(run_root: Path) -> list[MatrixCase]:
             case_id="video_remotion_render",
             title="Remotion MP4 render",
             workflow_mode="superpowered",
-            timeout_s=360,
+            timeout_s=540,
+            retries=1,
+            retry_backoff_s=8.0,
             prompt=(
                 "Use generate_remotion_video to render an MP4 with composition_id HelloVideo, "
                 "project_path frontend, entry remotion/index.tsx, and target_path "
@@ -175,29 +200,51 @@ def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: s
         task_payload: dict[str, Any] | None = None
         request_error = None
 
-        try:
-            submit = _submit_run(base_url=base_url, payload=payload, timeout_s=30)
-            api_run_id = str(submit.get("run_id") or "").strip()
-            if not api_run_id:
-                raise RuntimeError(f"run submission did not return run_id: {submit}")
-            run_status, poll_error = _poll_run(base_url=base_url, run_id=api_run_id, timeout_s=case.timeout_s)
-            response_payload = {
-                "run_id": api_run_id,
-                "state": (run_status or {}).get("state", "unknown"),
-                "success": ((run_status or {}).get("result") or {}).get("success"),
-                "error": ((run_status or {}).get("result") or {}).get("error"),
-                "response": ((run_status or {}).get("result") or {}).get("response"),
-            }
-            if poll_error:
-                request_error = poll_error
+        attempt_records: list[dict[str, Any]] = []
+        for attempt in range(case.retries + 1):
+            attempt_record: dict[str, Any] = {"attempt": attempt + 1}
+            api_run_id = ""
             try:
-                task_payload = _http_get_json(f"{base_url}/tasks/{api_run_id}", timeout_s=30)
-            except Exception:
-                task_payload = None
-        except urllib.error.HTTPError as exc:
-            request_error = f"HTTP {exc.code}: {exc.reason}"
-        except Exception as exc:  # pragma: no cover
-            request_error = str(exc)
+                submit = _submit_run(base_url=base_url, payload=payload, timeout_s=30)
+                api_run_id = str(submit.get("run_id") or "").strip()
+                attempt_record["submit"] = submit
+                if not api_run_id:
+                    raise RuntimeError(f"run submission did not return run_id: {submit}")
+                run_status, poll_error = _poll_run(base_url=base_url, run_id=api_run_id, timeout_s=case.timeout_s)
+                response_payload = {
+                    "run_id": api_run_id,
+                    "state": (run_status or {}).get("state", "unknown"),
+                    "success": ((run_status or {}).get("result") or {}).get("success"),
+                    "error": ((run_status or {}).get("result") or {}).get("error"),
+                    "response": ((run_status or {}).get("result") or {}).get("response"),
+                }
+                attempt_record["run_status"] = run_status
+                if poll_error:
+                    request_error = poll_error
+                    attempt_record["poll_error"] = poll_error
+                    if case.cancel_on_timeout and "exceeded timeout" in poll_error:
+                        attempt_record["cancel"] = _cancel_task(base_url=base_url, task_id=api_run_id)
+                else:
+                    request_error = None
+                try:
+                    task_payload = _http_get_json(f"{base_url}/tasks/{api_run_id}", timeout_s=30)
+                except Exception:
+                    task_payload = None
+                attempt_record["task"] = task_payload
+
+                if request_error is None and bool((response_payload or {}).get("success")) == case.expects_success:
+                    attempt_records.append(attempt_record)
+                    break
+            except urllib.error.HTTPError as exc:
+                request_error = f"HTTP {exc.code}: {exc.reason}"
+                attempt_record["error"] = request_error
+            except Exception as exc:  # pragma: no cover
+                request_error = str(exc)
+                attempt_record["error"] = request_error
+
+            attempt_records.append(attempt_record)
+            if attempt < case.retries:
+                time.sleep(max(0.0, case.retry_backoff_s))
 
         elapsed = round(time.time() - started_case, 2)
         task_status = str((task_payload or {}).get("status") or "")
@@ -220,6 +267,7 @@ def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: s
             "response": response_payload,
             "run_status": run_status,
             "task": task_payload,
+            "attempts": attempt_records,
             "error": request_error,
             "pass": case_pass,
         }

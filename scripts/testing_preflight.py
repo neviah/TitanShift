@@ -100,7 +100,6 @@ def run_preflight(
     workspace_root: Path,
     remotion_project_path: Path,
     testing_root: Path,
-    require_officecli: bool,
 ) -> list[CheckResult]:
     checks: list[CheckResult] = []
     checks.append(_check_command("python", required=True))
@@ -109,7 +108,6 @@ def run_preflight(
     checks.append(_check_command("ffmpeg", required=True))
     checks.append(_check_reportlab(required=True))
     checks.append(_check_remotion(remotion_project_path, required=True))
-    checks.append(_check_command("officecli", required=require_officecli))
     checks.append(_check_testing_root(testing_root, required=True))
     return checks
 
@@ -125,11 +123,6 @@ def main() -> int:
         help="Path to Remotion project relative to workspace root (default: frontend)",
     )
     parser.add_argument("--testing-root", default="Testing", help="Testing artifact root (default: Testing)")
-    parser.add_argument(
-        "--require-officecli",
-        action="store_true",
-        help="Fail preflight if officecli is missing",
-    )
     parser.add_argument(
         "--json",
         action="store_true",
@@ -148,7 +141,6 @@ def main() -> int:
         workspace_root=workspace_root,
         remotion_project_path=remotion_project_path,
         testing_root=testing_root_path,
-        require_officecli=bool(args.require_officecli),
     )
 
     blocking_failures = [c for c in checks if c.required and not c.ok]

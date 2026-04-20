@@ -94,7 +94,6 @@ For each installed skill, run one positive and one negative test where applicabl
 - impeccable
 - last30days
 - observability-designer
-- officecli
 - pr-review-expert
 - product-manager-toolkit
 - senior-security
@@ -134,19 +133,14 @@ For each skill test, assert:
 - Assert render-job metadata includes `composition_id`, `scene_path`, and intended `output_mp4`.
 - Note: current implementation guarantees scene/job generation; MP4 render execution is performed by HyperFrames runtime/CLI from that job config.
 
-7. Office + PDF artifact workflow (officecli)
-- Prompt for business artifacts from one brief:
-	- Word document (`.docx`),
-	- Excel workbook (`.xlsx`),
-	- PowerPoint deck (`.pptx`),
-	- PDF report (`.pdf`) when requested.
-- Assert officecli tool invocation is present in telemetry when Office outputs are requested.
-- Assert `generate_report` with `format=pdf` is used for deterministic PDF generation.
-- Assert generated files are non-empty and located under `Testing/P4_creator_use_cases/office_pdf/...`.
+7. PDF artifact workflow
+- Prompt for a deterministic PDF report artifact.
+- Assert `generate_report` with `format=pdf` is used.
+- Assert generated files are non-empty and located under `Testing/P4_creator_use_cases/pdf/...`.
 - Assert naming convention includes run id and artifact purpose.
 
 8. Artifact flood guard
-- Run mixed creator prompt (web + code + office + media).
+- Run mixed creator prompt (web + code + media + documents).
 - Assert no generated file path is outside `Testing/`.
 - Fail run if any root-level artifact is created.
 
@@ -158,4 +152,4 @@ Required green checks before release:
 4. No response-side effect mismatch in sampled runs.
 5. Superpowered and stream paths both complete for representative creator prompts.
 6. Video-generation use case pass with complete metadata outputs.
-7. Office + PDF artifact scenario pass with telemetry evidence and files under `Testing/` only.
+7. PDF artifact scenario pass with telemetry evidence and files under `Testing/` only.

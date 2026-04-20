@@ -94,7 +94,6 @@ Inspect ToolRegistry permission policy for unsafe defaults.
 |----------|-----------|---------|
 | AUDIT-T001 | `tools.deny_all_by_default` is `false` with no explicit allow list | warning |
 | AUDIT-T002 | Shell-execution tools (`bash_eval`, `run_tests`) are allowed without `execution.policy` set | warning |
-| AUDIT-T003 | `officecli` binary not on PATH but officecli tools are registered | info |
 | AUDIT-T004 | More than 50 tools registered (schema size may degrade LLM routing) | warning |
 | AUDIT-T005 | Tools with `required_commands` have their binary missing from PATH | warning |
 

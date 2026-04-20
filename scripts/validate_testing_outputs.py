@@ -137,6 +137,11 @@ def main() -> int:
         action="store_true",
         help="Fail if any created/updated path in telemetry does not exist on disk",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON summary",
+    )
 
     args = parser.parse_args()
 
@@ -148,7 +153,18 @@ def main() -> int:
         testing_root = testing_root.resolve()
 
     if not testing_root.exists():
-        print(f"Testing root not found: {testing_root}")
+        payload = {
+            "ok": True,
+            "message": f"Testing root not found: {testing_root}",
+            "testing_root": str(testing_root),
+            "telemetry_count": 0,
+            "checked_paths": 0,
+            "issues": [],
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(payload["message"])
         return 0
 
     issues, telemetry_count, checked_paths = validate_testing_outputs(
@@ -159,23 +175,62 @@ def main() -> int:
     )
 
     if telemetry_count == 0:
-        print(f"No telemetry.json files found under: {testing_root}")
+        payload = {
+            "ok": True,
+            "message": f"No telemetry.json files found under: {testing_root}",
+            "testing_root": str(testing_root),
+            "telemetry_count": 0,
+            "checked_paths": 0,
+            "issues": [],
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(payload["message"])
         return 0
 
     if issues:
-        print(
-            f"Validation failed: {len(issues)} issue(s) across "
-            f"{telemetry_count} telemetry file(s), {checked_paths} path entries checked."
-        )
-        for issue in issues:
-            rel = issue.telemetry_file.relative_to(workspace_root)
-            print(f"- {rel}: {issue.path_value} -> {issue.reason}")
+        payload = {
+            "ok": False,
+            "message": (
+                f"Validation failed: {len(issues)} issue(s) across "
+                f"{telemetry_count} telemetry file(s), {checked_paths} path entries checked."
+            ),
+            "testing_root": str(testing_root),
+            "telemetry_count": telemetry_count,
+            "checked_paths": checked_paths,
+            "issues": [
+                {
+                    "telemetry_file": str(issue.telemetry_file.relative_to(workspace_root)).replace("\\", "/"),
+                    "path_value": issue.path_value,
+                    "reason": issue.reason,
+                }
+                for issue in issues
+            ],
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(payload["message"])
+            for issue in payload["issues"]:
+                print(f"- {issue['telemetry_file']}: {issue['path_value']} -> {issue['reason']}")
         return 1
 
-    print(
-        f"Validation passed: {telemetry_count} telemetry file(s), "
-        f"{checked_paths} path entries checked, all within {testing_root}."
-    )
+    payload = {
+        "ok": True,
+        "message": (
+            f"Validation passed: {telemetry_count} telemetry file(s), "
+            f"{checked_paths} path entries checked, all within {testing_root}."
+        ),
+        "testing_root": str(testing_root),
+        "telemetry_count": telemetry_count,
+        "checked_paths": checked_paths,
+        "issues": [],
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(payload["message"])
     return 0
 
 

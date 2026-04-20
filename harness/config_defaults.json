@@ -110,12 +110,6 @@
       "read_context",
       "propose_wiring",
       "apply_wiring",
-      "officecli_create_document",
-      "officecli_add_element",
-      "officecli_view_document",
-      "officecli_set_properties",
-      "officecli_merge_template",
-      "officecli_batch",
       "last30days_research"
     ],
     "blocked_tool_names": [],
@@ -126,8 +120,7 @@
       "npm",
       "curl",
       "dir",
-      "echo",
-      "officecli"
+      "echo"
     ]
   },
   "tools": {
@@ -170,16 +163,10 @@
       "generate_svg_asset",
       "generate_remotion_video",
       "generate_hyperframes_scene",
-      "officecli_create_document",
-      "officecli_add_element",
-      "officecli_view_document",
-      "officecli_set_properties",
-      "officecli_merge_template",
-      "officecli_batch",
       "last30days_research"
     ],
     "blocked_tool_names": [],
-    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo", "officecli"]
+    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"]
   },
   "execution": {
     "allowed_cwd_roots": ["."],

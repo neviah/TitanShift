@@ -28,9 +28,9 @@ async def _execute_smoke(workspace_root: Path, output_root: Path) -> dict[str, A
         "steps": [],
     }
 
-    run_id = f"office-pdf-smoke-{_now_stamp()}"
+    run_id = f"pdf-smoke-{_now_stamp()}"
     run_dir = output_root / run_id
-    artifact_dir = run_dir / "office_pdf"
+    artifact_dir = run_dir / "pdf"
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     report_result: dict[str, Any] = {}
@@ -51,55 +51,17 @@ async def _execute_smoke(workspace_root: Path, output_root: Path) -> dict[str, A
     except Exception as exc:
         telemetry["steps"].append({"tool": "generate_report", "ok": False, "error": str(exc)})
 
-    office_targets = [
-        ("smoke.docx", "officecli_create_document"),
-        ("smoke.xlsx", "officecli_create_document"),
-        ("smoke.pptx", "officecli_create_document"),
-    ]
-
-    office_failures = 0
-    office_success = 0
-    for filename, tool_name in office_targets:
-        target_path = artifact_dir / filename
-        try:
-            result = await runtime.tools.execute_tool(tool_name, {"path": str(target_path)})
-            telemetry["steps"].append(
-                {
-                    "tool": tool_name,
-                    "args": {"path": str(target_path).replace("\\", "/")},
-                    "ok": True,
-                    "result": result,
-                }
-            )
-            office_success += 1
-        except Exception as exc:
-            telemetry["steps"].append(
-                {
-                    "tool": tool_name,
-                    "args": {"path": str(target_path).replace("\\", "/")},
-                    "ok": False,
-                    "error": str(exc),
-                }
-            )
-            office_failures += 1
-
     telemetry["completed_at"] = datetime.now(timezone.utc).isoformat()
 
     pdf_ok = bool(report_result.get("ok")) and bool(report_result.get("artifacts"))
     summary = {
         "run_id": run_id,
         "suite": "P4_creator_use_cases",
-        "scenario": "office_pdf_smoke",
+        "scenario": "pdf_smoke",
         "run_dir": str(run_dir).replace("\\", "/"),
         "pdf_ok": pdf_ok,
-        "office_success_count": office_success,
-        "office_failure_count": office_failures,
-        "status": "passed" if pdf_ok and office_failures == 0 else "partial" if pdf_ok else "failed",
-        "notes": [
-            "OfficeCLI failures on Windows are expected when officecli binary is not supported on this platform."
-            if office_failures > 0
-            else "All officecli document creation calls succeeded."
-        ],
+        "status": "passed" if pdf_ok else "failed",
+        "notes": ["OfficeCLI integration removed; PDF generation is the deterministic document gate."],
     }
 
     _write_json(run_dir / "telemetry.json", telemetry)
@@ -108,7 +70,7 @@ async def _execute_smoke(workspace_root: Path, output_root: Path) -> dict[str, A
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Office + PDF smoke workflow and write evidence under Testing/.")
+    parser = argparse.ArgumentParser(description="Run PDF smoke workflow and write evidence under Testing/.")
     parser.add_argument("--workspace-root", default=".", help="Workspace root path")
     parser.add_argument(
         "--output-root",

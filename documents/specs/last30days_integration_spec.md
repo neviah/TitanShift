@@ -45,7 +45,7 @@ Implementation location:
 - `harness/tools/last30days.py`
 
 Registration:
-- Called from runtime bootstrap alongside builtin and officecli tool registration
+- Called from runtime bootstrap alongside builtin tool registration
 
 ### Input Contract
 
