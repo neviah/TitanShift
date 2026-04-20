@@ -366,14 +366,46 @@ class Orchestrator:
             else:
                 # Run the implementer through the reactive loop so it can actually execute tools
                 implementation_rules = (
-                    "Execution rules: inspect existing project paths first with list_directory/read_file; "
+                    "Execution rules: the WORKSPACE SNAPSHOT below shows what already exists — "
+                    "do NOT call list_directory on paths already shown; "
                     "if directories or files already exist, edit in place instead of recreating them; "
+                    "go directly to read_file / write_file / append_file actions; "
                     "produce concrete file/tool changes (not only a plan)."
                 )
+                # Build a shallow 2-level workspace snapshot so the implementer skips
+                # expensive list_directory exploration rounds on large workspaces.
+                _workspace_snapshot = ""
+                try:
+                    _ws_root = self.config.workspace_root
+                    _lines: list[str] = []
+                    for _entry in sorted(_ws_root.iterdir()):
+                        if _entry.name.startswith(".") or _entry.name in {
+                            "__pycache__", "node_modules", ".venv", "venv",
+                        }:
+                            continue
+                        if _entry.is_dir():
+                            _lines.append(f"  {_entry.name}/")
+                            try:
+                                for _child in sorted(_entry.iterdir())[:12]:
+                                    _lines.append(
+                                        f"    {_child.name}{'/' if _child.is_dir() else ''}"
+                                    )
+                            except PermissionError:
+                                pass
+                        else:
+                            _lines.append(f"  {_entry.name}")
+                    if _lines:
+                        _workspace_snapshot = (
+                            "\n\nWORKSPACE SNAPSHOT (use this instead of calling list_directory on the root):\n"
+                            + "\n".join(_lines[:80])
+                        )
+                except Exception:
+                    pass  # non-fatal: snapshot is optional context
                 impl_description = (
                     f"Implement task #{idx}: {title}. "
                     f"{str(item.get('description', title))}\n"
                     f"{implementation_rules}"
+                    f"{_workspace_snapshot}"
                 )
                 impl_task = Task(
                     id=f"{parent_task.id}:impl:{idx}:{uuid.uuid4().hex[:8]}",
