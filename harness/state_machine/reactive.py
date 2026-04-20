@@ -81,6 +81,38 @@ class ReactiveStateMachine:
                 if host.endswith("reddit.com") and path in {"", "/"}:
                     args["url"] = "https://www.reddit.com/r/all/.json?limit=1"
 
+            # Default website handling should use a real browser (Playwright) when available.
+            # Reserve raw web_fetch for direct API/static endpoints such as JSON feeds.
+            browse_url = str(args.get("url", "")).strip()
+            if browse_url and self.tools.get_tool("web_browse") is not None:
+                parsed = urlparse(browse_url)
+                path = (parsed.path or "").lower()
+                host = (parsed.netloc or "").lower()
+                query = (parsed.query or "").lower()
+                is_direct_data_endpoint = (
+                    path.endswith((".json", ".xml", ".txt", ".csv", ".rss", ".atom"))
+                    or "/api/" in path
+                    or host.startswith("api.")
+                    or "format=json" in query
+                    or path in {"/robots.txt", "/sitemap.xml"}
+                )
+                if not is_direct_data_endpoint:
+                    browse_args: dict[str, Any] = {
+                        "url": browse_url,
+                        "max_chars": int(args.get("max_chars", 8000)),
+                    }
+                    if "selector" in args:
+                        browse_args["selector"] = args["selector"]
+                    if "wait_for" in args:
+                        browse_args["wait_for"] = args["wait_for"]
+                    if "timeout_s" in args:
+                        browse_args["timeout_ms"] = int(float(args["timeout_s"]) * 1000)
+                    return ToolCall(
+                        id=tool_call.id,
+                        name="web_browse",
+                        arguments=browse_args,
+                    )
+
         if normalized == "shell_command" and web_intent:
             command = str(args.get("command", "")).strip()
             query = command or task_description
@@ -152,12 +184,12 @@ class ReactiveStateMachine:
             if "write_file" in available:
                 matched.add("write_file")
 
-        # Generic website retrieval should prefer fast fetch unless browser UI is explicit.
+        # Generic website retrieval should prefer the real browser.
         if ("go to " in text or "open " in text) and ".com" in text:
-            if "web_fetch" in available:
-                matched.add("web_fetch")
-            elif "web_browse" in available:
+            if "web_browse" in available:
                 matched.add("web_browse")
+            elif "web_fetch" in available:
+                matched.add("web_fetch")
 
         return sorted(matched)
 
@@ -536,7 +568,8 @@ class ReactiveStateMachine:
         system_parts = [
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
             "When you need live information, use the most specific available tool for the user request. "
-            "Use web_fetch for general web lookups only when a specific requested tool is not required.",
+            "For normal website content, prefer web_browse so a real browser renders the page. "
+            "Use web_fetch mainly for direct API/static data endpoints such as JSON, XML, or text feeds.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file. "
             "Do not merely describe the files when you can create them.",
             "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
@@ -1123,6 +1156,7 @@ class ReactiveStateMachine:
         system_parts = [
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
             "When you need live information, use the most specific available tool for the user request.",
+            "For website content, prefer web_browse. Use web_fetch mainly for direct API/static data endpoints.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file.",
             "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
             "For frontend page generation, default to a self-contained HTML file with embedded CSS unless the user explicitly requests separate files.",
