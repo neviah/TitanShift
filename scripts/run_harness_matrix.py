@@ -23,6 +23,8 @@ class MatrixCase:
     retries: int = 0
     retry_backoff_s: float = 2.0
     cancel_on_timeout: bool = True
+    required_paths: list[str] | None = None
+    required_file_contains: dict[str, str] | None = None
 
 
 def _now_stamp() -> str:
@@ -83,7 +85,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _p1_seed_html() -> str:
-        return """<!doctype html>
+    return """<!doctype html>
 <html lang=\"en\">
 <head>
     <meta charset=\"UTF-8\" />
@@ -122,6 +124,10 @@ def _matrix_cases(run_root: Path) -> list[MatrixCase]:
     p2_target_dir = (run_root / "P2_web_file_integrity").as_posix()
     p2_target = (run_root / "P2_web_file_integrity" / "reddit_capture.txt").as_posix()
     p4_video_target = (run_root / "P4_creator_use_cases" / "video_generation").as_posix()
+    p6_project_dir = run_root / "P6_preexisting_edit" / "existing_project"
+    p6_index_target = (p6_project_dir / "index.html").as_posix()
+    p6_notes_target = (p6_project_dir / "notes.md").as_posix()
+    p6_style_target = (p6_project_dir / "style.css").as_posix()
 
     return [
         MatrixCase(
@@ -212,7 +218,48 @@ def _matrix_cases(run_root: Path) -> list[MatrixCase]:
                 "should remain under Testing/."
             ),
         ),
+        MatrixCase(
+            suite="P6_preexisting_edit",
+            case_id="edit_existing_project_superpowered",
+            title="Edit existing project files",
+            workflow_mode="superpowered",
+            timeout_s=600,
+            retries=0,
+            retry_backoff_s=4.0,
+            prompt=(
+                f"CRITICAL: Use existing folder {p6_project_dir.as_posix()} and do NOT create a new top-level directory. "
+                f"Read the existing {p6_index_target} and {p6_notes_target}. "
+                f"Create new file {p6_style_target} with basic CSS. "
+                f"Edit {p6_index_target} to add the text 'existing project updated' in the HTML. "
+                f"Append one line to {p6_notes_target}: 'update_marker: superpowered edit pass'. "
+                "Do not create any other files or directories. Return completion status."
+            ),
+            required_paths=[p6_style_target],
+            required_file_contains={
+                p6_index_target: "existing project updated",
+                p6_notes_target: "update_marker: superpowered edit pass",
+            },
+        ),
     ]
+
+
+def _evaluate_case_requirements(case: MatrixCase) -> tuple[bool, str | None]:
+    if case.required_paths:
+        for path_str in case.required_paths:
+            if not Path(path_str).exists():
+                return False, f"required path missing: {path_str}"
+    if case.required_file_contains:
+        for path_str, needle in case.required_file_contains.items():
+            path = Path(path_str)
+            if not path.exists():
+                return False, f"required file missing: {path_str}"
+            try:
+                content = path.read_text(encoding="utf-8")
+            except Exception as exc:
+                return False, f"failed to read required file {path_str}: {exc}"
+            if needle not in content:
+                return False, f"required text not found in {path_str}: {needle}"
+    return True, None
 
 
 def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: set[str]) -> dict[str, Any]:
@@ -232,6 +279,32 @@ def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: s
             seeded_target = run_root / "P1_frontend_quality" / "landing" / "index.html"
             seeded_target.parent.mkdir(parents=True, exist_ok=True)
             seeded_target.write_text(_p1_seed_html(), encoding="utf-8")
+
+        if case.suite == "P6_preexisting_edit" and case.case_id == "edit_existing_project_superpowered":
+            seed_dir = run_root / "P6_preexisting_edit" / "existing_project"
+            seed_dir.mkdir(parents=True, exist_ok=True)
+            (seed_dir / "index.html").write_text(
+                """<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"UTF-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+  <title>Existing Project</title>
+</head>
+<body>
+  <main>
+    <h1>Existing Project Baseline</h1>
+    <p>initial content</p>
+  </main>
+</body>
+</html>
+""",
+                encoding="utf-8",
+            )
+            (seed_dir / "notes.md").write_text(
+                "# Change Log\n- baseline seeded for edit regression\n",
+                encoding="utf-8",
+            )
 
         payload: dict[str, Any] = {
             "prompt": case.prompt,
@@ -313,6 +386,13 @@ def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: s
             if task_success is not None:
                 case_pass = case_pass and bool(task_success)
 
+        validation_error = None
+        if case_pass and case.expects_success:
+            requirements_ok, validation_error = _evaluate_case_requirements(case)
+            case_pass = case_pass and requirements_ok
+            if validation_error and request_error is None:
+                request_error = validation_error
+
         telemetry = {
             "suite": case.suite,
             "case_id": case.case_id,
@@ -325,6 +405,9 @@ def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: s
             "task": task_payload,
             "attempts": attempt_records,
             "error": request_error,
+            "validation_error": validation_error,
+            "required_paths": case.required_paths,
+            "required_file_contains": case.required_file_contains,
             "pass": case_pass,
         }
         _write_json(case_dir / "telemetry.json", telemetry)
@@ -364,13 +447,13 @@ def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: s
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run TitanShift matrix suites P0-P5 and write telemetry/report artifacts.")
+    parser = argparse.ArgumentParser(description="Run TitanShift matrix suites P0-P6 and write telemetry/report artifacts.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Harness API base URL")
     parser.add_argument("--workspace-root", default=".", help="Workspace root")
     parser.add_argument("--output-root", default="Testing", help="Testing output root")
     parser.add_argument(
         "--suites",
-        default="P0_core_reliability,P1_frontend_quality,P2_web_file_integrity,P3_skill_activation,P4_creator_use_cases,P5_regression_gate",
+        default="P0_core_reliability,P1_frontend_quality,P2_web_file_integrity,P3_skill_activation,P4_creator_use_cases,P5_regression_gate,P6_preexisting_edit",
         help="Comma-separated suite ids",
     )
 
