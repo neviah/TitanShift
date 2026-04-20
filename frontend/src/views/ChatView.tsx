@@ -44,6 +44,7 @@ export function ChatView() {
   const { currentSession, appendMessage } = useChatSessions()
   const { promoteSessionToDraft, promoteSelectionToDraft } = useTaskDrafts()
   const { concurrencyMode, isTaskRunning } = useSchedulerTask()
+  const { data: polledConfig } = usePolling(fetchConfig, { interval: 5000 })
   const { data: artifactsData, refresh: refreshArtifacts } = usePolling(fetchArtifacts, { interval: 15000 })
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -96,6 +97,13 @@ export function ChatView() {
       mounted = false
     }
   }, [])
+
+  useEffect(() => {
+    const backend = polledConfig?.['model.default_backend']
+    if (typeof backend === 'string' && backend.trim().length > 0) {
+      setPreferredBackend(backend)
+    }
+  }, [polledConfig])
 
   useEffect(() => {
     setError(null)
