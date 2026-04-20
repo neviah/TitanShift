@@ -16,6 +16,7 @@
       "require_plan_approval": true,
       "require_task_reviews": true,
       "require_verification_before_done": true,
+        "default_implementer_timeout_s": 1200,
       "artifact_paths": {
         "specs_dir": "documents/specs",
         "plans_dir": "documents/plans"
@@ -105,7 +106,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 40,
-      "max_tokens": 2555,
+      "max_tokens": 95000,
       "max_duration_ms": 600000
     }
   },

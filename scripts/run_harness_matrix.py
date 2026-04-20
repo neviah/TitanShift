@@ -223,7 +223,7 @@ def _matrix_cases(run_root: Path) -> list[MatrixCase]:
             case_id="edit_existing_project_superpowered",
             title="Edit existing project files",
             workflow_mode="superpowered",
-            timeout_s=600,
+            timeout_s=1500,
             retries=0,
             retry_backoff_s=4.0,
             prompt=(

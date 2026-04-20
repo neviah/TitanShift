@@ -259,11 +259,15 @@ class Orchestrator:
                     self.config.get("model.default_backend", "local_stub"),
                 ),
                 "workflow_mode": "lightning",
-                # Only allow read-only tools
-                "requested_tools": [
-                    "read_file", "read_context", "index_project",
-                    "file_search", "grep_search", "list_dir",
-                ],
+                # Empty list disables auto-detection of requested tools from description text.
+                # The planner only outputs JSON; it must not be forced to call write_file etc.
+                # that were detected because the description echoes the user's raw prompt.
+                "requested_tools": [],
+                # Tight budget: planner just needs to output JSON, not run many tool rounds.
+                "budget": {
+                    "max_steps": int(self.config.get("orchestrator.superpowered_mode.planner_max_steps", 8)),
+                    "max_tokens": int(self.config.get("orchestrator.superpowered_mode.planner_max_tokens", 24000)),
+                },
             },
         )
 

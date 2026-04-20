@@ -521,7 +521,14 @@ class ReactiveStateMachine:
         model = self.models.select_model(preferred_backend)
 
         # System prompt
-        requested_tools = self._detect_requested_tools(task.description)
+        # If the task explicitly provides a "requested_tools" list (even empty []) in its input,
+        # use that directly instead of auto-detecting from description text.
+        # This prevents planner/reviewer sub-tasks whose description echoes user prompts from
+        # accidentally triggering tool-enforcement loops (e.g. "create it" → write_file).
+        if task.input is not None and "requested_tools" in task.input:
+            requested_tools = [str(t) for t in task.input["requested_tools"]]
+        else:
+            requested_tools = self._detect_requested_tools(task.description)
         mandatory_tools = self._detect_mandatory_tools(task.description)
         requested_canonical = {self._canonical_tool_name(name) for name in requested_tools}
         mandatory_canonical = {self._canonical_tool_name(name) for name in mandatory_tools}
