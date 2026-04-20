@@ -365,9 +365,15 @@ class Orchestrator:
                     }
             else:
                 # Run the implementer through the reactive loop so it can actually execute tools
+                implementation_rules = (
+                    "Execution rules: inspect existing project paths first with list_directory/read_file; "
+                    "if directories or files already exist, edit in place instead of recreating them; "
+                    "produce concrete file/tool changes (not only a plan)."
+                )
                 impl_description = (
                     f"Implement task #{idx}: {title}. "
-                    f"{str(item.get('description', title))}"
+                    f"{str(item.get('description', title))}\n"
+                    f"{implementation_rules}"
                 )
                 impl_task = Task(
                     id=f"{parent_task.id}:impl:{idx}:{uuid.uuid4().hex[:8]}",
@@ -380,6 +386,9 @@ class Orchestrator:
                 configured_impl_timeout = float(
                     self.config.get("orchestrator.superpowered_mode.implementer_timeout_s", 0.0)
                 )
+                default_impl_timeout = float(
+                    self.config.get("orchestrator.superpowered_mode.default_implementer_timeout_s", 420.0)
+                )
                 selected_backend = str(
                     (parent_task.input or {}).get(
                         "model_backend",
@@ -387,14 +396,10 @@ class Orchestrator:
                     )
                 )
                 model_adapter = self.models.select_model(selected_backend)
-                model_timeout_s = float(getattr(model_adapter, "timeout_s", 0.0) or 0.0)
                 run_timeout_s = float(self.config.get("execution.run_timeout_seconds", 300.0))
-                impl_timeout_s = max(
-                    configured_impl_timeout,
-                    model_timeout_s,
-                    run_timeout_s,
-                    300.0,
-                )
+                _ = model_adapter  # model adapter selection validates backend availability
+                impl_timeout_target = configured_impl_timeout if configured_impl_timeout > 0 else default_impl_timeout
+                impl_timeout_s = max(60.0, min(impl_timeout_target, run_timeout_s))
                 try:
                     impl_task_result = await asyncio.wait_for(
                         self.state_machine.run_task(impl_task),
