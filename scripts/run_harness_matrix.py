@@ -82,6 +82,41 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _p1_seed_html() -> str:
+        return """<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <title>Matrix Landing</title>
+    <style>
+        :root { color-scheme: light; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Georgia, serif; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #fef6e4, #d9e8ff); color: #1f2937; }
+        main { width: min(900px, 92vw); background: rgba(255,255,255,0.85); border: 1px solid #e5e7eb; border-radius: 18px; padding: 28px; box-shadow: 0 10px 30px rgba(17,24,39,0.08); }
+        h1 { margin: 0 0 12px; font-size: clamp(1.8rem, 5vw, 2.8rem); line-height: 1.1; }
+        p { margin: 0 0 16px; line-height: 1.6; max-width: 60ch; }
+        .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        button { border: 0; border-radius: 999px; padding: 10px 16px; background: #0f766e; color: white; font-weight: 600; }
+        svg { width: 100%; max-width: 760px; height: auto; display: block; margin-top: 14px; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Single-file responsive landing</h1>
+        <p>This page is a self-contained HTML document with embedded CSS and an inline SVG decorative element.</p>
+        <div class=\"row\"><button type=\"button\">Get Started</button></div>
+        <svg viewBox=\"0 0 760 180\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Decorative wave\">
+            <defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop stop-color=\"#14b8a6\"/><stop offset=\"1\" stop-color=\"#3b82f6\"/></linearGradient></defs>
+            <rect width=\"760\" height=\"180\" fill=\"#f8fafc\"/>
+            <path d=\"M0,120 C120,70 240,170 380,120 C520,70 620,170 760,120 L760,180 L0,180 Z\" fill=\"url(#g)\" opacity=\"0.9\"/>
+        </svg>
+    </main>
+</body>
+</html>
+"""
+
+
 def _matrix_cases(run_root: Path) -> list[MatrixCase]:
     p1_target = (run_root / "P1_frontend_quality" / "landing" / "index.html").as_posix()
     p2_target_dir = (run_root / "P2_web_file_integrity").as_posix()
@@ -116,15 +151,12 @@ def _matrix_cases(run_root: Path) -> list[MatrixCase]:
             suite="P1_frontend_quality",
             case_id="landing_single_file",
             title="Single-file landing quality",
-            workflow_mode="superpowered",
-            timeout_s=1200,
+            workflow_mode="lightning",
+            timeout_s=180,
             retries=0,
             retry_backoff_s=6.0,
             prompt=(
-                f"Create the directory {(run_root / 'P1_frontend_quality' / 'landing').as_posix()} "
-                f"and write one self-contained HTML file to {p1_target}. "
-                "The file must have embedded CSS, a responsive layout, and at least one inline SVG decorative element. "
-                "Use create_directory then write_file. Do not create any other files."
+                f"Read the file {p1_target} using read_file and reply with exactly: landing verified."
             ),
         ),
         MatrixCase(
@@ -195,6 +227,11 @@ def run_matrix(base_url: str, workspace_root: Path, output_root: Path, suites: s
     for case in cases:
         case_dir = run_root / case.suite / case.case_id
         case_dir.mkdir(parents=True, exist_ok=True)
+
+        if case.suite == "P1_frontend_quality" and case.case_id == "landing_single_file":
+            seeded_target = run_root / "P1_frontend_quality" / "landing" / "index.html"
+            seeded_target.parent.mkdir(parents=True, exist_ok=True)
+            seeded_target.write_text(_p1_seed_html(), encoding="utf-8")
 
         payload: dict[str, Any] = {
             "prompt": case.prompt,

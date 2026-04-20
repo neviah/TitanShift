@@ -42,7 +42,7 @@
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "",
-      "timeout_s": 600,
+      "timeout_s": 1800,
       "max_tokens": 4096,
       "temperature": 0.2
     }
@@ -100,7 +100,7 @@
     ],
     "max_runtime_s": 300,
     "max_output_bytes": 32768,
-    "run_timeout_seconds": 600
+    "run_timeout_seconds": 1800
   },
   "state_machine": {
     "default_budget": {
@@ -114,7 +114,7 @@
   },
   "api": {
     "require_api_key": false,
-    "api_key": "JnKl5hbP0R5uH3mjO73yMeE6ytv4fSucfWo0-sAiqeY",
+    "api_key": "dIc1A6UccNZtWXnLPr015VypivGjjANEOYblBq8ynxw",
     "require_admin_api_key": false,
     "admin_api_key": "supersecretadminkey456"
   },
