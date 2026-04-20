@@ -365,12 +365,20 @@ class Orchestrator:
                     }
             else:
                 # Run the implementer through the reactive loop so it can actually execute tools
+                # Tight step budget for implementer — local LLMs burn ~7s/step so
+                # 60 steps (lightning default) = 420s exactly. Cap hard at 12 steps.
+                _max_impl_steps = int(
+                    self.config.get("orchestrator.superpowered_mode.implementer_max_steps", 12)
+                )
+                _max_impl_tokens = int(
+                    self.config.get("orchestrator.superpowered_mode.implementer_max_tokens", 32000)
+                )
                 implementation_rules = (
-                    "Execution rules: the WORKSPACE SNAPSHOT below shows what already exists — "
-                    "do NOT call list_directory on paths already shown; "
-                    "if directories or files already exist, edit in place instead of recreating them; "
-                    "go directly to read_file / write_file / append_file actions; "
-                    "produce concrete file/tool changes (not only a plan)."
+                    "Execution rules (FOLLOW STRICTLY):\n"
+                    "1. The WORKSPACE SNAPSHOT below shows what already exists — do NOT call list_directory on any path already visible there.\n"
+                    "2. If a file already exists, edit it in place with write_file or append_file — do NOT recreate it.\n"
+                    "3. Go directly to read_file / write_file / append_file — skip all exploration.\n"
+                    "4. You have a strict budget of steps. After you finish the required file changes, return your final answer IMMEDIATELY. Do not verify, summarise, or loop."
                 )
                 # Build a shallow 2-level workspace snapshot so the implementer skips
                 # expensive list_directory exploration rounds on large workspaces.
@@ -413,6 +421,11 @@ class Orchestrator:
                     input={
                         **(parent_task.input or {}),
                         "workflow_mode": "lightning",
+                        # Hard budget override: caps steps regardless of config
+                        "budget": {
+                            "max_steps": _max_impl_steps,
+                            "max_tokens": _max_impl_tokens,
+                        },
                     },
                 )
                 configured_impl_timeout = float(
