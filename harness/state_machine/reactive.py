@@ -108,6 +108,44 @@ class ReactiveStateMachine:
                 return tool.name
         return name
 
+    @staticmethod
+    def _looks_like_html_tag_tool(name: str) -> bool:
+        candidate = name.strip().lower()
+        html_like = {
+            "html",
+            "head",
+            "body",
+            "header",
+            "footer",
+            "main",
+            "section",
+            "article",
+            "nav",
+            "aside",
+            "div",
+            "span",
+            "ul",
+            "ol",
+            "li",
+            "a",
+            "img",
+            "svg",
+            "defs",
+            "path",
+            "g",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "button",
+            "input",
+            "form",
+        }
+        return candidate in html_like
+
     def _should_escalate_web_fetch(self, tool_result: Any) -> bool:
         if not isinstance(tool_result, dict):
             return True
@@ -745,6 +783,7 @@ class ReactiveStateMachine:
         artifacts: list[dict[str, Any]] = []
         invalid_tool_seen = False
         recovered_after_invalid_tool = False
+        invalid_html_tool_attempts = 0
         final_text = ""
         last_model_id = model.model_id
         last_provider_model_id: str | None = None
@@ -928,8 +967,9 @@ class ReactiveStateMachine:
             if not normalized_tool_calls:
                 if invalid_tool_seen and not recovered_after_invalid_tool:
                     correction = (
-                        "You previously attempted non-existent tools. Retry using only valid tools from schema "
-                        "(for page generation, use write_file/append_file with full content text)."
+                        "You previously attempted non-existent tools. HTML tags are not tool names. "
+                        "Retry with only valid file tools from schema: read_file, write_file, append_file, create_directory. "
+                        "For webpage edits, call write_file or append_file with full HTML/CSS content as plain text."
                     )
                     messages.append({"role": "user", "content": correction})
                     total_tokens += model.estimate_tokens(correction)
@@ -990,6 +1030,28 @@ class ReactiveStateMachine:
 
             for call_index, tc in enumerate(normalized_tool_calls):
                 used_tools.append(tc.name)
+                if self.tools.get_tool(tc.name) is None:
+                    invalid_tool_seen = True
+                    if self._looks_like_html_tag_tool(tc.name):
+                        invalid_html_tool_attempts += 1
+                    tool_result = {
+                        "ok": False,
+                        "error": (
+                            f"Tool not found: {tc.name}. HTML tags are not tools. "
+                            "Use read_file/write_file/append_file/create_directory with full content strings."
+                        ),
+                    }
+                    tool_content = json.dumps(tool_result)
+                    total_tokens += model.estimate_tokens(tool_content)
+                    tool_result_lines.append(f"Tool `{tc.name}` with {json.dumps(tc.arguments)} -> {tool_content}")
+                    if invalid_html_tool_attempts >= 2 and not recovered_after_invalid_tool:
+                        strict_correction = (
+                            "Stop emitting HTML-tag tool calls. Next response must call only write_file/append_file "
+                            "(and optionally read_file) with valid arguments."
+                        )
+                        messages.append({"role": "user", "content": strict_correction})
+                        total_tokens += model.estimate_tokens(strict_correction)
+                    continue
                 if self._is_skill_like_pseudo_call(tc):
                     tool_content = json.dumps(
                         {
