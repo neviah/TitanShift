@@ -711,12 +711,16 @@ class ReactiveStateMachine:
 
         for step in range(budget["max_steps"]):
             if total_tokens > budget["max_tokens"]:
-                return TaskResult(
-                    task_id=task.id,
-                    output={"response": final_text, "mode": "reactive", "used_tools": used_tools},
-                    success=False,
-                    error="Budget exceeded: token limit reached",
+                messages, total_tokens, _mid_trim = self._fit_messages_to_token_budget(
+                    messages, model, int(budget["max_tokens"])
                 )
+                if total_tokens > budget["max_tokens"]:
+                    return TaskResult(
+                        task_id=task.id,
+                        output={"response": final_text, "mode": "reactive", "used_tools": used_tools},
+                        success=False,
+                        error="Budget exceeded: token limit reached",
+                    )
 
             try:
                 used_requested_tools = [name for name in used_tools if self._canonical_tool_name(name) in requested_canonical]
@@ -1320,8 +1324,12 @@ class ReactiveStateMachine:
         try:
             for step in range(budget["max_steps"]):
                 if total_tokens > budget["max_tokens"]:
-                    yield {"type": "error", "message": "Budget exceeded: token limit reached"}
-                    return
+                    messages, total_tokens, _mid_trim = self._fit_messages_to_token_budget(
+                        messages, model, int(budget["max_tokens"])
+                    )
+                    if total_tokens > budget["max_tokens"]:
+                        yield {"type": "error", "message": "Budget exceeded: token limit reached"}
+                        return
 
                 try:
                     used_requested_tools = [n for n in used_tools if self._canonical_tool_name(n) in requested_canonical]
