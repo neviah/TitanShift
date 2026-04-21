@@ -448,6 +448,10 @@ export function deleteTask(taskId: string, scope: TaskScope = 'workspace'): Prom
   return request(`/tasks/${encodeURIComponent(taskId)}?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' })
 }
 
+export function purgeTasks(scope: TaskScope = 'workspace'): Promise<{ ok: boolean; scope: TaskScope; deleted_count: number }> {
+  return request(`/tasks/purge?scope=${encodeURIComponent(scope)}`, { method: 'POST' })
+}
+
 // ---- API Key Management ----
 
 export function fetchApiKeyStatus(): Promise<ApiKeyStatusResponse> {

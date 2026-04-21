@@ -46,6 +46,7 @@ import {
   fetchTaskDetail,
   deleteTask,
   fetchTasks,
+  purgeTasks,
   fetchTools,
   fetchWorkflowMetrics,
   fetchWorkspaceTree,
@@ -172,7 +173,8 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }
   })
 
-  const tasks = (taskData ?? []).slice().reverse().slice(0, 12)
+  const totalTaskCount = taskData?.length ?? 0
+  const tasks = (taskData ?? []).slice(0, 12)
   const installedSkills = (skillsData ?? []).filter((s) => s.installed).slice(0, 12)
   const recentSessions = useMemo(
     () => sessions.filter((s) => !s.archived).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
@@ -202,7 +204,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const anchorMeta = useMemo(() => {
     if (activeTab === 'workspaces') return { title: 'Workspace Anchor', subtitle: `${workspaces.length} workspace profiles`, hint: currentWorkspaceName }
     if (activeTab === 'chat') return { title: 'Conversation Anchor', subtitle: `${recentSessions.length} active threads`, hint: currentWorkspaceName }
-    if (activeTab === 'tasks') return { title: 'Task Queue', subtitle: `${tasks.length} tracked tasks (${taskScope === 'workspace' ? 'this workspace' : 'all workspaces'})`, hint: latestTask?.status ?? 'idle' }
+    if (activeTab === 'tasks') return { title: 'Task Queue', subtitle: `${totalTaskCount} tracked tasks (${taskScope === 'workspace' ? 'this workspace' : 'all workspaces'})`, hint: latestTask?.status ?? 'idle' }
     if (activeTab === 'files') return { title: 'File Anchor', subtitle: `${treeData?.length ?? 0} root nodes`, hint: currentWorkspaceName }
     if (activeTab === 'skills') return { title: 'Skill Anchor', subtitle: `${installedSkills.length} installed`, hint: currentWorkspaceName }
     if (activeTab === 'tools') return { title: 'Tool Anchor', subtitle: `${(toolsData ?? []).length} discovered`, hint: currentWorkspaceName }
@@ -210,7 +212,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     if (activeTab === 'logs') return { title: 'Log Anchor', subtitle: `${logsData?.items?.length ?? 0} recent events`, hint: 'live telemetry feed' }
     if (activeTab === 'scheduler') return { title: 'Scheduler Anchor', subtitle: 'Job timeline and heartbeat', hint: 'scheduler panel' }
     return { title: 'Settings Anchor', subtitle: 'Runtime and provider controls', hint: 'configuration' }
-  }, [activeTab, workspaces.length, currentWorkspaceName, recentSessions.length, tasks.length, taskScope, latestTask?.status, treeData?.length, installedSkills.length, toolsData, memoryData?.working_entries, logsData?.items?.length])
+  }, [activeTab, workspaces.length, currentWorkspaceName, recentSessions.length, totalTaskCount, taskScope, latestTask?.status, treeData?.length, installedSkills.length, toolsData, memoryData?.working_entries, logsData?.items?.length])
 
   async function setArtifactApproval(artifactType: 'spec' | 'plan', approve: boolean) {
     const busyKey = `${artifactType}:${approve ? 'approve' : 'revoke'}`
@@ -365,6 +367,21 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
     setSelectedTaskIds({})
     setTaskDeleteMode(false)
+    await refreshTasks()
+  }
+
+  async function purgeTaskHistory() {
+    const scopeLabel = taskScope === 'workspace' ? `this workspace (${currentWorkspaceName})` : 'all workspaces'
+    const confirmed = window.confirm(`Delete all ${totalTaskCount} tasks in ${scopeLabel}? This cannot be undone.`)
+    if (!confirmed) return
+
+    await purgeTasks(taskScope)
+
+    setPendingDeleteTaskId(null)
+    setSelectedTaskIds({})
+    setTaskDeleteMode(false)
+    setSelectedTaskId(null)
+    setSelectedTask(null)
     await refreshTasks()
   }
 
@@ -613,7 +630,14 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                       All Workspaces
                     </button>
                   </div>
-                  <button className={styles.anchorActionBtn} onClick={enterTaskDeleteMode}>Delete Tasks</button>
+                  <div className={styles.taskToolbarGroup}>
+                    <button className={styles.anchorActionBtn} onClick={enterTaskDeleteMode}>Delete Tasks</button>
+                    {totalTaskCount > 0 && (
+                      <button className={styles.anchorDangerBtn} onClick={() => { void purgeTaskHistory() }}>
+                        Clear All ({totalTaskCount})
+                      </button>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -629,7 +653,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                 </>
               )}
             </div>
-            <p className={styles.hint}>{taskScope === 'workspace' ? `Showing tasks for ${currentWorkspaceName}` : 'Showing tasks across all workspaces'}</p>
+            <p className={styles.hint}>{taskScope === 'workspace' ? `Showing latest 12 tasks for ${currentWorkspaceName}` : 'Showing latest 12 tasks across all workspaces'}</p>
             {drafts.length > 0 && (
               <>
                 <p className={styles.hint}>Promoted task drafts</p>

@@ -2938,6 +2938,19 @@ def create_app(workspace_root: Path) -> FastAPI:
         tenant_filter = _task_tenant_filter(tenant, scope)
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks(tenant_id=tenant_filter)]
 
+    @app.post("/tasks/purge")
+    async def purge_tasks(
+        scope: str = "workspace",
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> dict[str, Any]:
+        tenant_filter = _task_tenant_filter(tenant, scope)
+        deleted_count = runtime.orchestrator.task_store.delete_many(tenant_id=tenant_filter)
+        return {
+            "ok": True,
+            "scope": scope,
+            "deleted_count": deleted_count,
+        }
+
     @app.delete("/tasks/{task_id}", status_code=204)
     async def delete_task(
         task_id: str,

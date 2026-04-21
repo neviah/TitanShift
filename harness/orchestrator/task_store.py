@@ -217,3 +217,26 @@ class TaskStore:
             self._conn.execute("DELETE FROM harness_tasks WHERE task_id = ?", (task_id,))
             self._conn.commit()
         return True
+
+    def delete_many(self, tenant_id: str | None = None) -> int:
+        """Delete all tasks matching the provided tenant filter.
+
+        Returns the number of deleted records.
+        """
+        if tenant_id and tenant_id != "_system_":
+            task_ids = [record.task_id for record in self._records.values() if self._tenant_matches(record.tenant_id, tenant_id)]
+        else:
+            task_ids = list(self._records.keys())
+
+        if not task_ids:
+            return 0
+
+        for task_id in task_ids:
+            self._records.pop(task_id, None)
+
+        if self._conn is not None:
+            placeholders = ",".join("?" for _ in task_ids)
+            self._conn.execute(f"DELETE FROM harness_tasks WHERE task_id IN ({placeholders})", task_ids)
+            self._conn.commit()
+
+        return len(task_ids)
