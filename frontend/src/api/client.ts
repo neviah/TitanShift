@@ -39,6 +39,7 @@ import type {
 } from './types'
 
 export const API_BASE = '/api'
+export type TaskScope = 'workspace' | 'all'
 
 type AuthScope = 'read' | 'admin'
 
@@ -321,8 +322,8 @@ export function sendChat(requestBody: ChatRequest): Promise<ChatResponse> {
   })
 }
 
-export function fetchTasks(): Promise<TaskSummary[]> {
-  return request('/tasks')
+export function fetchTasks(scope: TaskScope = 'workspace'): Promise<TaskSummary[]> {
+  return request(`/tasks?scope=${encodeURIComponent(scope)}`)
 }
 
 export function fetchAgents(): Promise<AgentSummary[]> {
@@ -333,8 +334,8 @@ export function fetchRoleTemplates(): Promise<RoleTemplate[]> {
   return request('/roles/templates')
 }
 
-export function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
-  return request(`/tasks/${taskId}`)
+export function fetchTaskDetail(taskId: string, scope: TaskScope = 'workspace'): Promise<TaskDetail> {
+  return request(`/tasks/${taskId}?scope=${encodeURIComponent(scope)}`)
 }
 
 export function fetchTaskTemplates(): Promise<TaskTemplate[]> {
@@ -443,8 +444,8 @@ export function rollbackTask(taskId: string): Promise<TaskRollbackResponse> {
   return request(`/tasks/${encodeURIComponent(taskId)}/rollback`, { method: 'POST' }, 'admin')
 }
 
-export function deleteTask(taskId: string): Promise<void> {
-  return request(`/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
+export function deleteTask(taskId: string, scope: TaskScope = 'workspace'): Promise<void> {
+  return request(`/tasks/${encodeURIComponent(taskId)}?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' })
 }
 
 // ---- API Key Management ----

@@ -55,6 +55,7 @@ import {
   triggerSchedulerTick,
   normalizeApiError,
 } from '../../api/client'
+import type { TaskScope } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
 import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
@@ -120,7 +121,8 @@ interface LeftPaneProps {
 
 export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath }: LeftPaneProps) {
   const { workspaces, currentWorkspaceId, currentWorkspaceName, currentWorkspacePath, selectWorkspace, openWorkspaceFolder } = useWorkspace()
-  const { data: taskData, refresh: refreshTasks } = usePolling(fetchTasks, { interval: 8000 })
+  const [taskScope, setTaskScope] = useState<TaskScope>('workspace')
+  const { data: taskData, refresh: refreshTasks } = usePolling(() => fetchTasks(taskScope), { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: treeData, refresh: refreshTree } = usePolling(fetchWorkspaceTree, { interval: 8000 })
   const { data: toolsData } = usePolling(fetchTools, { interval: 30000 })
@@ -200,7 +202,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const anchorMeta = useMemo(() => {
     if (activeTab === 'workspaces') return { title: 'Workspace Anchor', subtitle: `${workspaces.length} workspace profiles`, hint: currentWorkspaceName }
     if (activeTab === 'chat') return { title: 'Conversation Anchor', subtitle: `${recentSessions.length} active threads`, hint: currentWorkspaceName }
-    if (activeTab === 'tasks') return { title: 'Execution Anchor', subtitle: `${tasks.length} tracked tasks`, hint: latestTask?.status ?? 'idle' }
+    if (activeTab === 'tasks') return { title: 'Execution Anchor', subtitle: `${tasks.length} tracked tasks (${taskScope === 'workspace' ? 'this workspace' : 'all workspaces'})`, hint: latestTask?.status ?? 'idle' }
     if (activeTab === 'files') return { title: 'File Anchor', subtitle: `${treeData?.length ?? 0} root nodes`, hint: currentWorkspaceName }
     if (activeTab === 'skills') return { title: 'Skill Anchor', subtitle: `${installedSkills.length} installed`, hint: currentWorkspaceName }
     if (activeTab === 'tools') return { title: 'Tool Anchor', subtitle: `${(toolsData ?? []).length} discovered`, hint: currentWorkspaceName }
@@ -208,7 +210,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     if (activeTab === 'logs') return { title: 'Log Anchor', subtitle: `${logsData?.items?.length ?? 0} recent events`, hint: 'live telemetry feed' }
     if (activeTab === 'scheduler') return { title: 'Scheduler Anchor', subtitle: 'Job timeline and heartbeat', hint: 'scheduler panel' }
     return { title: 'Settings Anchor', subtitle: 'Runtime and provider controls', hint: 'configuration' }
-  }, [activeTab, workspaces.length, currentWorkspaceName, recentSessions.length, tasks.length, latestTask?.status, treeData?.length, installedSkills.length, toolsData, memoryData?.working_entries, logsData?.items?.length])
+  }, [activeTab, workspaces.length, currentWorkspaceName, recentSessions.length, tasks.length, taskScope, latestTask?.status, treeData?.length, installedSkills.length, toolsData, memoryData?.working_entries, logsData?.items?.length])
 
   async function setArtifactApproval(artifactType: 'spec' | 'plan', approve: boolean) {
     const busyKey = `${artifactType}:${approve ? 'approve' : 'revoke'}`
@@ -248,7 +250,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       return
     }
     let mounted = true
-    void fetchTaskDetail(selectedTaskId)
+    void fetchTaskDetail(selectedTaskId, taskScope)
       .then((task) => {
         if (mounted) setSelectedTask(task)
       })
@@ -258,7 +260,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     return () => {
       mounted = false
     }
-  }, [selectedTaskId])
+  }, [selectedTaskId, taskScope])
 
   useEffect(() => {
     const visibleTaskIds = new Set(tasks.map((task) => task.task_id))
@@ -301,7 +303,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
   function confirmTaskDelete(taskId: string, event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
-    void deleteTask(taskId)
+    void deleteTask(taskId, taskScope)
       .then(() => {
         if (selectedTaskId === taskId) {
           setSelectedTaskId(null)
@@ -312,6 +314,14 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       .finally(() => {
         setPendingDeleteTaskId(null)
       })
+  }
+
+  function switchTaskScope(scope: TaskScope) {
+    setTaskScope(scope)
+    setSelectedTaskId(null)
+    setSelectedTask(null)
+    setSelectedTaskIds({})
+    setPendingDeleteTaskId(null)
   }
 
   function enterTaskDeleteMode() {
@@ -346,7 +356,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       .map(([taskId]) => taskId)
     if (ids.length === 0) return
 
-    await Promise.all(ids.map((taskId) => deleteTask(taskId).catch(() => undefined)))
+    await Promise.all(ids.map((taskId) => deleteTask(taskId, taskScope).catch(() => undefined)))
 
     if (selectedTaskId && ids.includes(selectedTaskId)) {
       setSelectedTaskId(null)
@@ -495,7 +505,21 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
               </p>
               <div className={styles.anchorMetaRow}>
                 {!taskDeleteMode ? (
-                  <button className={styles.anchorActionBtn} onClick={enterTaskDeleteMode}>Delete Tasks</button>
+                  <div className={styles.anchorActions}>
+                    <button
+                      className={`${styles.anchorActionBtn} ${taskScope === 'workspace' ? styles.anchorActionBtnActive : ''}`}
+                      onClick={() => switchTaskScope('workspace')}
+                    >
+                      This Workspace
+                    </button>
+                    <button
+                      className={`${styles.anchorActionBtn} ${taskScope === 'all' ? styles.anchorActionBtnActive : ''}`}
+                      onClick={() => switchTaskScope('all')}
+                    >
+                      All Workspaces
+                    </button>
+                    <button className={styles.anchorActionBtn} onClick={enterTaskDeleteMode}>Delete Tasks</button>
+                  </div>
                 ) : (
                   <div className={styles.anchorActions}>
                     <button className={styles.anchorActionBtn} onClick={selectAllVisibleTasks}>Select All</button>
@@ -598,7 +622,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
         {activeTab === 'tasks' && (
           <div className={styles.list}>
-            <p className={styles.hint}>Global tasks (not workspace scoped)</p>
+            <p className={styles.hint}>{taskScope === 'workspace' ? `Showing tasks for ${currentWorkspaceName}` : 'Showing tasks across all workspaces'}</p>
             {drafts.length > 0 && (
               <>
                 <p className={styles.hint}>Promoted task drafts</p>

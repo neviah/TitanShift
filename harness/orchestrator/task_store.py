@@ -113,6 +113,29 @@ class TaskStore:
         )
         self._conn.commit()
 
+    @staticmethod
+    def _split_scope_token(token: str) -> tuple[str, str | None]:
+        """Split tenant token into base tenant and optional workspace token.
+
+        Supported format: "<tenant>@@ws:<workspace-token>".
+        """
+        marker = "@@ws:"
+        if marker not in token:
+            return token, None
+        base, workspace = token.split(marker, 1)
+        return base or "_system_", workspace or None
+
+    @classmethod
+    def _tenant_matches(cls, record_tenant: str, tenant_filter: str) -> bool:
+        """Match record tenant against either base-tenant or workspace-scoped filter."""
+        filter_base, filter_workspace = cls._split_scope_token(tenant_filter)
+        record_base, record_workspace = cls._split_scope_token(record_tenant)
+
+        if filter_workspace is not None:
+            return record_base == filter_base and record_workspace == filter_workspace
+
+        return record_base == filter_base
+
     # ── Public interface ──────────────────────────────────────────────────────
 
     def create(self, task: Task, tenant_id: str = "_system_") -> TaskRecord:
@@ -161,7 +184,7 @@ class TaskStore:
         """
         records = self._records.values()
         if tenant_id and tenant_id != "_system_":
-            records = (r for r in records if r.tenant_id == tenant_id)  # type: ignore[assignment]
+            records = (r for r in records if self._tenant_matches(r.tenant_id, tenant_id))  # type: ignore[assignment]
         return sorted(records, key=lambda r: r.created_at, reverse=True)
 
     def get(self, task_id: str, tenant_id: str | None = None) -> TaskRecord | None:
@@ -173,7 +196,7 @@ class TaskStore:
         record = self._records.get(task_id)
         if record is None:
             return None
-        if tenant_id and tenant_id != "_system_" and record.tenant_id != tenant_id:
+        if tenant_id and tenant_id != "_system_" and not self._tenant_matches(record.tenant_id, tenant_id):
             return None  # Treat as not found — don't leak existence
         return record
 
@@ -187,10 +210,10 @@ class TaskStore:
         record = self._records.get(task_id)
         if record is None:
             return False
-        if tenant_id and tenant_id != "_system_" and record.tenant_id != tenant_id:
+        if tenant_id and tenant_id != "_system_" and not self._tenant_matches(record.tenant_id, tenant_id):
             return False  # Treat as not found — don't leak existence
         del self._records[task_id]
         if self._conn is not None:
-            self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            self._conn.execute("DELETE FROM harness_tasks WHERE task_id = ?", (task_id,))
             self._conn.commit()
         return True

@@ -144,6 +144,12 @@
   border-color: var(--accent-primary);
 }
 
+.anchorActionBtnActive {
+  border-color: var(--accent-primary);
+  background: color-mix(in oklab, var(--accent-dim) 62%, var(--bg-overlay));
+  color: var(--text-primary);
+}
+
 .anchorDangerBtn {
   border-color: color-mix(in oklab, var(--error, #ff4d4d) 60%, var(--border-default));
   color: var(--error, #ff4d4d);

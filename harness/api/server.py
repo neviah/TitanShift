@@ -348,6 +348,27 @@ def create_app(workspace_root: Path) -> FastAPI:
         def is_system(self) -> bool:
             return self.tenant_id == "_system_"
 
+    def _workspace_scope_token() -> str:
+        """Return a stable token for the currently active workspace root."""
+        return str(_active_workspace["root"]).replace("\\", "/").strip().lower()
+
+    def _scoped_tenant_id(tenant: TenantContext) -> str:
+        """Compose tenant id with workspace scope for per-workspace task history."""
+        return f"{tenant.tenant_id}@@ws:{_workspace_scope_token()}"
+
+    def _task_tenant_filter(tenant: TenantContext, scope: str) -> str | None:
+        """Resolve task filter token from API scope.
+
+        scope=workspace -> only current workspace tasks
+        scope=all       -> all workspaces for this tenant
+        """
+        normalized = (scope or "workspace").strip().lower()
+        if normalized not in {"workspace", "all"}:
+            raise HTTPException(status_code=400, detail="scope must be one of: workspace, all")
+        if normalized == "all":
+            return None if tenant.is_system else tenant.tenant_id
+        return _scoped_tenant_id(tenant)
+
     def _resolve_tenant_from_key(x_api_key: str | None) -> TenantContext | None:
         """Try the key store first; return a TenantContext or None."""
         if x_api_key:
@@ -2821,7 +2842,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         # Pass active workspace root as context for file operations
         task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
         # Thread tenant context through for downstream isolation checks
-        task_input["tenant_id"] = tenant.tenant_id
+        task_input["tenant_id"] = _scoped_tenant_id(tenant)
         task_input["allowed_tools"] = list(tenant.allowed_tools)
 
         task = Task(
@@ -2911,18 +2932,19 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.get("/tasks", response_model=list[TaskSummary])
     async def list_tasks(
+        scope: str = "workspace",
         tenant: TenantContext = Depends(require_read_api_key),
     ) -> list[TaskSummary]:
-        # System tenant can see all tasks; isolated tenants see only their own.
-        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        tenant_filter = _task_tenant_filter(tenant, scope)
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks(tenant_id=tenant_filter)]
 
     @app.delete("/tasks/{task_id}", status_code=204)
     async def delete_task(
         task_id: str,
+        scope: str = "workspace",
         tenant: TenantContext = Depends(require_read_api_key),
     ) -> None:
-        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        tenant_filter = _task_tenant_filter(tenant, scope)
         deleted = runtime.orchestrator.task_store.delete(task_id, tenant_id=tenant_filter)
         if not deleted:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -2994,7 +3016,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "workflow_mode": body.workflow_mode or "lightning",
             "budget": (body.budget or {}) if hasattr(body, "budget") else {},
             "workspace_root": str(_active_workspace["root"]).replace("\\", "/"),
-            "tenant_id": tenant.tenant_id,
+            "tenant_id": _scoped_tenant_id(tenant),
             "allowed_tools": list(tenant.allowed_tools),
         }
         # Mirror /chat approval-field mapping so superpowered runs don't hit the gate
@@ -3264,7 +3286,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             if runtime.tools.preview_policy(t)[0]
         ]
         task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
-        task_input["tenant_id"] = tenant.tenant_id
+        task_input["tenant_id"] = _scoped_tenant_id(tenant)
         task_input["allowed_tools"] = list(tenant.allowed_tools)
 
         task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
@@ -3408,8 +3430,12 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
 
     @app.get("/tasks/{task_id}", response_model=TaskDetail, dependencies=[Depends(require_read_api_key)])
-    async def get_task(task_id: str, tenant: TenantContext = Depends(require_read_api_key)) -> TaskDetail:
-        tenant_filter = None if tenant.is_system else tenant.tenant_id
+    async def get_task(
+        task_id: str,
+        scope: str = "workspace",
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> TaskDetail:
+        tenant_filter = _task_tenant_filter(tenant, scope)
         task = runtime.orchestrator.get_task(task_id, tenant_id=tenant_filter)
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -3418,9 +3444,10 @@ def create_app(workspace_root: Path) -> FastAPI:
     @app.get("/tasks/{task_id}/output/blocks", response_model=TaskOutputBlocksResponse, dependencies=[Depends(require_read_api_key)])
     async def get_task_output_blocks(
         task_id: str,
+        scope: str = "workspace",
         tenant: TenantContext = Depends(require_read_api_key),
     ) -> TaskOutputBlocksResponse:
-        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        tenant_filter = _task_tenant_filter(tenant, scope)
         record = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant_filter)
         if record is None:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -3457,9 +3484,10 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def resume_task(
         task_id: str,
         body: TaskResumeRequest,
+        scope: str = "workspace",
         tenant: TenantContext = Depends(require_read_api_key),
     ) -> TaskResumeResponse:
-        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        tenant_filter = _task_tenant_filter(tenant, scope)
         source = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant_filter)
         if source is None:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -3487,7 +3515,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             "workflow_mode": workflow_mode,
             "budget": body.budget.model_dump(exclude_none=True) if body.budget else {},
             "workspace_root": str(_active_workspace["root"]).replace("\\", "/"),
-            "tenant_id": tenant.tenant_id,
+            "tenant_id": _scoped_tenant_id(tenant),
             "allowed_tools": list(tenant.allowed_tools),
         }
         if history:
@@ -3516,9 +3544,13 @@ def create_app(workspace_root: Path) -> FastAPI:
         )
 
     @app.get("/tasks/{task_id}/timeline", response_model=TaskTimelineResponse, dependencies=[Depends(require_read_api_key)])
-    async def get_task_timeline(task_id: str, tenant: TenantContext = Depends(require_read_api_key)) -> TaskTimelineResponse:
+    async def get_task_timeline(
+        task_id: str,
+        scope: str = "workspace",
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> TaskTimelineResponse:
         """Return an ordered sequence of tool-call and patch events from a completed task run."""
-        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        tenant_filter = _task_tenant_filter(tenant, scope)
         record = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant_filter)
         if record is None:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -3561,6 +3593,7 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def approve_task_plan(
         task_id: str,
         body: ApprovePlanRequest,
+        scope: str = "workspace",
         tenant: TenantContext = Depends(require_read_api_key),
     ) -> ApprovePlanResponse:
         """Approve or reject the plan draft generated by the Superpowered plan phase.
@@ -3572,7 +3605,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         When rejected the endpoint simply returns ok=False — the client should present
         feedback and allow the user to resubmit the original request.
         """
-        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        tenant_filter = _task_tenant_filter(tenant, scope)
         record = runtime.orchestrator.task_store.get(task_id, tenant_id=tenant_filter)
         if record is None:
             raise HTTPException(status_code=404, detail="Task not found")
