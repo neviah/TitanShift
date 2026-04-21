@@ -1,0 +1,74 @@
+{
+  "suite": "P1_frontend_quality",
+  "case_id": "landing_single_file",
+  "title": "Single-file landing quality",
+  "started_at": "2026-04-20T05:24:24.867378+00:00",
+  "elapsed_seconds": 900.45,
+  "request": {
+    "prompt": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-050924/P1_frontend_quality/landing and write this exact HTML to D:/Projects/TitantShift/Testing/matrix-20260420-050924/P1_frontend_quality/landing/index.html using write_file. Use create_directory first, then write_file, and do not create any other files. Exact HTML content to write:\n<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n  <title>Matrix Landing</title>\n  <style>\n    :root { color-scheme: light; }\n    * { box-sizing: border-box; }\n    body { margin: 0; font-family: Georgia, serif; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #fef6e4, #d9e8ff); color: #1f2937; }\n    main { width: min(900px, 92vw); background: rgba(255,255,255,0.85); border: 1px solid #e5e7eb; border-radius: 18px; padding: 28px; box-shadow: 0 10px 30px rgba(17,24,39,0.08); }\n    h1 { margin: 0 0 12px; font-size: clamp(1.8rem, 5vw, 2.8rem); line-height: 1.1; }\n    p { margin: 0 0 16px; line-height: 1.6; max-width: 60ch; }\n    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }\n    button { border: 0; border-radius: 999px; padding: 10px 16px; background: #0f766e; color: white; font-weight: 600; }\n    svg { width: 100%; max-width: 760px; height: auto; display: block; margin-top: 14px; }\n  </style>\n</head>\n<body>\n  <main>\n    <h1>Single-file responsive landing</h1>\n    <p>This page is a self-contained HTML document with embedded CSS and an inline SVG decorative element.</p>\n    <div class=\"row\"><button type=\"button\">Get Started</button></div>\n    <svg viewBox=\"0 0 760 180\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Decorative wave\">\n      <defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop stop-color=\"#14b8a6\"/><stop offset=\"1\" stop-color=\"#3b82f6\"/></linearGradient></defs>\n      <rect width=\"760\" height=\"180\" fill=\"#f8fafc\"/>\n      <path d=\"M0,120 C120,70 240,170 380,120 C520,70 620,170 760,120 L760,180 L0,180 Z\" fill=\"url(#g)\" opacity=\"0.9\"/>\n    </svg>\n  </main>\n</body>\n</html>\n",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "run_id": "b3e4e090d5d24e6da0ded7c2c6563789",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "b3e4e090d5d24e6da0ded7c2c6563789",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "b3e4e090d5d24e6da0ded7c2c6563789",
+    "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-050924/P1_frontend_quality/landing and write this exact HTML to D:/Projects/TitantShift/Testing/matrix-20260420-050924/P1_frontend_quality/landing/index.html using write_file. Use create_directory first, then write_file, and do not create any other files. Exact HTML content to write:\n<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n  <title>Matrix Landing</title>\n  <style>\n    :root { color-scheme: light; }\n    * { box-sizing: border-box; }\n    body { margin: 0; font-family: Georgia, serif; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #fef6e4, #d9e8ff); color: #1f2937; }\n    main { width: min(900px, 92vw); background: rgba(255,255,255,0.85); border: 1px solid #e5e7eb; border-radius: 18px; padding: 28px; box-shadow: 0 10px 30px rgba(17,24,39,0.08); }\n    h1 { margin: 0 0 12px; font-size: clamp(1.8rem, 5vw, 2.8rem); line-height: 1.1; }\n    p { margin: 0 0 16px; line-height: 1.6; max-width: 60ch; }\n    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }\n    button { border: 0; border-radius: 999px; padding: 10px 16px; background: #0f766e; color: white; font-weight: 600; }\n    svg { width: 100%; max-width: 760px; height: auto; display: block; margin-top: 14px; }\n  </style>\n</head>\n<body>\n  <main>\n    <h1>Single-file responsive landing</h1>\n    <p>This page is a self-contained HTML document with embedded CSS and an inline SVG decorative element.</p>\n    <div class=\"row\"><button type=\"button\">Get Started</button></div>\n    <svg viewBox=\"0 0 760 180\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Decorative wave\">\n      <defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop stop-color=\"#14b8a6\"/><stop offset=\"1\" stop-color=\"#3b82f6\"/></linearGradient></defs>\n      <rect width=\"760\" height=\"180\" fill=\"#f8fafc\"/>\n      <path d=\"M0,120 C120,70 240,170 380,120 C520,70 620,170 760,120 L760,180 L0,180 Z\" fill=\"url(#g)\" opacity=\"0.9\"/>\n    </svg>\n  </main>\n</body>\n</html>\n",
+    "status": "cancelled",
+    "created_at": "2026-04-20T05:09:24.457356+00:00",
+    "started_at": "2026-04-20T05:09:24.463081+00:00",
+    "completed_at": "2026-04-20T05:24:24.814147+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "b3e4e090d5d24e6da0ded7c2c6563789",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "b3e4e090d5d24e6da0ded7c2c6563789",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (900s)",
+      "cancel": {
+        "task_id": "b3e4e090d5d24e6da0ded7c2c6563789",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "b3e4e090d5d24e6da0ded7c2c6563789",
+        "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-050924/P1_frontend_quality/landing and write this exact HTML to D:/Projects/TitantShift/Testing/matrix-20260420-050924/P1_frontend_quality/landing/index.html using write_file. Use create_directory first, then write_file, and do not create any other files. Exact HTML content to write:\n<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n  <title>Matrix Landing</title>\n  <style>\n    :root { color-scheme: light; }\n    * { box-sizing: border-box; }\n    body { margin: 0; font-family: Georgia, serif; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #fef6e4, #d9e8ff); color: #1f2937; }\n    main { width: min(900px, 92vw); background: rgba(255,255,255,0.85); border: 1px solid #e5e7eb; border-radius: 18px; padding: 28px; box-shadow: 0 10px 30px rgba(17,24,39,0.08); }\n    h1 { margin: 0 0 12px; font-size: clamp(1.8rem, 5vw, 2.8rem); line-height: 1.1; }\n    p { margin: 0 0 16px; line-height: 1.6; max-width: 60ch; }\n    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }\n    button { border: 0; border-radius: 999px; padding: 10px 16px; background: #0f766e; color: white; font-weight: 600; }\n    svg { width: 100%; max-width: 760px; height: auto; display: block; margin-top: 14px; }\n  </style>\n</head>\n<body>\n  <main>\n    <h1>Single-file responsive landing</h1>\n    <p>This page is a self-contained HTML document with embedded CSS and an inline SVG decorative element.</p>\n    <div class=\"row\"><button type=\"button\">Get Started</button></div>\n    <svg viewBox=\"0 0 760 180\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Decorative wave\">\n      <defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop stop-color=\"#14b8a6\"/><stop offset=\"1\" stop-color=\"#3b82f6\"/></linearGradient></defs>\n      <rect width=\"760\" height=\"180\" fill=\"#f8fafc\"/>\n      <path d=\"M0,120 C120,70 240,170 380,120 C520,70 620,170 760,120 L760,180 L0,180 Z\" fill=\"url(#g)\" opacity=\"0.9\"/>\n    </svg>\n  </main>\n</body>\n</html>\n",
+        "status": "cancelled",
+        "created_at": "2026-04-20T05:09:24.457356+00:00",
+        "started_at": "2026-04-20T05:09:24.463081+00:00",
+        "completed_at": "2026-04-20T05:24:24.814147+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (900s)",
+  "pass": false
+}

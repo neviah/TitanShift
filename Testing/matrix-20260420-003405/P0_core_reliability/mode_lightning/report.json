@@ -1,0 +1,11 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_lightning",
+  "title": "Mode routing lightning",
+  "status": "passed",
+  "elapsed_seconds": 33.1,
+  "response_success": true,
+  "task_status": "completed",
+  "task_success": true,
+  "error": null
+}

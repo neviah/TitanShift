@@ -1,0 +1,24 @@
+{
+  "suite": "P1_frontend_quality",
+  "case_id": "landing_single_file",
+  "title": "Single-file landing quality",
+  "started_at": "2026-04-20T00:27:58.675665+00:00",
+  "elapsed_seconds": 420.03,
+  "request": {
+    "prompt": "Create exactly one file at D:/Projects/TitantShift/Testing/matrix-20260420-001314/P1_frontend_quality/landing/index.html. The page must be self-contained with embedded CSS, responsive layout, and at least one inline SVG decorative element.",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Single-file landing quality",
+        "description": "Single-file landing quality"
+      }
+    ]
+  },
+  "response": null,
+  "task": null,
+  "error": "timed out",
+  "pass": false
+}

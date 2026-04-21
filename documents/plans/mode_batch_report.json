@@ -1,0 +1,171 @@
+﻿{
+    "timestamp":  "2026-04-19T13:24:07.3786607-04:00",
+    "summary":  [
+                    {
+                        "mode":  "lightning",
+                        "total":  5,
+                        "passed":  5,
+                        "failed":  0
+                    },
+                    {
+                        "mode":  "superpowered",
+                        "total":  5,
+                        "passed":  null,
+                        "failed":  4
+                    }
+                ],
+    "failed":  [
+                   {
+                       "mode":  "superpowered",
+                       "prompt":  "Return exactly: OK.",
+                       "response_mode":  "timeout",
+                       "status":  null,
+                       "success":  false,
+                       "has_plan_draft":  false,
+                       "error":  "Run exceeded timeout of 300.0s.",
+                       "task_id":  "a66fb2ac-ef12-41fb-b7d6-da87bfa4fee8"
+                   },
+                   {
+                       "mode":  "superpowered",
+                       "prompt":  "List 2 files to inspect before changing routes.",
+                       "response_mode":  "timeout",
+                       "status":  null,
+                       "success":  false,
+                       "has_plan_draft":  false,
+                       "error":  "Run exceeded timeout of 300.0s.",
+                       "task_id":  "8f042e6d-19af-4d02-8ab7-f414c3ae9ac1"
+                   },
+                   {
+                       "mode":  "superpowered",
+                       "prompt":  "Suggest one test for a new endpoint.",
+                       "response_mode":  "timeout",
+                       "status":  null,
+                       "success":  false,
+                       "has_plan_draft":  false,
+                       "error":  "Run exceeded timeout of 300.0s.",
+                       "task_id":  "28241d06-d4a3-4c7a-8cd2-3a7ff45d0567"
+                   },
+                   {
+                       "mode":  "superpowered",
+                       "prompt":  "Give a one-line rollback strategy.",
+                       "response_mode":  "timeout",
+                       "status":  null,
+                       "success":  false,
+                       "has_plan_draft":  false,
+                       "error":  "Run exceeded timeout of 300.0s.",
+                       "task_id":  "94650b5d-8ec7-40fc-a6a1-4ca80383f5e9"
+                   }
+               ],
+    "results":  [
+                    {
+                        "mode":  "lightning",
+                        "prompt":  "Return exactly: OK.",
+                        "pass":  true,
+                        "success":  true,
+                        "response_mode":  "reactive",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "87ecf026-b9e4-469d-aa42-28e3ae6eba17",
+                        "error":  null
+                    },
+                    {
+                        "mode":  "superpowered",
+                        "prompt":  "Return exactly: OK.",
+                        "pass":  false,
+                        "success":  false,
+                        "response_mode":  "timeout",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "a66fb2ac-ef12-41fb-b7d6-da87bfa4fee8",
+                        "error":  "Run exceeded timeout of 300.0s."
+                    },
+                    {
+                        "mode":  "lightning",
+                        "prompt":  "List 2 files to inspect before changing routes.",
+                        "pass":  true,
+                        "success":  true,
+                        "response_mode":  "reactive",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "8aaa93c4-3a22-4be8-a453-de812b6e97eb",
+                        "error":  null
+                    },
+                    {
+                        "mode":  "superpowered",
+                        "prompt":  "List 2 files to inspect before changing routes.",
+                        "pass":  false,
+                        "success":  false,
+                        "response_mode":  "timeout",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "8f042e6d-19af-4d02-8ab7-f414c3ae9ac1",
+                        "error":  "Run exceeded timeout of 300.0s."
+                    },
+                    {
+                        "mode":  "lightning",
+                        "prompt":  "Suggest one test for a new endpoint.",
+                        "pass":  true,
+                        "success":  true,
+                        "response_mode":  "reactive",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "a834e065-31f6-42bd-9b50-6961c435039e",
+                        "error":  null
+                    },
+                    {
+                        "mode":  "superpowered",
+                        "prompt":  "Suggest one test for a new endpoint.",
+                        "pass":  false,
+                        "success":  false,
+                        "response_mode":  "timeout",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "28241d06-d4a3-4c7a-8cd2-3a7ff45d0567",
+                        "error":  "Run exceeded timeout of 300.0s."
+                    },
+                    {
+                        "mode":  "lightning",
+                        "prompt":  "Give a one-line rollback strategy.",
+                        "pass":  true,
+                        "success":  true,
+                        "response_mode":  "reactive",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "7b1ad5c4-1f87-4631-8adb-95a77867fcfc",
+                        "error":  null
+                    },
+                    {
+                        "mode":  "superpowered",
+                        "prompt":  "Give a one-line rollback strategy.",
+                        "pass":  false,
+                        "success":  false,
+                        "response_mode":  "timeout",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "94650b5d-8ec7-40fc-a6a1-4ca80383f5e9",
+                        "error":  "Run exceeded timeout of 300.0s."
+                    },
+                    {
+                        "mode":  "lightning",
+                        "prompt":  "Describe JSON shape for /health response.",
+                        "pass":  true,
+                        "success":  true,
+                        "response_mode":  "reactive",
+                        "status":  null,
+                        "has_plan_draft":  false,
+                        "task_id":  "8e32a372-648f-427c-96f3-97c8167f25ec",
+                        "error":  null
+                    },
+                    {
+                        "mode":  "superpowered",
+                        "prompt":  "Describe JSON shape for /health response.",
+                        "pass":  true,
+                        "success":  false,
+                        "response_mode":  "approval-gate",
+                        "status":  "pending_plan_approval",
+                        "has_plan_draft":  true,
+                        "task_id":  "64cf0781-f174-4eec-9d7c-fd55edba2040",
+                        "error":  "Superpowered mode requires plan approval before implementation. Missing approvals: spec, plan. Review the plan_draft and resubmit with spec_approved=true, plan_approved=true (and optionally override plan_tasks) to proceed with implementation."
+                    }
+                ]
+}

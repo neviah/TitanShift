@@ -1,0 +1,94 @@
+{
+  "suite": "P6_preexisting_edit",
+  "case_id": "edit_existing_project_superpowered",
+  "title": "Edit existing project files",
+  "started_at": "2026-04-20T22:15:35.216765+00:00",
+  "elapsed_seconds": 605.28,
+  "request": {
+    "prompt": "CRITICAL: Use existing folder D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project and do NOT create a new top-level directory. Read the existing D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html and D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md. Create new file D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/style.css with basic CSS. Edit D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html to add the text 'existing project updated' in the HTML. Append one line to D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md: 'update_marker: superpowered edit pass'. Do not create any other files or directories. Return completion status.",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Edit existing project files",
+        "description": "CRITICAL: Use existing folder D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project and do NOT create a new top-level directory. Read the existing D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html and D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md. Create new file D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/style.css with basic CSS. Edit D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html to add the text 'existing project updated' in the HTML. Append one line to D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md: 'update_marker: superpowered edit pass'. Do not create any other files or directories. Return completion status.",
+        "implementer_status": "DONE",
+        "spec_review_passed": true,
+        "code_review_passed": true,
+        "verification_passed": true
+      }
+    ]
+  },
+  "response": {
+    "run_id": "276b41f0bcfc482bab7fa9da17efb394",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "276b41f0bcfc482bab7fa9da17efb394",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "276b41f0bcfc482bab7fa9da17efb394",
+    "description": "CRITICAL: Use existing folder D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project and do NOT create a new top-level directory. Read the existing D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html and D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md. Create new file D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/style.css with basic CSS. Edit D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html to add the text 'existing project updated' in the HTML. Append one line to D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md: 'update_marker: superpowered edit pass'. Do not create any other files or directories. Return completion status.",
+    "status": "cancelled",
+    "created_at": "2026-04-20T22:05:29.973944+00:00",
+    "started_at": "2026-04-20T22:05:29.978105+00:00",
+    "completed_at": "2026-04-20T22:15:33.821522+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "276b41f0bcfc482bab7fa9da17efb394",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "276b41f0bcfc482bab7fa9da17efb394",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (600s)",
+      "cancel": {
+        "task_id": "276b41f0bcfc482bab7fa9da17efb394",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "276b41f0bcfc482bab7fa9da17efb394",
+        "description": "CRITICAL: Use existing folder D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project and do NOT create a new top-level directory. Read the existing D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html and D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md. Create new file D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/style.css with basic CSS. Edit D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html to add the text 'existing project updated' in the HTML. Append one line to D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md: 'update_marker: superpowered edit pass'. Do not create any other files or directories. Return completion status.",
+        "status": "cancelled",
+        "created_at": "2026-04-20T22:05:29.973944+00:00",
+        "started_at": "2026-04-20T22:05:29.978105+00:00",
+        "completed_at": "2026-04-20T22:15:33.821522+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (600s)",
+  "validation_error": null,
+  "required_paths": [
+    "D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/style.css"
+  ],
+  "required_file_contains": {
+    "D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/index.html": "existing project updated",
+    "D:/Projects/TitantShift/Testing/matrix-20260420-220529/P6_preexisting_edit/existing_project/notes.md": "update_marker: superpowered edit pass"
+  },
+  "pass": false
+}

@@ -1,0 +1,11 @@
+{
+  "suite": "P4_creator_use_cases",
+  "case_id": "video_remotion_render",
+  "title": "Remotion MP4 render",
+  "status": "passed",
+  "elapsed_seconds": 72.36,
+  "response_success": true,
+  "task_status": "completed",
+  "task_success": true,
+  "error": null
+}

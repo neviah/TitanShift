@@ -1,0 +1,11 @@
+{
+  "suite": "P5_regression_gate",
+  "case_id": "artifact_flood_guard",
+  "title": "Artifact flood guard sampling",
+  "status": "passed",
+  "elapsed_seconds": 20.6,
+  "response_success": true,
+  "task_status": "completed",
+  "task_success": true,
+  "error": null
+}

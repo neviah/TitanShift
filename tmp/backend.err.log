@@ -1,0 +1,3 @@
+usage: harness [-h] [--workspace WORKSPACE]
+               {run-task,run-tool,serve-api,lmstudio-check,status,print-config,migrate,config,init} ...
+harness: error: argument command: invalid choice: 'harness.config.json' (choose from run-task, run-tool, serve-api, lmstudio-check, status, print-config, migrate, config, init)

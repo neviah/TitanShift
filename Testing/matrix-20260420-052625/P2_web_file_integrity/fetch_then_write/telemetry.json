@@ -1,0 +1,192 @@
+{
+  "suite": "P2_web_file_integrity",
+  "case_id": "fetch_then_write",
+  "title": "Web fetch then write",
+  "started_at": "2026-04-20T05:31:46.081554+00:00",
+  "elapsed_seconds": 120.88,
+  "request": {
+    "prompt": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity using create_directory. Then use web_browse or web_fetch to open https://www.reddit.com and find one post URL. Use write_file to write that URL as a single line to D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt. Then use read_file to confirm the file contains the URL and return its content.",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "run_id": "f0832f7097674a57b7175f173a1feedd",
+    "state": "completed",
+    "success": true,
+    "error": null,
+    "response": "I have completed the requested tasks. Here is a summary of the operations performed:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity`\n2.  **Web Browsing**: Accessed `https://www.reddit.com` and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`\n3.  **File Written**: Created `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt` with the URL content.\n4.  **Verification**: Read the file back to confirm its contents.\n\n**File Content of `reddit_capture.txt`:**\n```\nhttps://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885\n```"
+  },
+  "run_status": {
+    "run_id": "f0832f7097674a57b7175f173a1feedd",
+    "state": "completed",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": 119774.9,
+    "result": {
+      "success": true,
+      "response": "I have completed the requested tasks. Here is a summary of the operations performed:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity`\n2.  **Web Browsing**: Accessed `https://www.reddit.com` and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`\n3.  **File Written**: Created `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt` with the URL content.\n4.  **Verification**: Read the file back to confirm its contents.\n\n**File Content of `reddit_capture.txt`:**\n```\nhttps://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885\n```",
+      "error": null
+    }
+  },
+  "task": {
+    "task_id": "f0832f7097674a57b7175f173a1feedd",
+    "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity using create_directory. Then use web_browse or web_fetch to open https://www.reddit.com and find one post URL. Use write_file to write that URL as a single line to D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt. Then use read_file to confirm the file contains the URL and return its content.",
+    "status": "completed",
+    "created_at": "2026-04-20T05:29:45.201250+00:00",
+    "started_at": "2026-04-20T05:29:45.205461+00:00",
+    "completed_at": "2026-04-20T05:31:44.909460+00:00",
+    "success": true,
+    "error": null,
+    "output": {
+      "response": "I have completed the requested tasks. Here is a summary of the operations performed:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity`\n2.  **Web Browsing**: Accessed `https://www.reddit.com` and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`\n3.  **File Written**: Created `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt` with the URL content.\n4.  **Verification**: Read the file back to confirm its contents.\n\n**File Content of `reddit_capture.txt`:**\n```\nhttps://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885\n```",
+      "model": "lmstudio",
+      "mode": "reactive",
+      "estimated_total_tokens": 3604,
+      "used_tools": [
+        "create_directory",
+        "web_browse",
+        "write_file",
+        "read_file"
+      ],
+      "requested_tools": [
+        "create_directory",
+        "read_file",
+        "web_browse",
+        "web_fetch",
+        "write_file"
+      ],
+      "attempted_tools": [
+        "create_directory",
+        "web_browse",
+        "write_file",
+        "read_file"
+      ],
+      "fallback_used": false,
+      "primary_failure_reason": null,
+      "browser_proof": {
+        "tool_name": "read_file",
+        "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+      },
+      "browser_proofs": [
+        {
+          "tool_name": "web_browse",
+          "final_url": "https://www.reddit.com/?solution=c4d8eedda42dc63bc4d8eedda42dc63b&js_challenge=1&token=bbbe4bf1c9a2b5160829c4be34da58611074e13b98ff875250b9946276a99d33",
+          "evidence_snippet": "Skip to main content Get App Log In Expand user menu Woke up with these bite marks on my chest r/Weird \u2022 4 hr. ago Woke up with these bite marks on my chest u/Foundayo \u2022 Promoted Foundayo is here! A once-daily pill, now approved \u2705 See Indication & Safety Summary with Warnings on foundayo.lilly.com/risk foundayo.lilly.com Learn More US draft update: Major tech company [Palantir] urges universal national service r/technology \u2022 8 hr. ago US draft update: Major tech company [Palantir] urges universal national service https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-natio",
+          "screenshot_metadata": {
+            "screenshot_path": null
+          }
+        },
+        {
+          "tool_name": "read_file",
+          "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+        }
+      ],
+      "test_failure_summary": [],
+      "test_failed_count": null,
+      "created_paths": [],
+      "updated_paths": [],
+      "patch_summaries": [],
+      "context_provenance": [],
+      "artifacts": [],
+      "workflow_mode": "lightning",
+      "spawned_subagents": [
+        "subagent-825ba167",
+        "subagent-a97151cb",
+        "subagent-150ccf98"
+      ]
+    }
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "f0832f7097674a57b7175f173a1feedd",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "f0832f7097674a57b7175f173a1feedd",
+        "state": "completed",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": 119774.9,
+        "result": {
+          "success": true,
+          "response": "I have completed the requested tasks. Here is a summary of the operations performed:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity`\n2.  **Web Browsing**: Accessed `https://www.reddit.com` and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`\n3.  **File Written**: Created `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt` with the URL content.\n4.  **Verification**: Read the file back to confirm its contents.\n\n**File Content of `reddit_capture.txt`:**\n```\nhttps://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885\n```",
+          "error": null
+        }
+      },
+      "task": {
+        "task_id": "f0832f7097674a57b7175f173a1feedd",
+        "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity using create_directory. Then use web_browse or web_fetch to open https://www.reddit.com and find one post URL. Use write_file to write that URL as a single line to D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt. Then use read_file to confirm the file contains the URL and return its content.",
+        "status": "completed",
+        "created_at": "2026-04-20T05:29:45.201250+00:00",
+        "started_at": "2026-04-20T05:29:45.205461+00:00",
+        "completed_at": "2026-04-20T05:31:44.909460+00:00",
+        "success": true,
+        "error": null,
+        "output": {
+          "response": "I have completed the requested tasks. Here is a summary of the operations performed:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity`\n2.  **Web Browsing**: Accessed `https://www.reddit.com` and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`\n3.  **File Written**: Created `D:/Projects/TitantShift/Testing/matrix-20260420-052625/P2_web_file_integrity/reddit_capture.txt` with the URL content.\n4.  **Verification**: Read the file back to confirm its contents.\n\n**File Content of `reddit_capture.txt`:**\n```\nhttps://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885\n```",
+          "model": "lmstudio",
+          "mode": "reactive",
+          "estimated_total_tokens": 3604,
+          "used_tools": [
+            "create_directory",
+            "web_browse",
+            "write_file",
+            "read_file"
+          ],
+          "requested_tools": [
+            "create_directory",
+            "read_file",
+            "web_browse",
+            "web_fetch",
+            "write_file"
+          ],
+          "attempted_tools": [
+            "create_directory",
+            "web_browse",
+            "write_file",
+            "read_file"
+          ],
+          "fallback_used": false,
+          "primary_failure_reason": null,
+          "browser_proof": {
+            "tool_name": "read_file",
+            "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+          },
+          "browser_proofs": [
+            {
+              "tool_name": "web_browse",
+              "final_url": "https://www.reddit.com/?solution=c4d8eedda42dc63bc4d8eedda42dc63b&js_challenge=1&token=bbbe4bf1c9a2b5160829c4be34da58611074e13b98ff875250b9946276a99d33",
+              "evidence_snippet": "Skip to main content Get App Log In Expand user menu Woke up with these bite marks on my chest r/Weird \u2022 4 hr. ago Woke up with these bite marks on my chest u/Foundayo \u2022 Promoted Foundayo is here! A once-daily pill, now approved \u2705 See Indication & Safety Summary with Warnings on foundayo.lilly.com/risk foundayo.lilly.com Learn More US draft update: Major tech company [Palantir] urges universal national service r/technology \u2022 8 hr. ago US draft update: Major tech company [Palantir] urges universal national service https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-natio",
+              "screenshot_metadata": {
+                "screenshot_path": null
+              }
+            },
+            {
+              "tool_name": "read_file",
+              "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+            }
+          ],
+          "test_failure_summary": [],
+          "test_failed_count": null,
+          "created_paths": [],
+          "updated_paths": [],
+          "patch_summaries": [],
+          "context_provenance": [],
+          "artifacts": [],
+          "workflow_mode": "lightning",
+          "spawned_subagents": [
+            "subagent-825ba167",
+            "subagent-a97151cb",
+            "subagent-150ccf98"
+          ]
+        }
+      }
+    }
+  ],
+  "error": null,
+  "pass": true
+}

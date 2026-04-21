@@ -1,0 +1,67 @@
+{
+  "started_at": "2026-04-19T23:51:49.657312+00:00",
+  "workspace_root": "D:/Projects/TitantShift",
+  "steps": [
+    {
+      "tool": "generate_report",
+      "ok": true,
+      "result": {
+        "ok": true,
+        "title": "Office and PDF Smoke",
+        "format": "pdf",
+        "path": "D:/Projects/TitantShift/Testing/P4_creator_use_cases/office-pdf-smoke-20260419-235149/office_pdf/office-and-pdf-smoke-589d13ba2f73.pdf",
+        "created_paths": [
+          "D:/Projects/TitantShift/Testing/P4_creator_use_cases/office-pdf-smoke-20260419-235149/office_pdf/office-and-pdf-smoke-589d13ba2f73.pdf"
+        ],
+        "updated_paths": [],
+        "artifacts": [
+          {
+            "artifact_id": "589d13ba2f73",
+            "kind": "document.pdf",
+            "path": "D:/Projects/TitantShift/Testing/P4_creator_use_cases/office-pdf-smoke-20260419-235149/office_pdf/office-and-pdf-smoke-589d13ba2f73.pdf",
+            "mime_type": "application/pdf",
+            "title": "Office and PDF Smoke",
+            "summary": "Generated pdf report",
+            "generator": "generate_report",
+            "backend": "document_backend",
+            "verified": true,
+            "provenance": {
+              "request_hash": "589d13ba2f73",
+              "generated_at": "2026-04-19T23:51:49.658845+00:00",
+              "output_format": "pdf",
+              "section_count": 1
+            },
+            "preview": {
+              "safe_inline": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tool": "officecli_create_document",
+      "args": {
+        "path": "D:/Projects/TitantShift/Testing/P4_creator_use_cases/office-pdf-smoke-20260419-235149/office_pdf/smoke.docx"
+      },
+      "ok": false,
+      "error": "officecli binary not found on PATH. Install from https://github.com/iOfficeAI/OfficeCLI"
+    },
+    {
+      "tool": "officecli_create_document",
+      "args": {
+        "path": "D:/Projects/TitantShift/Testing/P4_creator_use_cases/office-pdf-smoke-20260419-235149/office_pdf/smoke.xlsx"
+      },
+      "ok": false,
+      "error": "officecli binary not found on PATH. Install from https://github.com/iOfficeAI/OfficeCLI"
+    },
+    {
+      "tool": "officecli_create_document",
+      "args": {
+        "path": "D:/Projects/TitantShift/Testing/P4_creator_use_cases/office-pdf-smoke-20260419-235149/office_pdf/smoke.pptx"
+      },
+      "ok": false,
+      "error": "officecli binary not found on PATH. Install from https://github.com/iOfficeAI/OfficeCLI"
+    }
+  ],
+  "completed_at": "2026-04-19T23:51:49.788148+00:00"
+}

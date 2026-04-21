@@ -1,0 +1,11 @@
+{
+  "suite": "P3_skill_activation",
+  "case_id": "writing_plan_skill",
+  "title": "Skill activation sanity",
+  "status": "failed",
+  "elapsed_seconds": 319.58,
+  "response_success": false,
+  "task_status": "failed",
+  "task_success": false,
+  "error": null
+}

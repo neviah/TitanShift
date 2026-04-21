@@ -1,0 +1,14 @@
+{
+  "tool_name": "manual_tool",
+  "arguments": {},
+  "source_artifact": {
+    "artifact_id": "tenant-artifact-smoke",
+    "kind": "document.markdown",
+    "path": "D:\\Projects\\TitantShift\\.harness\\tenant-artifact-smoke.md",
+    "mime_type": "text/markdown",
+    "title": "Tenant Artifact",
+    "summary": "tenant-scoped",
+    "generator": "manual",
+    "backend": "manual"
+  }
+}

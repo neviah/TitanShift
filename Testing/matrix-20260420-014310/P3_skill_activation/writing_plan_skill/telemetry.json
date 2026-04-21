@@ -1,0 +1,82 @@
+{
+  "suite": "P3_skill_activation",
+  "case_id": "writing_plan_skill",
+  "title": "Skill activation sanity",
+  "started_at": "2026-04-20T02:22:17.055939+00:00",
+  "elapsed_seconds": 420.37,
+  "request": {
+    "prompt": "Using writing-plans style output, create Testing/P3_skill_activation/plan.md with a concise project rollout plan containing timeline, risks, and mitigations.",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Skill activation sanity",
+        "description": "Skill activation sanity"
+      }
+    ]
+  },
+  "response": {
+    "run_id": "be57e98a3bdc44018260be550ca126c8",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "be57e98a3bdc44018260be550ca126c8",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "be57e98a3bdc44018260be550ca126c8",
+    "description": "Using writing-plans style output, create Testing/P3_skill_activation/plan.md with a concise project rollout plan containing timeline, risks, and mitigations.",
+    "status": "cancelled",
+    "created_at": "2026-04-20T02:15:16.684776+00:00",
+    "started_at": "2026-04-20T02:15:16.688647+00:00",
+    "completed_at": "2026-04-20T02:22:17.004370+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "be57e98a3bdc44018260be550ca126c8",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "be57e98a3bdc44018260be550ca126c8",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (420s)",
+      "cancel": {
+        "task_id": "be57e98a3bdc44018260be550ca126c8",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "be57e98a3bdc44018260be550ca126c8",
+        "description": "Using writing-plans style output, create Testing/P3_skill_activation/plan.md with a concise project rollout plan containing timeline, risks, and mitigations.",
+        "status": "cancelled",
+        "created_at": "2026-04-20T02:15:16.684776+00:00",
+        "started_at": "2026-04-20T02:15:16.688647+00:00",
+        "completed_at": "2026-04-20T02:22:17.004370+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (420s)",
+  "pass": false
+}

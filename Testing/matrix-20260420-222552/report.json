@@ -1,0 +1,24 @@
+{
+  "run_id": "matrix-20260420-222552",
+  "started_at": "2026-04-20T22:25:52.923905+00:00",
+  "completed_at": "2026-04-20T22:31:50.898321+00:00",
+  "duration_seconds": 357.97,
+  "base_url": "http://127.0.0.1:8000",
+  "output_root": "D:/Projects/TitantShift/Testing/matrix-20260420-222552",
+  "total_cases": 1,
+  "passed": 1,
+  "failed": 0,
+  "results": [
+    {
+      "suite": "P6_preexisting_edit",
+      "case_id": "edit_existing_project_superpowered",
+      "title": "Edit existing project files",
+      "status": "passed",
+      "elapsed_seconds": 357.94,
+      "response_success": true,
+      "task_status": "completed",
+      "task_success": true,
+      "error": null
+    }
+  ]
+}

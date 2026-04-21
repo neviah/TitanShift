@@ -1,0 +1,48 @@
+{
+  "suite": "P1_frontend_quality",
+  "case_id": "landing_single_file",
+  "title": "Single-file landing quality",
+  "started_at": "2026-04-20T00:42:41.498750+00:00",
+  "elapsed_seconds": 241.71,
+  "request": {
+    "prompt": "Create exactly one file at D:/Projects/TitantShift/Testing/matrix-20260420-003405/P1_frontend_quality/landing/index.html. The page must be self-contained with embedded CSS, responsive layout, and at least one inline SVG decorative element.",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Single-file landing quality",
+        "description": "Single-file landing quality"
+      }
+    ]
+  },
+  "response": {
+    "run_id": "33e78ddf649c4cb6b58cb164dbc2dd14",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "33e78ddf649c4cb6b58cb164dbc2dd14",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "33e78ddf649c4cb6b58cb164dbc2dd14",
+    "description": "Create exactly one file at D:/Projects/TitantShift/Testing/matrix-20260420-003405/P1_frontend_quality/landing/index.html. The page must be self-contained with embedded CSS, responsive layout, and at least one inline SVG decorative element.",
+    "status": "running",
+    "created_at": "2026-04-20T00:38:39.795980+00:00",
+    "started_at": "2026-04-20T00:38:39.803476+00:00",
+    "completed_at": null,
+    "success": null,
+    "error": null,
+    "output": {}
+  },
+  "error": "run polling exceeded timeout (240s)",
+  "pass": false
+}

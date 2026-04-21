@@ -1,0 +1,114 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_superpowered",
+  "title": "Mode routing superpowered",
+  "started_at": "2026-04-20T01:55:41.349076+00:00",
+  "elapsed_seconds": 726.33,
+  "request": {
+    "prompt": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Mode routing superpowered",
+        "description": "Mode routing superpowered"
+      }
+    ]
+  },
+  "response": {
+    "run_id": "c8d39c1de9d7443aa0a6bccee9fffe3c",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "c8d39c1de9d7443aa0a6bccee9fffe3c",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "c8d39c1de9d7443aa0a6bccee9fffe3c",
+    "description": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+    "status": "cancelled",
+    "created_at": "2026-04-20T01:49:39.821055+00:00",
+    "started_at": "2026-04-20T01:49:39.828385+00:00",
+    "completed_at": "2026-04-20T01:55:41.334542+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "737f3d431c854ae5bd1c7e1bb74251cb",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "737f3d431c854ae5bd1c7e1bb74251cb",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (360s)",
+      "cancel": {
+        "task_id": "737f3d431c854ae5bd1c7e1bb74251cb",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "737f3d431c854ae5bd1c7e1bb74251cb",
+        "description": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+        "status": "cancelled",
+        "created_at": "2026-04-20T01:43:35.026074+00:00",
+        "started_at": "2026-04-20T01:43:35.029912+00:00",
+        "completed_at": "2026-04-20T01:49:35.774256+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    },
+    {
+      "attempt": 2,
+      "submit": {
+        "run_id": "c8d39c1de9d7443aa0a6bccee9fffe3c",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "c8d39c1de9d7443aa0a6bccee9fffe3c",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (360s)",
+      "cancel": {
+        "task_id": "c8d39c1de9d7443aa0a6bccee9fffe3c",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "c8d39c1de9d7443aa0a6bccee9fffe3c",
+        "description": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+        "status": "cancelled",
+        "created_at": "2026-04-20T01:49:39.821055+00:00",
+        "started_at": "2026-04-20T01:49:39.828385+00:00",
+        "completed_at": "2026-04-20T01:55:41.334542+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (360s)",
+  "pass": false
+}

@@ -1,0 +1,74 @@
+{
+  "suite": "P2_web_file_integrity",
+  "case_id": "fetch_then_write",
+  "title": "Web fetch then write",
+  "started_at": "2026-04-20T03:37:58.519037+00:00",
+  "elapsed_seconds": 420.06,
+  "request": {
+    "prompt": "Go to reddit.com and capture one post URL. Append it as one line in D:/Projects/TitantShift/Testing/matrix-20260420-031142/P2_web_file_integrity/reddit_capture.txt. Then read the file and return the full content.",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "run_id": "a87a81aa6507463cb386a50730dde158",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "a87a81aa6507463cb386a50730dde158",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "a87a81aa6507463cb386a50730dde158",
+    "description": "Go to reddit.com and capture one post URL. Append it as one line in D:/Projects/TitantShift/Testing/matrix-20260420-031142/P2_web_file_integrity/reddit_capture.txt. Then read the file and return the full content.",
+    "status": "cancelled",
+    "created_at": "2026-04-20T03:30:58.460385+00:00",
+    "started_at": "2026-04-20T03:30:58.464367+00:00",
+    "completed_at": "2026-04-20T03:37:58.505855+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "a87a81aa6507463cb386a50730dde158",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "a87a81aa6507463cb386a50730dde158",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (420s)",
+      "cancel": {
+        "task_id": "a87a81aa6507463cb386a50730dde158",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "a87a81aa6507463cb386a50730dde158",
+        "description": "Go to reddit.com and capture one post URL. Append it as one line in D:/Projects/TitantShift/Testing/matrix-20260420-031142/P2_web_file_integrity/reddit_capture.txt. Then read the file and return the full content.",
+        "status": "cancelled",
+        "created_at": "2026-04-20T03:30:58.460385+00:00",
+        "started_at": "2026-04-20T03:30:58.464367+00:00",
+        "completed_at": "2026-04-20T03:37:58.505855+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (420s)",
+  "pass": false
+}

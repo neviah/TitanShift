@@ -1,0 +1,35 @@
+{
+  "run_id": "matrix-20260420-005005",
+  "started_at": "2026-04-20T00:50:05.553007+00:00",
+  "completed_at": "2026-04-20T00:54:51.924612+00:00",
+  "duration_seconds": 286.37,
+  "base_url": "http://127.0.0.1:8000",
+  "output_root": "D:/Projects/TitantShift/Testing/matrix-20260420-005005",
+  "total_cases": 2,
+  "passed": 1,
+  "failed": 1,
+  "results": [
+    {
+      "suite": "P0_core_reliability",
+      "case_id": "mode_lightning",
+      "title": "Mode routing lightning",
+      "status": "passed",
+      "elapsed_seconds": 45.0,
+      "response_success": true,
+      "task_status": "completed",
+      "task_success": true,
+      "error": null
+    },
+    {
+      "suite": "P0_core_reliability",
+      "case_id": "mode_superpowered",
+      "title": "Mode routing superpowered",
+      "status": "failed",
+      "elapsed_seconds": 241.36,
+      "response_success": null,
+      "task_status": "running",
+      "task_success": null,
+      "error": "run polling exceeded timeout (240s)"
+    }
+  ]
+}

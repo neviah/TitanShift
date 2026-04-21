@@ -1,0 +1,11 @@
+{
+  "suite": "P6_preexisting_edit",
+  "case_id": "edit_existing_project_superpowered",
+  "title": "Edit existing project files",
+  "status": "passed",
+  "elapsed_seconds": 357.94,
+  "response_success": true,
+  "task_status": "completed",
+  "task_success": true,
+  "error": null
+}

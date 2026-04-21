@@ -1,0 +1,11 @@
+{
+  "suite": "P2_web_file_integrity",
+  "case_id": "fetch_then_write",
+  "title": "Web fetch then write",
+  "status": "passed",
+  "elapsed_seconds": 126.15,
+  "response_success": true,
+  "task_status": "completed",
+  "task_success": true,
+  "error": null
+}

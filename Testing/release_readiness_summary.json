@@ -1,0 +1,214 @@
+{
+  "started_at": "2026-04-20T05:26:20.942878+00:00",
+  "completed_at": "2026-04-20T05:36:33.137051+00:00",
+  "duration_seconds": 612.19,
+  "workspace_root": "D:/Projects/TitantShift",
+  "testing_root": "D:/Projects/TitantShift/Testing",
+  "base_url": "http://127.0.0.1:8000",
+  "commands": {
+    "preflight": [
+      "D:\\Projects\\TitantShift\\.venv\\Scripts\\python.exe",
+      "D:\\Projects\\TitantShift\\scripts\\testing_preflight.py",
+      "--workspace-root",
+      "D:\\Projects\\TitantShift",
+      "--remotion-project",
+      "frontend",
+      "--testing-root",
+      "D:\\Projects\\TitantShift\\Testing",
+      "--json"
+    ],
+    "matrix": [
+      "D:\\Projects\\TitantShift\\.venv\\Scripts\\python.exe",
+      "D:\\Projects\\TitantShift\\scripts\\run_harness_matrix.py",
+      "--base-url",
+      "http://127.0.0.1:8000",
+      "--workspace-root",
+      "D:\\Projects\\TitantShift",
+      "--output-root",
+      "D:\\Projects\\TitantShift\\Testing",
+      "--suites",
+      "P0_core_reliability,P1_frontend_quality,P2_web_file_integrity,P3_skill_activation,P4_creator_use_cases,P5_regression_gate"
+    ],
+    "validate": [
+      "D:\\Projects\\TitantShift\\.venv\\Scripts\\python.exe",
+      "D:\\Projects\\TitantShift\\scripts\\validate_testing_outputs.py",
+      "--workspace-root",
+      "D:\\Projects\\TitantShift",
+      "--testing-root",
+      "D:\\Projects\\TitantShift\\Testing",
+      "--strict-report",
+      "--require-existing-paths",
+      "--json"
+    ]
+  },
+  "steps": {
+    "preflight": {
+      "exit_code": 0,
+      "ok": true,
+      "payload": {
+        "workspace_root": "D:\\Projects\\TitantShift",
+        "remotion_project": "D:\\Projects\\TitantShift\\frontend",
+        "testing_root": "D:\\Projects\\TitantShift\\Testing",
+        "checks": [
+          {
+            "name": "python",
+            "ok": true,
+            "required": true,
+            "detail": "found at C:\\Python314\\python.EXE"
+          },
+          {
+            "name": "node",
+            "ok": true,
+            "required": true,
+            "detail": "found at C:\\Program Files\\nodejs\\node.EXE"
+          },
+          {
+            "name": "npm",
+            "ok": true,
+            "required": true,
+            "detail": "found at C:\\Program Files\\nodejs\\npm.CMD"
+          },
+          {
+            "name": "ffmpeg",
+            "ok": true,
+            "required": true,
+            "detail": "found at D:\\pinokio\\bin\\miniconda\\Library\\bin\\ffmpeg.EXE"
+          },
+          {
+            "name": "python:reportlab",
+            "ok": true,
+            "required": true,
+            "detail": "importable"
+          },
+          {
+            "name": "remotion-cli",
+            "ok": true,
+            "required": true,
+            "detail": "Node.JS = v24.12.0, OS = win32"
+          },
+          {
+            "name": "testing-root",
+            "ok": true,
+            "required": true,
+            "detail": "writable: D:\\Projects\\TitantShift\\Testing"
+          }
+        ],
+        "ok": true,
+        "blocking_failure_count": 0
+      },
+      "stdout": "{\n  \"workspace_root\": \"D:\\\\Projects\\\\TitantShift\",\n  \"remotion_project\": \"D:\\\\Projects\\\\TitantShift\\\\frontend\",\n  \"testing_root\": \"D:\\\\Projects\\\\TitantShift\\\\Testing\",\n  \"checks\": [\n    {\n      \"name\": \"python\",\n      \"ok\": true,\n      \"required\": true,\n      \"detail\": \"found at C:\\\\Python314\\\\python.EXE\"\n    },\n    {\n      \"name\": \"node\",\n      \"ok\": true,\n      \"required\": true,\n      \"detail\": \"found at C:\\\\Program Files\\\\nodejs\\\\node.EXE\"\n    },\n    {\n      \"name\": \"npm\",\n      \"ok\": true,\n      \"required\": true,\n      \"detail\": \"found at C:\\\\Program Files\\\\nodejs\\\\npm.CMD\"\n    },\n    {\n      \"name\": \"ffmpeg\",\n      \"ok\": true,\n      \"required\": true,\n      \"detail\": \"found at D:\\\\pinokio\\\\bin\\\\miniconda\\\\Library\\\\bin\\\\ffmpeg.EXE\"\n    },\n    {\n      \"name\": \"python:reportlab\",\n      \"ok\": true,\n      \"required\": true,\n      \"detail\": \"importable\"\n    },\n    {\n      \"name\": \"remotion-cli\",\n      \"ok\": true,\n      \"required\": true,\n      \"detail\": \"Node.JS = v24.12.0, OS = win32\"\n    },\n    {\n      \"name\": \"testing-root\",\n      \"ok\": true,\n      \"required\": true,\n      \"detail\": \"writable: D:\\\\Projects\\\\TitantShift\\\\Testing\"\n    }\n  ],\n  \"ok\": true,\n  \"blocking_failure_count\": 0\n}",
+      "stderr": ""
+    },
+    "matrix": {
+      "exit_code": 0,
+      "ok": true,
+      "payload": {
+        "run_id": "matrix-20260420-052625",
+        "started_at": "2026-04-20T05:26:25.250820+00:00",
+        "completed_at": "2026-04-20T05:36:32.648625+00:00",
+        "duration_seconds": 607.4,
+        "base_url": "http://127.0.0.1:8000",
+        "output_root": "D:/Projects/TitantShift/Testing/matrix-20260420-052625",
+        "total_cases": 7,
+        "passed": 7,
+        "failed": 0,
+        "results": [
+          {
+            "suite": "P0_core_reliability",
+            "case_id": "mode_lightning",
+            "title": "Mode routing lightning",
+            "status": "passed",
+            "elapsed_seconds": 44.69,
+            "response_success": true,
+            "task_status": "completed",
+            "task_success": true,
+            "error": null
+          },
+          {
+            "suite": "P0_core_reliability",
+            "case_id": "mode_superpowered",
+            "title": "Mode routing superpowered",
+            "status": "passed",
+            "elapsed_seconds": 132.56,
+            "response_success": true,
+            "task_status": "completed",
+            "task_success": true,
+            "error": null
+          },
+          {
+            "suite": "P1_frontend_quality",
+            "case_id": "landing_single_file",
+            "title": "Single-file landing quality",
+            "status": "passed",
+            "elapsed_seconds": 22.68,
+            "response_success": true,
+            "task_status": "completed",
+            "task_success": true,
+            "error": null
+          },
+          {
+            "suite": "P2_web_file_integrity",
+            "case_id": "fetch_then_write",
+            "title": "Web fetch then write",
+            "status": "passed",
+            "elapsed_seconds": 120.88,
+            "response_success": true,
+            "task_status": "completed",
+            "task_success": true,
+            "error": null
+          },
+          {
+            "suite": "P3_skill_activation",
+            "case_id": "writing_plan_skill",
+            "title": "Skill activation sanity",
+            "status": "passed",
+            "elapsed_seconds": 128.77,
+            "response_success": true,
+            "task_status": "completed",
+            "task_success": true,
+            "error": null
+          },
+          {
+            "suite": "P4_creator_use_cases",
+            "case_id": "video_remotion_render",
+            "title": "Remotion MP4 render",
+            "status": "passed",
+            "elapsed_seconds": 115.0,
+            "response_success": true,
+            "task_status": "completed",
+            "task_success": true,
+            "error": null
+          },
+          {
+            "suite": "P5_regression_gate",
+            "case_id": "artifact_flood_guard",
+            "title": "Artifact flood guard sampling",
+            "status": "passed",
+            "elapsed_seconds": 42.77,
+            "response_success": true,
+            "task_status": "completed",
+            "task_success": true,
+            "error": null
+          }
+        ]
+      },
+      "stdout": "{\n  \"run_id\": \"matrix-20260420-052625\",\n  \"started_at\": \"2026-04-20T05:26:25.250820+00:00\",\n  \"completed_at\": \"2026-04-20T05:36:32.648625+00:00\",\n  \"duration_seconds\": 607.4,\n  \"base_url\": \"http://127.0.0.1:8000\",\n  \"output_root\": \"D:/Projects/TitantShift/Testing/matrix-20260420-052625\",\n  \"total_cases\": 7,\n  \"passed\": 7,\n  \"failed\": 0,\n  \"results\": [\n    {\n      \"suite\": \"P0_core_reliability\",\n      \"case_id\": \"mode_lightning\",\n      \"title\": \"Mode routing lightning\",\n      \"status\": \"passed\",\n      \"elapsed_seconds\": 44.69,\n      \"response_success\": true,\n      \"task_status\": \"completed\",\n      \"task_success\": true,\n      \"error\": null\n    },\n    {\n      \"suite\": \"P0_core_reliability\",\n      \"case_id\": \"mode_superpowered\",\n      \"title\": \"Mode routing superpowered\",\n      \"status\": \"passed\",\n      \"elapsed_seconds\": 132.56,\n      \"response_success\": true,\n      \"task_status\": \"completed\",\n      \"task_success\": true,\n      \"error\": null\n    },\n    {\n      \"suite\": \"P1_frontend_quality\",\n      \"case_id\": \"landing_single_file\",\n      \"title\": \"Single-file landing quality\",\n      \"status\": \"passed\",\n      \"elapsed_seconds\": 22.68,\n      \"response_success\": true,\n      \"task_status\": \"completed\",\n      \"task_success\": true,\n      \"error\": null\n    },\n    {\n      \"suite\": \"P2_web_file_integrity\",\n      \"case_id\": \"fetch_then_write\",\n      \"title\": \"Web fetch then write\",\n      \"status\": \"passed\",\n      \"elapsed_seconds\": 120.88,\n      \"response_success\": true,\n      \"task_status\": \"completed\",\n      \"task_success\": true,\n      \"error\": null\n    },\n    {\n      \"suite\": \"P3_skill_activation\",\n      \"case_id\": \"writing_plan_skill\",\n      \"title\": \"Skill activation sanity\",\n      \"status\": \"passed\",\n      \"elapsed_seconds\": 128.77,\n      \"response_success\": true,\n      \"task_status\": \"completed\",\n      \"task_success\": true,\n      \"error\": null\n    },\n    {\n      \"suite\": \"P4_creator_use_cases\",\n      \"case_id\": \"video_remotion_render\",\n      \"title\": \"Remotion MP4 render\",\n      \"status\": \"passed\",\n      \"elapsed_seconds\": 115.0,\n      \"response_success\": true,\n      \"task_status\": \"completed\",\n      \"task_success\": true,\n      \"error\": null\n    },\n    {\n      \"suite\": \"P5_regression_gate\",\n      \"case_id\": \"artifact_flood_guard\",\n      \"title\": \"Artifact flood guard sampling\",\n      \"status\": \"passed\",\n      \"elapsed_seconds\": 42.77,\n      \"response_success\": true,\n      \"task_status\": \"completed\",\n      \"task_success\": true,\n      \"error\": null\n    }\n  ]\n}",
+      "stderr": ""
+    },
+    "validate": {
+      "exit_code": 0,
+      "ok": true,
+      "payload": {
+        "ok": true,
+        "message": "Validation passed: 59 telemetry file(s), 1 path entries checked, all within D:\\Projects\\TitantShift\\Testing.",
+        "testing_root": "D:\\Projects\\TitantShift\\Testing",
+        "telemetry_count": 59,
+        "checked_paths": 1,
+        "issues": []
+      },
+      "stdout": "{\n  \"ok\": true,\n  \"message\": \"Validation passed: 59 telemetry file(s), 1 path entries checked, all within D:\\\\Projects\\\\TitantShift\\\\Testing.\",\n  \"testing_root\": \"D:\\\\Projects\\\\TitantShift\\\\Testing\",\n  \"telemetry_count\": 59,\n  \"checked_paths\": 1,\n  \"issues\": []\n}",
+      "stderr": ""
+    }
+  },
+  "ok": true
+}

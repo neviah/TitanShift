@@ -1,0 +1,11 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_superpowered",
+  "title": "Mode routing superpowered",
+  "status": "failed",
+  "elapsed_seconds": 726.33,
+  "response_success": null,
+  "task_status": "cancelled",
+  "task_success": false,
+  "error": "run polling exceeded timeout (360s)"
+}

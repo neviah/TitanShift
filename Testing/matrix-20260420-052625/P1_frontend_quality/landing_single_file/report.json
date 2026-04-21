@@ -1,0 +1,11 @@
+{
+  "suite": "P1_frontend_quality",
+  "case_id": "landing_single_file",
+  "title": "Single-file landing quality",
+  "status": "passed",
+  "elapsed_seconds": 22.68,
+  "response_success": true,
+  "task_status": "completed",
+  "task_success": true,
+  "error": null
+}

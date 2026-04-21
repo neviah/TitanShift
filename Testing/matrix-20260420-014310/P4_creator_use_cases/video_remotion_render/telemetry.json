@@ -1,0 +1,114 @@
+{
+  "suite": "P4_creator_use_cases",
+  "case_id": "video_remotion_render",
+  "title": "Remotion MP4 render",
+  "started_at": "2026-04-20T02:40:26.939501+00:00",
+  "elapsed_seconds": 1089.88,
+  "request": {
+    "prompt": "Use generate_remotion_video to render an MP4 with composition_id HelloVideo, project_path frontend, entry remotion/index.tsx, and target_path D:/Projects/TitantShift/Testing/matrix-20260420-014310/P4_creator_use_cases/video_generation.",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Remotion MP4 render",
+        "description": "Remotion MP4 render"
+      }
+    ]
+  },
+  "response": {
+    "run_id": "f76d9ef96ff74be9b961e2e7fdb9cb02",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "f76d9ef96ff74be9b961e2e7fdb9cb02",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "f76d9ef96ff74be9b961e2e7fdb9cb02",
+    "description": "Use generate_remotion_video to render an MP4 with composition_id HelloVideo, project_path frontend, entry remotion/index.tsx, and target_path D:/Projects/TitantShift/Testing/matrix-20260420-014310/P4_creator_use_cases/video_generation.",
+    "status": "cancelled",
+    "created_at": "2026-04-20T02:31:26.319793+00:00",
+    "started_at": "2026-04-20T02:31:26.363466+00:00",
+    "completed_at": "2026-04-20T02:40:26.890543+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "811e0da9a76f427eaf6494f3cd164046",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "811e0da9a76f427eaf6494f3cd164046",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (540s)",
+      "cancel": {
+        "task_id": "811e0da9a76f427eaf6494f3cd164046",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "811e0da9a76f427eaf6494f3cd164046",
+        "description": "Use generate_remotion_video to render an MP4 with composition_id HelloVideo, project_path frontend, entry remotion/index.tsx, and target_path D:/Projects/TitantShift/Testing/matrix-20260420-014310/P4_creator_use_cases/video_generation.",
+        "status": "cancelled",
+        "created_at": "2026-04-20T02:22:17.066641+00:00",
+        "started_at": "2026-04-20T02:22:17.073642+00:00",
+        "completed_at": "2026-04-20T02:31:18.242081+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    },
+    {
+      "attempt": 2,
+      "submit": {
+        "run_id": "f76d9ef96ff74be9b961e2e7fdb9cb02",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "f76d9ef96ff74be9b961e2e7fdb9cb02",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (540s)",
+      "cancel": {
+        "task_id": "f76d9ef96ff74be9b961e2e7fdb9cb02",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "f76d9ef96ff74be9b961e2e7fdb9cb02",
+        "description": "Use generate_remotion_video to render an MP4 with composition_id HelloVideo, project_path frontend, entry remotion/index.tsx, and target_path D:/Projects/TitantShift/Testing/matrix-20260420-014310/P4_creator_use_cases/video_generation.",
+        "status": "cancelled",
+        "created_at": "2026-04-20T02:31:26.319793+00:00",
+        "started_at": "2026-04-20T02:31:26.363466+00:00",
+        "completed_at": "2026-04-20T02:40:26.890543+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (540s)",
+  "pass": false
+}

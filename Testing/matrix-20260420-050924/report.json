@@ -1,0 +1,24 @@
+{
+  "run_id": "matrix-20260420-050924",
+  "started_at": "2026-04-20T05:09:24.407592+00:00",
+  "completed_at": "2026-04-20T05:24:24.877437+00:00",
+  "duration_seconds": 900.47,
+  "base_url": "http://127.0.0.1:8000",
+  "output_root": "D:/Projects/TitantShift/Testing/matrix-20260420-050924",
+  "total_cases": 1,
+  "passed": 0,
+  "failed": 1,
+  "results": [
+    {
+      "suite": "P1_frontend_quality",
+      "case_id": "landing_single_file",
+      "title": "Single-file landing quality",
+      "status": "failed",
+      "elapsed_seconds": 900.45,
+      "response_success": null,
+      "task_status": "cancelled",
+      "task_success": false,
+      "error": "run polling exceeded timeout (900s)"
+    }
+  ]
+}

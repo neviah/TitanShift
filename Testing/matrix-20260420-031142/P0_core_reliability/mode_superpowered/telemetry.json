@@ -1,0 +1,63 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_superpowered",
+  "title": "Mode routing superpowered",
+  "started_at": "2026-04-20T03:22:35.603235+00:00",
+  "elapsed_seconds": 601.8,
+  "request": {
+    "prompt": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Mode routing superpowered",
+        "description": "Mode routing superpowered"
+      }
+    ]
+  },
+  "response": {
+    "run_id": "46461959097d439aa53fc4d09aac255d",
+    "state": "unknown",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": null,
+  "task": {
+    "task_id": "46461959097d439aa53fc4d09aac255d",
+    "description": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+    "status": "running",
+    "created_at": "2026-04-20T03:12:33.804641+00:00",
+    "started_at": "2026-04-20T03:12:33.808578+00:00",
+    "completed_at": null,
+    "success": null,
+    "error": null,
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "46461959097d439aa53fc4d09aac255d",
+        "state": "running"
+      },
+      "run_status": null,
+      "poll_error": "HTTP Error 408: Request Timeout",
+      "task": {
+        "task_id": "46461959097d439aa53fc4d09aac255d",
+        "description": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+        "status": "running",
+        "created_at": "2026-04-20T03:12:33.804641+00:00",
+        "started_at": "2026-04-20T03:12:33.808578+00:00",
+        "completed_at": null,
+        "success": null,
+        "error": null,
+        "output": {}
+      }
+    }
+  ],
+  "error": "HTTP Error 408: Request Timeout",
+  "pass": false
+}

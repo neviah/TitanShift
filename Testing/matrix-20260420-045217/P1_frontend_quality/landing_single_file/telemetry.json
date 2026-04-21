@@ -1,0 +1,74 @@
+{
+  "suite": "P1_frontend_quality",
+  "case_id": "landing_single_file",
+  "title": "Single-file landing quality",
+  "started_at": "2026-04-20T04:59:09.929101+00:00",
+  "elapsed_seconds": 301.45,
+  "request": {
+    "prompt": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-045217/P1_frontend_quality/landing and write one self-contained HTML file to D:/Projects/TitantShift/Testing/matrix-20260420-045217/P1_frontend_quality/landing/index.html. Use exactly this structure: html/head/meta viewport/title/style/body/main/h1/p/button/inline svg. Style requirements: responsive layout, clear typography, and one gradient background. Use create_directory then write_file only. Do not create any other files or directories.",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "run_id": "bc938d2fd81548a89941e75153333de9",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "bc938d2fd81548a89941e75153333de9",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "bc938d2fd81548a89941e75153333de9",
+    "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-045217/P1_frontend_quality/landing and write one self-contained HTML file to D:/Projects/TitantShift/Testing/matrix-20260420-045217/P1_frontend_quality/landing/index.html. Use exactly this structure: html/head/meta viewport/title/style/body/main/h1/p/button/inline svg. Style requirements: responsive layout, clear typography, and one gradient background. Use create_directory then write_file only. Do not create any other files or directories.",
+    "status": "cancelled",
+    "created_at": "2026-04-20T04:54:08.498030+00:00",
+    "started_at": "2026-04-20T04:54:08.502587+00:00",
+    "completed_at": "2026-04-20T04:59:09.906891+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "bc938d2fd81548a89941e75153333de9",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "bc938d2fd81548a89941e75153333de9",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (300s)",
+      "cancel": {
+        "task_id": "bc938d2fd81548a89941e75153333de9",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "bc938d2fd81548a89941e75153333de9",
+        "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-045217/P1_frontend_quality/landing and write one self-contained HTML file to D:/Projects/TitantShift/Testing/matrix-20260420-045217/P1_frontend_quality/landing/index.html. Use exactly this structure: html/head/meta viewport/title/style/body/main/h1/p/button/inline svg. Style requirements: responsive layout, clear typography, and one gradient background. Use create_directory then write_file only. Do not create any other files or directories.",
+        "status": "cancelled",
+        "created_at": "2026-04-20T04:54:08.498030+00:00",
+        "started_at": "2026-04-20T04:54:08.502587+00:00",
+        "completed_at": "2026-04-20T04:59:09.906891+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (300s)",
+  "pass": false
+}

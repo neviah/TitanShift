@@ -1,0 +1,11 @@
+{
+  "suite": "P3_skill_activation",
+  "case_id": "writing_plan_skill",
+  "title": "Skill activation sanity",
+  "status": "failed",
+  "elapsed_seconds": 420.37,
+  "response_success": null,
+  "task_status": "cancelled",
+  "task_success": false,
+  "error": "run polling exceeded timeout (420s)"
+}

@@ -1,0 +1,71 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_lightning",
+  "title": "Mode routing lightning",
+  "started_at": "2026-04-20T00:34:38.517032+00:00",
+  "elapsed_seconds": 33.1,
+  "request": {
+    "prompt": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_lightning.txt with one line: lightning mode ok",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "run_id": "f6703457af5b4e7ab31e16485b3cdf3e",
+    "state": "completed",
+    "success": true,
+    "error": null,
+    "response": "I have successfully created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P0_core_reliability`\n- Created file: `Testing/P0_core_reliability/mode_lightning.txt` with content: `lightning mode ok`"
+  },
+  "run_status": {
+    "run_id": "f6703457af5b4e7ab31e16485b3cdf3e",
+    "state": "completed",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": 32498.5,
+    "result": {
+      "success": true,
+      "response": "I have successfully created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P0_core_reliability`\n- Created file: `Testing/P0_core_reliability/mode_lightning.txt` with content: `lightning mode ok`",
+      "error": null
+    }
+  },
+  "task": {
+    "task_id": "f6703457af5b4e7ab31e16485b3cdf3e",
+    "description": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_lightning.txt with one line: lightning mode ok",
+    "status": "completed",
+    "created_at": "2026-04-20T00:34:05.460079+00:00",
+    "started_at": "2026-04-20T00:34:05.466581+00:00",
+    "completed_at": "2026-04-20T00:34:37.907163+00:00",
+    "success": true,
+    "error": null,
+    "output": {
+      "response": "I have successfully created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P0_core_reliability`\n- Created file: `Testing/P0_core_reliability/mode_lightning.txt` with content: `lightning mode ok`",
+      "model": "lmstudio",
+      "mode": "reactive",
+      "estimated_total_tokens": 152,
+      "used_tools": [
+        "create_directory",
+        "write_file"
+      ],
+      "requested_tools": [],
+      "attempted_tools": [
+        "create_directory",
+        "write_file"
+      ],
+      "fallback_used": false,
+      "primary_failure_reason": null,
+      "browser_proof": null,
+      "browser_proofs": [],
+      "test_failure_summary": [],
+      "test_failed_count": null,
+      "created_paths": [],
+      "updated_paths": [],
+      "patch_summaries": [],
+      "context_provenance": [],
+      "artifacts": [],
+      "workflow_mode": "lightning"
+    }
+  },
+  "error": null,
+  "pass": true
+}

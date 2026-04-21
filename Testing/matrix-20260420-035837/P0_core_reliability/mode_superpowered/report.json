@@ -1,0 +1,11 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_superpowered",
+  "title": "Mode routing superpowered",
+  "status": "passed",
+  "elapsed_seconds": 134.52,
+  "response_success": true,
+  "task_status": "completed",
+  "task_success": true,
+  "error": null
+}

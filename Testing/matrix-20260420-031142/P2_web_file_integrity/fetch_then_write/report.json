@@ -1,0 +1,11 @@
+{
+  "suite": "P2_web_file_integrity",
+  "case_id": "fetch_then_write",
+  "title": "Web fetch then write",
+  "status": "failed",
+  "elapsed_seconds": 420.06,
+  "response_success": null,
+  "task_status": "cancelled",
+  "task_success": false,
+  "error": "run polling exceeded timeout (420s)"
+}

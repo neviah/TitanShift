@@ -1,0 +1,21 @@
+body {
+  background-color: #f0f8ff;
+  font-family: sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  margin: 0;
+}
+
+main {
+  padding: 20px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  background-color: white;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+h1 {
+  color: #2c3e50;
+}

@@ -1,0 +1,24 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_superpowered",
+  "title": "Mode routing superpowered",
+  "started_at": "2026-04-19T23:59:36.646454+00:00",
+  "elapsed_seconds": 419.99,
+  "request": {
+    "prompt": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_superpowered.txt with one line: superpowered mode ok",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Mode routing superpowered",
+        "description": "Mode routing superpowered"
+      }
+    ]
+  },
+  "response": null,
+  "task": null,
+  "error": "timed out",
+  "pass": false
+}

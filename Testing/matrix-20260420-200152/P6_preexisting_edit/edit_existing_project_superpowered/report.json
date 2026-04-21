@@ -1,0 +1,11 @@
+{
+  "suite": "P6_preexisting_edit",
+  "case_id": "edit_existing_project_superpowered",
+  "title": "Edit existing project files",
+  "status": "failed",
+  "elapsed_seconds": 302.07,
+  "response_success": null,
+  "task_status": "cancelled",
+  "task_success": false,
+  "error": "run polling exceeded timeout (300s)"
+}

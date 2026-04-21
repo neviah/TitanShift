@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchTasks, fetchTaskDetail, fetchWorkflowMetrics, normalizeApiError, searchTasks } from '../api/client'
+import { fetchTasks, fetchTaskDetail, fetchWorkflowMetrics, normalizeApiError, searchTasks, deleteTask } from '../api/client'
 import type { TaskSummary, TaskDetail, WorkflowMetrics } from '../api/types'
 import styles from './TasksView.module.css'
 
@@ -74,6 +74,7 @@ export function TasksView() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<TaskSummary[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   // ── metrics state ──────────────────────────────────────────────────────────
   const [metrics, setMetrics] = useState<WorkflowMetrics | null>(null)
@@ -155,6 +156,30 @@ export function TasksView() {
     setSearchResults(null)
   }
 
+  function handleDeleteClick(e: React.MouseEvent, taskId: string) {
+    e.stopPropagation()
+    setPendingDeleteId(taskId)
+  }
+
+  function handleDeleteConfirm(e: React.MouseEvent, taskId: string) {
+    e.stopPropagation()
+    deleteTask(taskId)
+      .then(() => {
+        setTasks((prev) => prev.filter((t) => t.task_id !== taskId))
+        if (searchResults) {
+          setSearchResults((prev) => prev ? prev.filter((t) => t.task_id !== taskId) : null)
+        }
+        if (selectedId === taskId) setSelectedId(null)
+      })
+      .catch(() => {})
+      .finally(() => setPendingDeleteId(null))
+  }
+
+  function handleDeleteCancel(e: React.MouseEvent) {
+    e.stopPropagation()
+    setPendingDeleteId(null)
+  }
+
   const displayedTasks = searchResults ?? tasks
 
   // ── render ─────────────────────────────────────────────────────────────────
@@ -216,6 +241,26 @@ export function TasksView() {
                     <span className={`${styles.statusDot} ${statusDotClass(t.status)}`} />
                     <span className={styles.taskDesc}>{t.description}</span>
                     <span className={`${styles.badge} ${statusBadgeClass(t.status)}`}>{t.status}</span>
+                    {pendingDeleteId === t.task_id ? (
+                      <span className={styles.deleteConfirm}>
+                        <button
+                          className={styles.deleteConfirmBtn}
+                          onClick={(e) => handleDeleteConfirm(e, t.task_id)}
+                          title="Confirm delete"
+                        >✕</button>
+                        <button
+                          className={styles.deleteCancelBtn}
+                          onClick={handleDeleteCancel}
+                          title="Cancel"
+                        >✓</button>
+                      </span>
+                    ) : (
+                      <button
+                        className={styles.deleteBtn}
+                        onClick={(e) => handleDeleteClick(e, t.task_id)}
+                        title="Delete task"
+                      >✕</button>
+                    )}
                   </div>
                   <div className={styles.taskMeta}>
                     <span>{t.task_id.slice(0, 12)}…</span>

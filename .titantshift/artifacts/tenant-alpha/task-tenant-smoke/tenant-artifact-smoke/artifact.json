@@ -1,0 +1,19 @@
+{
+  "artifact_id": "tenant-artifact-smoke",
+  "kind": "document.markdown",
+  "path": "D:/Projects/TitantShift/.titantshift/artifacts/tenant-alpha/task-tenant-smoke/tenant-artifact-smoke/output.md",
+  "mime_type": "text/markdown",
+  "title": "Tenant Artifact",
+  "summary": "tenant-scoped",
+  "generator": "manual",
+  "backend": "manual",
+  "verified": false,
+  "provenance": {
+    "task_id": "task-tenant-smoke",
+    "captured_at": "2026-04-20T01:34:07.399572+00:00"
+  },
+  "preview": {
+    "url": "/artifacts/run/task-tenant-smoke/tenant-artifact-smoke/preview",
+    "safe_inline": true
+  }
+}

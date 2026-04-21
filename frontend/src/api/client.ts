@@ -443,6 +443,10 @@ export function rollbackTask(taskId: string): Promise<TaskRollbackResponse> {
   return request(`/tasks/${encodeURIComponent(taskId)}/rollback`, { method: 'POST' }, 'admin')
 }
 
+export function deleteTask(taskId: string): Promise<void> {
+  return request(`/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
+}
+
 // ---- API Key Management ----
 
 export function fetchApiKeyStatus(): Promise<ApiKeyStatusResponse> {

@@ -1,0 +1,11 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_superpowered",
+  "title": "Mode routing superpowered",
+  "status": "failed",
+  "elapsed_seconds": 601.8,
+  "response_success": null,
+  "task_status": "running",
+  "task_success": null,
+  "error": "HTTP Error 408: Request Timeout"
+}

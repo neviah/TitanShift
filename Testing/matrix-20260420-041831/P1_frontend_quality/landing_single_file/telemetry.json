@@ -1,0 +1,86 @@
+{
+  "suite": "P1_frontend_quality",
+  "case_id": "landing_single_file",
+  "title": "Single-file landing quality",
+  "started_at": "2026-04-20T04:40:20.978999+00:00",
+  "elapsed_seconds": 1200.64,
+  "request": {
+    "prompt": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing and write one self-contained HTML file to D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing/index.html. The file must have embedded CSS, a responsive layout, and at least one inline SVG decorative element. Use create_directory then write_file. Do not create any other files.",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Single-file landing quality",
+        "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing and write one self-contained HTML file to D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing/index.html. The file must have embedded CSS, a responsive layout, and at least one inline SVG decorative element. Use create_directory then write_file. Do not create any other files.",
+        "implementer_status": "DONE",
+        "spec_review_passed": true,
+        "code_review_passed": true,
+        "verification_passed": true
+      }
+    ]
+  },
+  "response": {
+    "run_id": "14c8e776d3384fa99c04d3ddf1e065a9",
+    "state": "running",
+    "success": null,
+    "error": null,
+    "response": null
+  },
+  "run_status": {
+    "run_id": "14c8e776d3384fa99c04d3ddf1e065a9",
+    "state": "running",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": null
+  },
+  "task": {
+    "task_id": "14c8e776d3384fa99c04d3ddf1e065a9",
+    "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing and write one self-contained HTML file to D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing/index.html. The file must have embedded CSS, a responsive layout, and at least one inline SVG decorative element. Use create_directory then write_file. Do not create any other files.",
+    "status": "cancelled",
+    "created_at": "2026-04-20T04:20:20.345339+00:00",
+    "started_at": "2026-04-20T04:20:20.349326+00:00",
+    "completed_at": "2026-04-20T04:40:20.926488+00:00",
+    "success": false,
+    "error": "Cancelled",
+    "output": {}
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "14c8e776d3384fa99c04d3ddf1e065a9",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "14c8e776d3384fa99c04d3ddf1e065a9",
+        "state": "running",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": null
+      },
+      "poll_error": "run polling exceeded timeout (1200s)",
+      "cancel": {
+        "task_id": "14c8e776d3384fa99c04d3ddf1e065a9",
+        "cancelled": true,
+        "was_running": true
+      },
+      "task": {
+        "task_id": "14c8e776d3384fa99c04d3ddf1e065a9",
+        "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing and write one self-contained HTML file to D:/Projects/TitantShift/Testing/matrix-20260420-041831/P1_frontend_quality/landing/index.html. The file must have embedded CSS, a responsive layout, and at least one inline SVG decorative element. Use create_directory then write_file. Do not create any other files.",
+        "status": "cancelled",
+        "created_at": "2026-04-20T04:20:20.345339+00:00",
+        "started_at": "2026-04-20T04:20:20.349326+00:00",
+        "completed_at": "2026-04-20T04:40:20.926488+00:00",
+        "success": false,
+        "error": "Cancelled",
+        "output": {}
+      }
+    }
+  ],
+  "error": "run polling exceeded timeout (1200s)",
+  "pass": false
+}

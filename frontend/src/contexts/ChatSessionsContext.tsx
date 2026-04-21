@@ -127,7 +127,10 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   )
 
   const active = useMemo(
-    () => store.byWorkspace[workspaceScopeKey] ?? store.byWorkspace[currentWorkspaceId] ?? createWorkspaceState(),
+    () => store.byWorkspace[workspaceScopeKey]
+      ?? store.byWorkspace[`id:${currentWorkspaceId}`]
+      ?? store.byWorkspace[currentWorkspaceId]
+      ?? createWorkspaceState(),
     [store, workspaceScopeKey, currentWorkspaceId],
   )
   const sessions = active.sessions
@@ -140,11 +143,15 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setStore((prev) => {
       if (prev.byWorkspace[workspaceScopeKey]) return prev
-      if (workspaceScopeKey !== currentWorkspaceId && prev.byWorkspace[currentWorkspaceId]) {
+      // Find sessions from any variant of this workspace key (bare id, id:-prefixed)
+      const fallback =
+        prev.byWorkspace[`id:${currentWorkspaceId}`]
+        ?? prev.byWorkspace[currentWorkspaceId]
+      if (fallback) {
         return {
           byWorkspace: {
             ...prev.byWorkspace,
-            [workspaceScopeKey]: prev.byWorkspace[currentWorkspaceId],
+            [workspaceScopeKey]: fallback,
           },
         }
       }

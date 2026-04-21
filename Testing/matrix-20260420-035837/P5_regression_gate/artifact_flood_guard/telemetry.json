@@ -1,0 +1,130 @@
+{
+  "suite": "P5_regression_gate",
+  "case_id": "artifact_flood_guard",
+  "title": "Artifact flood guard sampling",
+  "started_at": "2026-04-20T04:16:28.806701+00:00",
+  "elapsed_seconds": 20.6,
+  "request": {
+    "prompt": "Create Testing/P5_regression_gate/flood_guard.txt with one line confirming all generated artifacts should remain under Testing/.",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "run_id": "220d5eb134ca420481e18c2f24ca9d30",
+    "state": "completed",
+    "success": true,
+    "error": null,
+    "response": "I have created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P5_regression_gate`\n- Created file: `Testing/P5_regression_gate/flood_guard.txt` with the confirmation line."
+  },
+  "run_status": {
+    "run_id": "220d5eb134ca420481e18c2f24ca9d30",
+    "state": "completed",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": 19465.0,
+    "result": {
+      "success": true,
+      "response": "I have created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P5_regression_gate`\n- Created file: `Testing/P5_regression_gate/flood_guard.txt` with the confirmation line.",
+      "error": null
+    }
+  },
+  "task": {
+    "task_id": "220d5eb134ca420481e18c2f24ca9d30",
+    "description": "Create Testing/P5_regression_gate/flood_guard.txt with one line confirming all generated artifacts should remain under Testing/.",
+    "status": "completed",
+    "created_at": "2026-04-20T04:16:08.203429+00:00",
+    "started_at": "2026-04-20T04:16:08.208162+00:00",
+    "completed_at": "2026-04-20T04:16:27.647487+00:00",
+    "success": true,
+    "error": null,
+    "output": {
+      "response": "I have created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P5_regression_gate`\n- Created file: `Testing/P5_regression_gate/flood_guard.txt` with the confirmation line.",
+      "model": "lmstudio",
+      "mode": "reactive",
+      "estimated_total_tokens": 140,
+      "used_tools": [
+        "create_directory",
+        "write_file"
+      ],
+      "requested_tools": [],
+      "attempted_tools": [
+        "create_directory",
+        "write_file"
+      ],
+      "fallback_used": false,
+      "primary_failure_reason": null,
+      "browser_proof": null,
+      "browser_proofs": [],
+      "test_failure_summary": [],
+      "test_failed_count": null,
+      "created_paths": [],
+      "updated_paths": [],
+      "patch_summaries": [],
+      "context_provenance": [],
+      "artifacts": [],
+      "workflow_mode": "lightning"
+    }
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "220d5eb134ca420481e18c2f24ca9d30",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "220d5eb134ca420481e18c2f24ca9d30",
+        "state": "completed",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": 19465.0,
+        "result": {
+          "success": true,
+          "response": "I have created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P5_regression_gate`\n- Created file: `Testing/P5_regression_gate/flood_guard.txt` with the confirmation line.",
+          "error": null
+        }
+      },
+      "task": {
+        "task_id": "220d5eb134ca420481e18c2f24ca9d30",
+        "description": "Create Testing/P5_regression_gate/flood_guard.txt with one line confirming all generated artifacts should remain under Testing/.",
+        "status": "completed",
+        "created_at": "2026-04-20T04:16:08.203429+00:00",
+        "started_at": "2026-04-20T04:16:08.208162+00:00",
+        "completed_at": "2026-04-20T04:16:27.647487+00:00",
+        "success": true,
+        "error": null,
+        "output": {
+          "response": "I have created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P5_regression_gate`\n- Created file: `Testing/P5_regression_gate/flood_guard.txt` with the confirmation line.",
+          "model": "lmstudio",
+          "mode": "reactive",
+          "estimated_total_tokens": 140,
+          "used_tools": [
+            "create_directory",
+            "write_file"
+          ],
+          "requested_tools": [],
+          "attempted_tools": [
+            "create_directory",
+            "write_file"
+          ],
+          "fallback_used": false,
+          "primary_failure_reason": null,
+          "browser_proof": null,
+          "browser_proofs": [],
+          "test_failure_summary": [],
+          "test_failed_count": null,
+          "created_paths": [],
+          "updated_paths": [],
+          "patch_summaries": [],
+          "context_provenance": [],
+          "artifacts": [],
+          "workflow_mode": "lightning"
+        }
+      }
+    }
+  ],
+  "error": null,
+  "pass": true
+}

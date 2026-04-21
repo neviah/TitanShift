@@ -1,0 +1,90 @@
+{
+  "run_id": "matrix-20260420-014310",
+  "started_at": "2026-04-20T01:43:10.421215+00:00",
+  "completed_at": "2026-04-20T02:41:45.988396+00:00",
+  "duration_seconds": 3515.57,
+  "base_url": "http://127.0.0.1:8000",
+  "output_root": "D:/Projects/TitantShift/Testing/matrix-20260420-014310",
+  "total_cases": 7,
+  "passed": 3,
+  "failed": 4,
+  "results": [
+    {
+      "suite": "P0_core_reliability",
+      "case_id": "mode_lightning",
+      "title": "Mode routing lightning",
+      "status": "passed",
+      "elapsed_seconds": 24.59,
+      "response_success": true,
+      "task_status": "completed",
+      "task_success": true,
+      "error": null
+    },
+    {
+      "suite": "P0_core_reliability",
+      "case_id": "mode_superpowered",
+      "title": "Mode routing superpowered",
+      "status": "failed",
+      "elapsed_seconds": 726.33,
+      "response_success": null,
+      "task_status": "cancelled",
+      "task_success": false,
+      "error": "run polling exceeded timeout (360s)"
+    },
+    {
+      "suite": "P1_frontend_quality",
+      "case_id": "landing_single_file",
+      "title": "Single-file landing quality",
+      "status": "failed",
+      "elapsed_seconds": 849.73,
+      "response_success": null,
+      "task_status": "cancelled",
+      "task_success": false,
+      "error": "run polling exceeded timeout (420s)"
+    },
+    {
+      "suite": "P2_web_file_integrity",
+      "case_id": "fetch_then_write",
+      "title": "Web fetch then write",
+      "status": "passed",
+      "elapsed_seconds": 325.59,
+      "response_success": true,
+      "task_status": "completed",
+      "task_success": true,
+      "error": null
+    },
+    {
+      "suite": "P3_skill_activation",
+      "case_id": "writing_plan_skill",
+      "title": "Skill activation sanity",
+      "status": "failed",
+      "elapsed_seconds": 420.37,
+      "response_success": null,
+      "task_status": "cancelled",
+      "task_success": false,
+      "error": "run polling exceeded timeout (420s)"
+    },
+    {
+      "suite": "P4_creator_use_cases",
+      "case_id": "video_remotion_render",
+      "title": "Remotion MP4 render",
+      "status": "failed",
+      "elapsed_seconds": 1089.88,
+      "response_success": null,
+      "task_status": "cancelled",
+      "task_success": false,
+      "error": "run polling exceeded timeout (540s)"
+    },
+    {
+      "suite": "P5_regression_gate",
+      "case_id": "artifact_flood_guard",
+      "title": "Artifact flood guard sampling",
+      "status": "passed",
+      "elapsed_seconds": 79.04,
+      "response_success": true,
+      "task_status": "completed",
+      "task_success": true,
+      "error": null
+    }
+  ]
+}

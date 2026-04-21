@@ -2917,6 +2917,16 @@ def create_app(workspace_root: Path) -> FastAPI:
         tenant_filter = None if tenant.is_system else tenant.tenant_id
         return [TaskSummary(**t) for t in runtime.orchestrator.list_tasks(tenant_id=tenant_filter)]
 
+    @app.delete("/tasks/{task_id}", status_code=204)
+    async def delete_task(
+        task_id: str,
+        tenant: TenantContext = Depends(require_read_api_key),
+    ) -> None:
+        tenant_filter = None if tenant.is_system else tenant.tenant_id
+        deleted = runtime.orchestrator.task_store.delete(task_id, tenant_id=tenant_filter)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Task not found")
+
     @app.post(
         "/tasks/{task_id}/cancel",
         response_model=TaskCancelResponse,

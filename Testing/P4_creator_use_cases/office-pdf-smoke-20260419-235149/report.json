@@ -1,0 +1,13 @@
+{
+  "run_id": "office-pdf-smoke-20260419-235149",
+  "suite": "P4_creator_use_cases",
+  "scenario": "office_pdf_smoke",
+  "run_dir": "D:/Projects/TitantShift/Testing/P4_creator_use_cases/office-pdf-smoke-20260419-235149",
+  "pdf_ok": true,
+  "office_success_count": 0,
+  "office_failure_count": 3,
+  "status": "partial",
+  "notes": [
+    "OfficeCLI failures on Windows are expected when officecli binary is not supported on this platform."
+  ]
+}

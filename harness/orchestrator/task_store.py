@@ -176,3 +176,21 @@ class TaskStore:
         if tenant_id and tenant_id != "_system_" and record.tenant_id != tenant_id:
             return None  # Treat as not found — don't leak existence
         return record
+
+    def delete(self, task_id: str, tenant_id: str | None = None) -> bool:
+        """Permanently remove a task record.
+
+        Returns ``True`` if the record existed and was deleted, ``False`` otherwise.
+        When *tenant_id* is provided (non-system), only deletes if it belongs to
+        that tenant.
+        """
+        record = self._records.get(task_id)
+        if record is None:
+            return False
+        if tenant_id and tenant_id != "_system_" and record.tenant_id != tenant_id:
+            return False  # Treat as not found — don't leak existence
+        del self._records[task_id]
+        if self._conn is not None:
+            self._conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            self._conn.commit()
+        return True

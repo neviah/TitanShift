@@ -1,0 +1,24 @@
+{
+  "run_id": "matrix-20260420-012435",
+  "started_at": "2026-04-20T01:24:35.703004+00:00",
+  "completed_at": "2026-04-20T01:24:56.114663+00:00",
+  "duration_seconds": 20.41,
+  "base_url": "http://127.0.0.1:8000",
+  "output_root": "D:/Projects/TitantShift/Testing/matrix-20260420-012435",
+  "total_cases": 1,
+  "passed": 1,
+  "failed": 0,
+  "results": [
+    {
+      "suite": "P5_regression_gate",
+      "case_id": "artifact_flood_guard",
+      "title": "Artifact flood guard sampling",
+      "status": "passed",
+      "elapsed_seconds": 20.41,
+      "response_success": true,
+      "task_status": "completed",
+      "task_success": true,
+      "error": null
+    }
+  ]
+}

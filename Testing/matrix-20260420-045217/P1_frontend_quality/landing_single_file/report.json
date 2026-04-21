@@ -1,0 +1,11 @@
+{
+  "suite": "P1_frontend_quality",
+  "case_id": "landing_single_file",
+  "title": "Single-file landing quality",
+  "status": "failed",
+  "elapsed_seconds": 301.45,
+  "response_success": null,
+  "task_status": "cancelled",
+  "task_success": false,
+  "error": "run polling exceeded timeout (300s)"
+}

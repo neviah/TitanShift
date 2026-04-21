@@ -1,0 +1,192 @@
+{
+  "suite": "P2_web_file_integrity",
+  "case_id": "fetch_then_write",
+  "title": "Web fetch then write",
+  "started_at": "2026-04-20T04:13:21.234699+00:00",
+  "elapsed_seconds": 126.15,
+  "request": {
+    "prompt": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity using create_directory. Then use web_browse or web_fetch to open https://www.reddit.com and find one post URL. Use write_file to write that URL as a single line to D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt. Then use read_file to confirm the file contains the URL and return its content.",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "run_id": "681523da498048788d9ae0ba3b07c7b2",
+    "state": "completed",
+    "success": true,
+    "error": null,
+    "response": "I have completed all the requested tasks:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity` was successfully created.\n2.  **URL Found**: I browsed Reddit and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`.\n3.  **File Written**: The URL was written to `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt`.\n4.  **Verification**: I read the file, and it contains the correct URL:\n    `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`"
+  },
+  "run_status": {
+    "run_id": "681523da498048788d9ae0ba3b07c7b2",
+    "state": "completed",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": 124853.7,
+    "result": {
+      "success": true,
+      "response": "I have completed all the requested tasks:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity` was successfully created.\n2.  **URL Found**: I browsed Reddit and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`.\n3.  **File Written**: The URL was written to `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt`.\n4.  **Verification**: I read the file, and it contains the correct URL:\n    `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`",
+      "error": null
+    }
+  },
+  "task": {
+    "task_id": "681523da498048788d9ae0ba3b07c7b2",
+    "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity using create_directory. Then use web_browse or web_fetch to open https://www.reddit.com and find one post URL. Use write_file to write that URL as a single line to D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt. Then use read_file to confirm the file contains the URL and return its content.",
+    "status": "completed",
+    "created_at": "2026-04-20T04:11:15.108569+00:00",
+    "started_at": "2026-04-20T04:11:15.113568+00:00",
+    "completed_at": "2026-04-20T04:13:19.941203+00:00",
+    "success": true,
+    "error": null,
+    "output": {
+      "response": "I have completed all the requested tasks:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity` was successfully created.\n2.  **URL Found**: I browsed Reddit and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`.\n3.  **File Written**: The URL was written to `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt`.\n4.  **Verification**: I read the file, and it contains the correct URL:\n    `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`",
+      "model": "lmstudio",
+      "mode": "reactive",
+      "estimated_total_tokens": 820,
+      "used_tools": [
+        "create_directory",
+        "web_browse",
+        "write_file",
+        "read_file"
+      ],
+      "requested_tools": [
+        "create_directory",
+        "read_file",
+        "web_browse",
+        "web_fetch",
+        "write_file"
+      ],
+      "attempted_tools": [
+        "create_directory",
+        "web_browse",
+        "write_file",
+        "read_file"
+      ],
+      "fallback_used": false,
+      "primary_failure_reason": null,
+      "browser_proof": {
+        "tool_name": "read_file",
+        "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+      },
+      "browser_proofs": [
+        {
+          "tool_name": "web_browse",
+          "final_url": "https://www.reddit.com/?solution=3c674ca139a564443c674ca139a56444&js_challenge=1&token=bbbe4bf1c9a2b5160829c4be34da586171587d46754d96c528899d19f7d81a5c",
+          "evidence_snippet": "Skip to main content Sign Up Log In Expand user menu US draft update: Major tech company [Palantir] urges universal national service r/technology \u2022 6 hr. ago US draft update: Major tech company [Palantir] urges universal national service https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885 u/shopify \u2022 Promoted Real talk from real sellers: Shopify is the easiest way to start. Now it's your turn. Start your free trial. shopify.com Sign Up Same brand, new slogan r/mildlyinteresting \u2022 4 hr. ago Same brand, new slogan Am I fucked? Drug testing r/what",
+          "screenshot_metadata": {
+            "screenshot_path": null
+          }
+        },
+        {
+          "tool_name": "read_file",
+          "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+        }
+      ],
+      "test_failure_summary": [],
+      "test_failed_count": null,
+      "created_paths": [],
+      "updated_paths": [],
+      "patch_summaries": [],
+      "context_provenance": [],
+      "artifacts": [],
+      "workflow_mode": "lightning",
+      "spawned_subagents": [
+        "subagent-56feaf0d",
+        "subagent-eae5eb2c",
+        "subagent-55ef0b47"
+      ]
+    }
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "681523da498048788d9ae0ba3b07c7b2",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "681523da498048788d9ae0ba3b07c7b2",
+        "state": "completed",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": 124853.7,
+        "result": {
+          "success": true,
+          "response": "I have completed all the requested tasks:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity` was successfully created.\n2.  **URL Found**: I browsed Reddit and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`.\n3.  **File Written**: The URL was written to `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt`.\n4.  **Verification**: I read the file, and it contains the correct URL:\n    `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`",
+          "error": null
+        }
+      },
+      "task": {
+        "task_id": "681523da498048788d9ae0ba3b07c7b2",
+        "description": "Create the directory D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity using create_directory. Then use web_browse or web_fetch to open https://www.reddit.com and find one post URL. Use write_file to write that URL as a single line to D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt. Then use read_file to confirm the file contains the URL and return its content.",
+        "status": "completed",
+        "created_at": "2026-04-20T04:11:15.108569+00:00",
+        "started_at": "2026-04-20T04:11:15.113568+00:00",
+        "completed_at": "2026-04-20T04:13:19.941203+00:00",
+        "success": true,
+        "error": null,
+        "output": {
+          "response": "I have completed all the requested tasks:\n\n1.  **Directory Created**: `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity` was successfully created.\n2.  **URL Found**: I browsed Reddit and identified the following post URL: `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`.\n3.  **File Written**: The URL was written to `D:/Projects/TitantShift/Testing/matrix-20260420-035837/P2_web_file_integrity/reddit_capture.txt`.\n4.  **Verification**: I read the file, and it contains the correct URL:\n    `https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885`",
+          "model": "lmstudio",
+          "mode": "reactive",
+          "estimated_total_tokens": 820,
+          "used_tools": [
+            "create_directory",
+            "web_browse",
+            "write_file",
+            "read_file"
+          ],
+          "requested_tools": [
+            "create_directory",
+            "read_file",
+            "web_browse",
+            "web_fetch",
+            "write_file"
+          ],
+          "attempted_tools": [
+            "create_directory",
+            "web_browse",
+            "write_file",
+            "read_file"
+          ],
+          "fallback_used": false,
+          "primary_failure_reason": null,
+          "browser_proof": {
+            "tool_name": "read_file",
+            "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+          },
+          "browser_proofs": [
+            {
+              "tool_name": "web_browse",
+              "final_url": "https://www.reddit.com/?solution=3c674ca139a564443c674ca139a56444&js_challenge=1&token=bbbe4bf1c9a2b5160829c4be34da586171587d46754d96c528899d19f7d81a5c",
+              "evidence_snippet": "Skip to main content Sign Up Log In Expand user menu US draft update: Major tech company [Palantir] urges universal national service r/technology \u2022 6 hr. ago US draft update: Major tech company [Palantir] urges universal national service https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885 u/shopify \u2022 Promoted Real talk from real sellers: Shopify is the easiest way to start. Now it's your turn. Start your free trial. shopify.com Sign Up Same brand, new slogan r/mildlyinteresting \u2022 4 hr. ago Same brand, new slogan Am I fucked? Drug testing r/what",
+              "screenshot_metadata": {
+                "screenshot_path": null
+              }
+            },
+            {
+              "tool_name": "read_file",
+              "evidence_snippet": "https://www.newsweek.com/us-draft-update-major-tech-company-urges-universal-national-service-11850885"
+            }
+          ],
+          "test_failure_summary": [],
+          "test_failed_count": null,
+          "created_paths": [],
+          "updated_paths": [],
+          "patch_summaries": [],
+          "context_provenance": [],
+          "artifacts": [],
+          "workflow_mode": "lightning",
+          "spawned_subagents": [
+            "subagent-56feaf0d",
+            "subagent-eae5eb2c",
+            "subagent-55ef0b47"
+          ]
+        }
+      }
+    }
+  ],
+  "error": null,
+  "pass": true
+}

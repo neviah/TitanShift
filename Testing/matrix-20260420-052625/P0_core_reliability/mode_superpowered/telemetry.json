@@ -1,0 +1,180 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_superpowered",
+  "title": "Mode routing superpowered",
+  "started_at": "2026-04-20T05:29:22.511099+00:00",
+  "elapsed_seconds": 132.56,
+  "request": {
+    "prompt": "Your only job: create the directory D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability and then write exactly one file D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt whose entire content is one line: superpowered mode ok\nUse create_directory and write_file. Do not create any other files or directories.",
+    "workflow_mode": "superpowered",
+    "model_backend": "lmstudio",
+    "spec_approved": true,
+    "plan_approved": true,
+    "plan_tasks": [
+      {
+        "title": "Mode routing superpowered",
+        "description": "Your only job: create the directory D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability and then write exactly one file D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt whose entire content is one line: superpowered mode ok\nUse create_directory and write_file. Do not create any other files or directories.",
+        "implementer_status": "DONE",
+        "spec_review_passed": true,
+        "code_review_passed": true,
+        "verification_passed": true
+      }
+    ]
+  },
+  "response": {
+    "run_id": "0f2d2a624eb148189dd091dc48ab0138",
+    "state": "completed",
+    "success": true,
+    "error": null,
+    "response": "I have successfully completed the requested task:\n\n1.  Created the directory: `Testing/matrix-20260420-052625/P0_core_reliability`\n2.  Created the file: `Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt` with the content: `superpowered mode ok`"
+  },
+  "run_status": {
+    "run_id": "0f2d2a624eb148189dd091dc48ab0138",
+    "state": "completed",
+    "timed_out": false,
+    "cancelled": false,
+    "error": null,
+    "duration_ms": 132547.9,
+    "result": {
+      "success": true,
+      "response": "I have successfully completed the requested task:\n\n1.  Created the directory: `Testing/matrix-20260420-052625/P0_core_reliability`\n2.  Created the file: `Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt` with the content: `superpowered mode ok`",
+      "error": null
+    }
+  },
+  "task": {
+    "task_id": "0f2d2a624eb148189dd091dc48ab0138",
+    "description": "Your only job: create the directory D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability and then write exactly one file D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt whose entire content is one line: superpowered mode ok\nUse create_directory and write_file. Do not create any other files or directories.",
+    "status": "completed",
+    "created_at": "2026-04-20T05:27:09.948496+00:00",
+    "started_at": "2026-04-20T05:27:09.952873+00:00",
+    "completed_at": "2026-04-20T05:29:22.430643+00:00",
+    "success": true,
+    "error": null,
+    "output": {
+      "response": "I have successfully completed the requested task:\n\n1.  Created the directory: `Testing/matrix-20260420-052625/P0_core_reliability`\n2.  Created the file: `Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt` with the content: `superpowered mode ok`",
+      "model": "lmstudio",
+      "mode": "reactive",
+      "estimated_total_tokens": 229,
+      "used_tools": [
+        "create_directory",
+        "write_file"
+      ],
+      "requested_tools": [
+        "create_directory",
+        "write_file"
+      ],
+      "attempted_tools": [
+        "create_directory",
+        "write_file"
+      ],
+      "fallback_used": false,
+      "primary_failure_reason": null,
+      "browser_proof": null,
+      "browser_proofs": [],
+      "test_failure_summary": [],
+      "test_failed_count": null,
+      "created_paths": [],
+      "updated_paths": [],
+      "patch_summaries": [],
+      "context_provenance": [],
+      "artifacts": [],
+      "workflow_mode": "superpowered",
+      "review_result": {
+        "ok": true,
+        "task_results": [
+          {
+            "task": "Mode routing superpowered",
+            "index": 1,
+            "iterations": 1,
+            "implementer_agent_id": "subagent-a6d803eb",
+            "spec_reviewer_agent_id": "subagent-8bba0feb",
+            "code_reviewer_agent_id": "subagent-b426423e",
+            "verifier_agent_id": "subagent-a29c98df",
+            "ok": true
+          }
+        ],
+        "max_iterations": 3
+      }
+    }
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "submit": {
+        "run_id": "0f2d2a624eb148189dd091dc48ab0138",
+        "state": "running"
+      },
+      "run_status": {
+        "run_id": "0f2d2a624eb148189dd091dc48ab0138",
+        "state": "completed",
+        "timed_out": false,
+        "cancelled": false,
+        "error": null,
+        "duration_ms": 132547.9,
+        "result": {
+          "success": true,
+          "response": "I have successfully completed the requested task:\n\n1.  Created the directory: `Testing/matrix-20260420-052625/P0_core_reliability`\n2.  Created the file: `Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt` with the content: `superpowered mode ok`",
+          "error": null
+        }
+      },
+      "task": {
+        "task_id": "0f2d2a624eb148189dd091dc48ab0138",
+        "description": "Your only job: create the directory D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability and then write exactly one file D:/Projects/TitantShift/Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt whose entire content is one line: superpowered mode ok\nUse create_directory and write_file. Do not create any other files or directories.",
+        "status": "completed",
+        "created_at": "2026-04-20T05:27:09.948496+00:00",
+        "started_at": "2026-04-20T05:27:09.952873+00:00",
+        "completed_at": "2026-04-20T05:29:22.430643+00:00",
+        "success": true,
+        "error": null,
+        "output": {
+          "response": "I have successfully completed the requested task:\n\n1.  Created the directory: `Testing/matrix-20260420-052625/P0_core_reliability`\n2.  Created the file: `Testing/matrix-20260420-052625/P0_core_reliability/mode_superpowered.txt` with the content: `superpowered mode ok`",
+          "model": "lmstudio",
+          "mode": "reactive",
+          "estimated_total_tokens": 229,
+          "used_tools": [
+            "create_directory",
+            "write_file"
+          ],
+          "requested_tools": [
+            "create_directory",
+            "write_file"
+          ],
+          "attempted_tools": [
+            "create_directory",
+            "write_file"
+          ],
+          "fallback_used": false,
+          "primary_failure_reason": null,
+          "browser_proof": null,
+          "browser_proofs": [],
+          "test_failure_summary": [],
+          "test_failed_count": null,
+          "created_paths": [],
+          "updated_paths": [],
+          "patch_summaries": [],
+          "context_provenance": [],
+          "artifacts": [],
+          "workflow_mode": "superpowered",
+          "review_result": {
+            "ok": true,
+            "task_results": [
+              {
+                "task": "Mode routing superpowered",
+                "index": 1,
+                "iterations": 1,
+                "implementer_agent_id": "subagent-a6d803eb",
+                "spec_reviewer_agent_id": "subagent-8bba0feb",
+                "code_reviewer_agent_id": "subagent-b426423e",
+                "verifier_agent_id": "subagent-a29c98df",
+                "ok": true
+              }
+            ],
+            "max_iterations": 3
+          }
+        }
+      }
+    }
+  ],
+  "error": null,
+  "pass": true
+}

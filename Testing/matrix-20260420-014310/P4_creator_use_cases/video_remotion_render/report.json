@@ -1,0 +1,11 @@
+{
+  "suite": "P4_creator_use_cases",
+  "case_id": "video_remotion_render",
+  "title": "Remotion MP4 render",
+  "status": "failed",
+  "elapsed_seconds": 1089.88,
+  "response_success": null,
+  "task_status": "cancelled",
+  "task_success": false,
+  "error": "run polling exceeded timeout (540s)"
+}

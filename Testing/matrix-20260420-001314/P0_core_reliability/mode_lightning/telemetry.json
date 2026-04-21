@@ -1,0 +1,68 @@
+{
+  "suite": "P0_core_reliability",
+  "case_id": "mode_lightning",
+  "title": "Mode routing lightning",
+  "started_at": "2026-04-20T00:13:58.577810+00:00",
+  "elapsed_seconds": 43.59,
+  "request": {
+    "prompt": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_lightning.txt with one line: lightning mode ok",
+    "workflow_mode": "lightning",
+    "model_backend": "lmstudio"
+  },
+  "response": {
+    "success": true,
+    "response": "I have successfully created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P0_core_reliability`\n- Created file: `Testing/P0_core_reliability/mode_lightning.txt` with content: `lightning mode ok`",
+    "model": "lmstudio",
+    "mode": "reactive",
+    "workflow_mode": "lightning",
+    "missing_approvals": null,
+    "required_skill_chain": null,
+    "status": null,
+    "plan_draft": null,
+    "error": null,
+    "estimated_total_tokens": 165,
+    "task_template_id": null,
+    "task_id": "4783059b-3218-4b0a-8b2f-2bb7ae4469fe"
+  },
+  "task": {
+    "task_id": "4783059b-3218-4b0a-8b2f-2bb7ae4469fe",
+    "description": "Create directory Testing/P0_core_reliability and then create file Testing/P0_core_reliability/mode_lightning.txt with one line: lightning mode ok",
+    "status": "completed",
+    "created_at": "2026-04-20T00:13:15.015587+00:00",
+    "started_at": "2026-04-20T00:13:15.021449+00:00",
+    "completed_at": "2026-04-20T00:13:58.503793+00:00",
+    "success": true,
+    "error": null,
+    "output": {
+      "response": "I have successfully created the directory and the file as requested.\n\n**Summary of changes:**\n- Created directory: `Testing/P0_core_reliability`\n- Created file: `Testing/P0_core_reliability/mode_lightning.txt` with content: `lightning mode ok`",
+      "model": "lmstudio",
+      "mode": "reactive",
+      "estimated_total_tokens": 165,
+      "used_tools": [
+        "create_directory",
+        "create_file",
+        "write_file"
+      ],
+      "requested_tools": [],
+      "attempted_tools": [
+        "create_directory",
+        "create_file",
+        "write_file"
+      ],
+      "fallback_used": false,
+      "primary_failure_reason": "create_file: 'Tool not found: create_file'",
+      "browser_proof": null,
+      "browser_proofs": [],
+      "test_failure_summary": [],
+      "test_failed_count": null,
+      "created_paths": [],
+      "updated_paths": [],
+      "patch_summaries": [],
+      "context_provenance": [],
+      "artifacts": [],
+      "workflow_mode": "lightning"
+    }
+  },
+  "error": null,
+  "pass": true
+}
