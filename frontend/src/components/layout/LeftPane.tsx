@@ -44,6 +44,7 @@ import {
   fetchSchedulerJobs,
   fetchSchedulerTaskStacks,
   fetchTaskDetail,
+  deleteTask,
   fetchTasks,
   fetchTools,
   fetchWorkflowMetrics,
@@ -147,6 +148,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     finishExecution,
   } = useTaskDrafts()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [pendingDeleteTaskId, setPendingDeleteTaskId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
   const [executingDraftId, setExecutingDraftId] = useState<string | null>(null)
@@ -266,6 +268,31 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     if (typeof next === 'string') {
       renameSession(id, next)
     }
+  }
+
+  function requestTaskDelete(taskId: string, event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+    setPendingDeleteTaskId(taskId)
+  }
+
+  function cancelTaskDelete(event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+    setPendingDeleteTaskId(null)
+  }
+
+  function confirmTaskDelete(taskId: string, event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+    void deleteTask(taskId)
+      .then(() => {
+        if (selectedTaskId === taskId) {
+          setSelectedTaskId(null)
+          setSelectedTask(null)
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        setPendingDeleteTaskId(null)
+      })
   }
 
   function toggleSkillActive(skillId: string) {
@@ -566,18 +593,57 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
             )}
             {tasks.length === 0 && <p className={styles.empty}>No tasks yet.</p>}
             {tasks.map((task) => (
-              <button
+              <div
                 key={task.task_id}
                 className={`${styles.itemRow} ${styles.edgeReactive} ${selectedTaskId === task.task_id ? styles.rowActive : ''} ${task.status === 'running' ? styles.rowHot : ''}`}
                 onClick={() => setSelectedTaskId(task.task_id)}
                 title={task.description}
                 onMouseMove={applyEdgeGlow}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    setSelectedTaskId(task.task_id)
+                  }
+                }}
               >
                 <span className={styles.rowTitle}>{task.description}</span>
-                <span className={`badge ${task.status === 'completed' ? 'badge-ok' : task.status === 'failed' ? 'badge-error' : 'badge-warn'}`}>
-                  {task.status}
-                </span>
-              </button>
+                <div className={styles.rowActions}>
+                  <span className={`badge ${task.status === 'completed' ? 'badge-ok' : task.status === 'failed' ? 'badge-error' : 'badge-warn'}`}>
+                    {task.status}
+                  </span>
+                  {pendingDeleteTaskId === task.task_id ? (
+                    <>
+                      <button
+                        className={styles.actionBtn}
+                        onClick={(event) => cancelTaskDelete(event)}
+                        data-tooltip="Keep task"
+                        aria-label="Keep task"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        className={styles.actionBtn}
+                        onClick={(event) => confirmTaskDelete(task.task_id, event)}
+                        data-tooltip="Delete task"
+                        aria-label="Delete task"
+                      >
+                        ✕
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className={styles.actionBtn}
+                      onClick={(event) => requestTaskDelete(task.task_id, event)}
+                      data-tooltip="Delete task"
+                      aria-label="Delete task"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
             ))}
             {selectedTask && (
               <div className={styles.detailCard}>

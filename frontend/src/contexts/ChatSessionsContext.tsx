@@ -47,6 +47,31 @@ function normalizeWorkspaceScopeKey(workspaceId: string, workspacePath?: string 
   return `id:${workspaceId}`
 }
 
+function findFallbackWorkspaceState(
+  byWorkspace: Record<string, WorkspaceChatState>,
+  workspaceId: string,
+): WorkspaceChatState | null {
+  const direct = byWorkspace[`id:${workspaceId}`] ?? byWorkspace[workspaceId]
+  if (direct) {
+    return direct
+  }
+  if (byWorkspace.default) {
+    return byWorkspace.default
+  }
+
+  const candidates = Object.entries(byWorkspace)
+    .filter(([key]) => key.startsWith('path:') || key.startsWith('id:'))
+    .map(([, state]) => state)
+    .filter((state) => Array.isArray(state.sessions) && state.sessions.length > 0)
+
+  if (candidates.length === 0) {
+    return null
+  }
+
+  // Prefer the richest existing session bucket when workspace keys drift.
+  return candidates.sort((a, b) => b.sessions.length - a.sessions.length)[0]
+}
+
 function makeSession(partial?: Partial<ChatSession>): ChatSession {
   const now = new Date().toISOString()
   return {
@@ -126,13 +151,11 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     [currentWorkspaceId, currentWorkspacePath],
   )
 
-  const active = useMemo(
-    () => store.byWorkspace[workspaceScopeKey]
-      ?? store.byWorkspace[`id:${currentWorkspaceId}`]
-      ?? store.byWorkspace[currentWorkspaceId]
-      ?? createWorkspaceState(),
-    [store, workspaceScopeKey, currentWorkspaceId],
-  )
+  const active = useMemo(() => {
+    const scoped = store.byWorkspace[workspaceScopeKey]
+    if (scoped) return scoped
+    return findFallbackWorkspaceState(store.byWorkspace, currentWorkspaceId) ?? createWorkspaceState()
+  }, [store, workspaceScopeKey, currentWorkspaceId])
   const sessions = active.sessions
   const currentSessionId = active.currentSessionId
 
@@ -143,10 +166,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setStore((prev) => {
       if (prev.byWorkspace[workspaceScopeKey]) return prev
-      // Find sessions from any variant of this workspace key (bare id, id:-prefixed)
-      const fallback =
-        prev.byWorkspace[`id:${currentWorkspaceId}`]
-        ?? prev.byWorkspace[currentWorkspaceId]
+      const fallback = findFallbackWorkspaceState(prev.byWorkspace, currentWorkspaceId)
       if (fallback) {
         return {
           byWorkspace: {
