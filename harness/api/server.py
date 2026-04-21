@@ -2848,6 +2848,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_input["persist_task"] = False
         # Keep superpowered verification feedback, but do not hard-fail interactive chat runs.
         task_input["strict_verification"] = False
+        # Interactive chat should not fail on review-loop orchestration timeouts.
+        task_input["require_task_reviews"] = False
 
         task = Task(
             id=str(uuid.uuid4()),
@@ -3309,6 +3311,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_input["persist_task"] = False
         # Keep superpowered verification feedback, but do not hard-fail interactive chat runs.
         task_input["strict_verification"] = False
+        # Interactive chat should not fail on review-loop orchestration timeouts.
+        task_input["require_task_reviews"] = False
 
         task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
         requested_mode = str(task_input.get("workflow_mode", "")).strip().lower()

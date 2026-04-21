@@ -945,9 +945,13 @@ class Orchestrator:
                 await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                 return result
 
-            if workflow_mode == "superpowered" and bool(
-                self.config.get("orchestrator.superpowered_mode.require_task_reviews", True)
-            ):
+            require_task_reviews = bool(
+                task.input.get(
+                    "require_task_reviews",
+                    self.config.get("orchestrator.superpowered_mode.require_task_reviews", True),
+                )
+            )
+            if workflow_mode == "superpowered" and require_task_reviews:
                 plan_tasks = task.input.get("plan_tasks", [])
                 if isinstance(plan_tasks, list):
                     normalized_plan_tasks = [row for row in plan_tasks if isinstance(row, dict)]

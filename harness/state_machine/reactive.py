@@ -197,11 +197,29 @@ class ReactiveStateMachine:
                 continue
 
             tool_name = str(payload.get("tool") or payload.get("name") or "").strip()
-            if not tool_name:
-                continue
             args = payload.get("arguments", {})
             if not isinstance(args, dict):
                 args = {}
+
+            if not tool_name:
+                action = str(payload.get("action") or "").strip().lower()
+                path = str(payload.get("path") or payload.get("target_path") or "").strip()
+                content = payload.get("content")
+                if action in {"open", "read"} and path:
+                    tool_name = "read_file"
+                    args = {"target_path": path}
+                elif action in {"append", "append_file"} and path and isinstance(content, str):
+                    tool_name = "append_file"
+                    args = {"path": path, "content": content}
+                elif action in {"write", "update", "replace", "save"} and path and isinstance(content, str):
+                    tool_name = "write_file"
+                    args = {"path": path, "content": content}
+                elif action in {"mkdir", "create_directory"} and path:
+                    tool_name = "create_directory"
+                    args = {"path": path}
+
+            if not tool_name:
+                continue
 
             tentative = ToolCall(id="pseudo-tool-call", name=tool_name, arguments=args)
             normalized = self._normalize_tool_call(tentative, task_description)
@@ -262,12 +280,15 @@ class ReactiveStateMachine:
                 matched.add("list_directory")
 
         # File-operation intent mapping for natural phrasing.
-        if any(token in text for token in ["append a new line", "append new line", "append a line", "append to "]):
+        if any(token in text for token in ["append a new line", "append new line", "append a line", "append to ", "append ", "appending "]):
             if "append_file" in available:
                 matched.add("append_file")
-        if any(token in text for token in ["read_file", "read the file", "open the file", "return the full final file content"]):
+        if any(token in text for token in ["read_file", "read the file", "open the file", "return the full final file content", "edit ", "update ", "modify ", "change "]):
             if "read_file" in available:
                 matched.add("read_file")
+        if any(token in text for token in ["edit ", "update ", "modify ", "change ", "append ", "appending "]):
+            if "write_file" in available:
+                matched.add("write_file")
         if any(token in text for token in ["create one", "create it", "create a file", "if you don't see", "if it does not exist"]):
             if "write_file" in available:
                 matched.add("write_file")
