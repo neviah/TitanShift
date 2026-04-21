@@ -4090,7 +4090,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
     tools.register_tool(
         ToolDefinition(
             name="web_fetch",
-            description="Fetch the plain-text content of a direct URL for summarisation or research. Best for API responses and static data endpoints such as JSON, XML, RSS, CSV, or plain text. Prefer web_browse for normal websites.",
+            description="Fetch plain-text content from a URL for summarisation or research. Use this as the first pass for web retrieval and for direct API/static endpoints such as JSON, XML, RSS, CSV, or plain text. If results look blocked/empty/incomplete, follow with web_browse.",
             needs_network=True,
             handler=web_fetch_handler,
             parameters={
@@ -4178,7 +4178,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             name="web_browse",
             description=(
                 "Browse a URL using a real headless Chromium browser (Playwright). "
-                "Prefer this for normal website content, especially modern sites, JavaScript-heavy pages, SPAs, or when web_fetch returns empty/broken content. "
+                "Use this when web_fetch returns blocked/empty/incomplete content, or for JavaScript-heavy pages and SPAs. "
                 "Returns the visible page text after JS execution. Optionally waits for a CSS selector and captures a screenshot."
             ),
             needs_network=True,

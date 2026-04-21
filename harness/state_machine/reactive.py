@@ -81,37 +81,8 @@ class ReactiveStateMachine:
                 if host.endswith("reddit.com") and path in {"", "/"}:
                     args["url"] = "https://www.reddit.com/r/all/.json?limit=1"
 
-            # Default website handling should use a real browser (Playwright) when available.
-            # Reserve raw web_fetch for direct API/static endpoints such as JSON feeds.
-            browse_url = str(args.get("url", "")).strip()
-            if browse_url and self.tools.get_tool("web_browse") is not None:
-                parsed = urlparse(browse_url)
-                path = (parsed.path or "").lower()
-                host = (parsed.netloc or "").lower()
-                query = (parsed.query or "").lower()
-                is_direct_data_endpoint = (
-                    path.endswith((".json", ".xml", ".txt", ".csv", ".rss", ".atom"))
-                    or "/api/" in path
-                    or host.startswith("api.")
-                    or "format=json" in query
-                    or path in {"/robots.txt", "/sitemap.xml"}
-                )
-                if not is_direct_data_endpoint:
-                    browse_args: dict[str, Any] = {
-                        "url": browse_url,
-                        "max_chars": int(args.get("max_chars", 8000)),
-                    }
-                    if "selector" in args:
-                        browse_args["selector"] = args["selector"]
-                    if "wait_for" in args:
-                        browse_args["wait_for"] = args["wait_for"]
-                    if "timeout_s" in args:
-                        browse_args["timeout_ms"] = int(float(args["timeout_s"]) * 1000)
-                    return ToolCall(
-                        id=tool_call.id,
-                        name="web_browse",
-                        arguments=browse_args,
-                    )
+            # Keep web_fetch as first attempt; browser fallback is handled
+            # after execution when fetch output is blocked/empty/low-signal.
 
         if normalized == "shell_command" and web_intent:
             command = str(args.get("command", "")).strip()
@@ -136,6 +107,45 @@ class ReactiveStateMachine:
             if self._canonical_tool_name(tool.name) == canonical:
                 return tool.name
         return name
+
+    def _should_escalate_web_fetch(self, tool_result: Any) -> bool:
+        if not isinstance(tool_result, dict):
+            return True
+        if not bool(tool_result.get("ok", False)):
+            return True
+        content = str(tool_result.get("content", "") or "")
+        content_lower = content.lower()
+        if len(content.strip()) < 180:
+            return True
+        low_signal_markers = [
+            "captcha",
+            "enable javascript",
+            "challenge",
+            "access denied",
+            "bot",
+            "{" + '"kind": "listing", "data": {"after": null, "dist": 0',
+            '"children": []',
+        ]
+        return any(marker in content_lower for marker in low_signal_markers)
+
+    def _build_browse_fallback_args(self, fetch_args: dict[str, Any]) -> dict[str, Any] | None:
+        url = str(fetch_args.get("url", "") or "").strip()
+        if not url:
+            return None
+        out: dict[str, Any] = {
+            "url": url,
+            "max_chars": int(fetch_args.get("max_chars", 12000) or 12000),
+            "wait_for": "domcontentloaded",
+        }
+        if "selector" in fetch_args and str(fetch_args.get("selector", "")).strip():
+            out["selector"] = str(fetch_args.get("selector", "")).strip()
+        timeout_s = fetch_args.get("timeout_s")
+        if timeout_s is not None:
+            try:
+                out["timeout_ms"] = int(float(timeout_s) * 1000)
+            except Exception:
+                pass
+        return out
 
     def _is_skill_like_pseudo_call(self, tool_call: ToolCall) -> bool:
         if self.skills is None:
@@ -184,12 +194,12 @@ class ReactiveStateMachine:
             if "write_file" in available:
                 matched.add("write_file")
 
-        # Generic website retrieval should prefer the real browser.
+        # Generic website retrieval should prefer fetch first, then browser fallback.
         if ("go to " in text or "open " in text) and ".com" in text:
-            if "web_browse" in available:
-                matched.add("web_browse")
-            elif "web_fetch" in available:
+            if "web_fetch" in available:
                 matched.add("web_fetch")
+            elif "web_browse" in available:
+                matched.add("web_browse")
 
         return sorted(matched)
 
@@ -568,8 +578,8 @@ class ReactiveStateMachine:
         system_parts = [
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
             "When you need live information, use the most specific available tool for the user request. "
-            "For normal website content, prefer web_browse so a real browser renders the page. "
-            "Use web_fetch mainly for direct API/static data endpoints such as JSON, XML, or text feeds.",
+            "Use web_fetch first for website retrieval, and if fetch output is blocked, empty, or incomplete, use web_browse as fallback. "
+            "Use web_fetch for direct API/static data endpoints such as JSON, XML, or text feeds.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file. "
             "Do not merely describe the files when you can create them.",
             "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
@@ -955,6 +965,41 @@ class ReactiveStateMachine:
                         invalid_tool_seen = True
                     tool_result = {"ok": False, "error": str(exc)}
 
+                if tc.name == "web_fetch" and self.tools.get_tool("web_browse") is not None:
+                    browse_args = self._build_browse_fallback_args(tc.arguments)
+                    if browse_args is not None and self._should_escalate_web_fetch(tool_result):
+                        try:
+                            browse_result = await self.tools.execute_tool(
+                                "web_browse",
+                                browse_args,
+                                bypass_policy=is_superpowered,
+                                task_id=task.id,
+                                hook_context={
+                                    "tenant_id": tenant_id,
+                                    "allowed_tools": allowed_tools,
+                                    "call_index": call_index,
+                                },
+                            )
+                            used_tools.append("web_browse")
+                            tool_result = {
+                                "ok": bool(isinstance(browse_result, dict) and browse_result.get("ok", False)),
+                                "fallback": "web_browse",
+                                "fallback_reason": "web_fetch_low_signal",
+                                "web_fetch_result": tool_result,
+                                "web_browse_result": browse_result,
+                            }
+                            browse_proof = self._extract_browser_proof("web_browse", browse_args, browse_result)
+                            if browse_proof:
+                                browser_proofs.append(browse_proof)
+                        except Exception as browse_exc:
+                            tool_result = {
+                                "ok": False,
+                                "fallback": "web_browse",
+                                "fallback_reason": "web_fetch_low_signal",
+                                "web_fetch_result": tool_result,
+                                "fallback_error": str(browse_exc),
+                            }
+
                 proof = self._extract_browser_proof(tc.name, tc.arguments, tool_result)
                 if proof:
                     browser_proofs.append(proof)
@@ -1156,7 +1201,7 @@ class ReactiveStateMachine:
         system_parts = [
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
             "When you need live information, use the most specific available tool for the user request.",
-            "For website content, prefer web_browse. Use web_fetch mainly for direct API/static data endpoints.",
+            "Use web_fetch first for website retrieval. If fetch output is blocked, empty, or incomplete, use web_browse.",
             "When the user asks you to create or modify workspace files, use create_directory and write_file.",
             "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
             "For frontend page generation, default to a self-contained HTML file with embedded CSS unless the user explicitly requests separate files.",
