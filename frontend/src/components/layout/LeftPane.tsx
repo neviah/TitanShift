@@ -120,7 +120,7 @@ interface LeftPaneProps {
 
 export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath }: LeftPaneProps) {
   const { workspaces, currentWorkspaceId, currentWorkspaceName, currentWorkspacePath, selectWorkspace, openWorkspaceFolder } = useWorkspace()
-  const { data: taskData } = usePolling(fetchTasks, { interval: 8000 })
+  const { data: taskData, refresh: refreshTasks } = usePolling(fetchTasks, { interval: 8000 })
   const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: treeData, refresh: refreshTree } = usePolling(fetchWorkspaceTree, { interval: 8000 })
   const { data: toolsData } = usePolling(fetchTools, { interval: 30000 })
@@ -149,6 +149,8 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   } = useTaskDrafts()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [pendingDeleteTaskId, setPendingDeleteTaskId] = useState<string | null>(null)
+  const [taskDeleteMode, setTaskDeleteMode] = useState(false)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Record<string, boolean>>({})
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
   const [executingDraftId, setExecutingDraftId] = useState<string | null>(null)
@@ -187,6 +189,10 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const artifacts: ArtifactFile[] = artifactsData ?? []
   const workflowMetrics: WorkflowMetrics | null = metricsData ?? null
   const latestTask = tasks[0] ?? null
+  const selectedDeleteCount = useMemo(
+    () => Object.values(selectedTaskIds).filter(Boolean).length,
+    [selectedTaskIds],
+  )
   const livePulse = (logsData?.items ?? []).some((entry) => {
     const eventType = String(entry.event_type ?? '').toLowerCase()
     return isRecentIso(entry.timestamp) && (eventType.includes('task_') || eventType.includes('workflow_'))
@@ -254,6 +260,19 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }
   }, [selectedTaskId])
 
+  useEffect(() => {
+    const visibleTaskIds = new Set(tasks.map((task) => task.task_id))
+    setSelectedTaskIds((prev) => {
+      const next: Record<string, boolean> = {}
+      for (const [taskId, selected] of Object.entries(prev)) {
+        if (visibleTaskIds.has(taskId) && selected) {
+          next[taskId] = true
+        }
+      }
+      return next
+    })
+  }, [tasks])
+
   function handleNewChat() {
     createSession()
     onTabChange('chat')
@@ -293,6 +312,50 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       .finally(() => {
         setPendingDeleteTaskId(null)
       })
+  }
+
+  function enterTaskDeleteMode() {
+    setTaskDeleteMode(true)
+    setPendingDeleteTaskId(null)
+    setSelectedTaskIds({})
+  }
+
+  function exitTaskDeleteMode() {
+    setTaskDeleteMode(false)
+    setSelectedTaskIds({})
+  }
+
+  function toggleTaskSelection(taskId: string) {
+    setSelectedTaskIds((prev) => ({
+      ...prev,
+      [taskId]: !prev[taskId],
+    }))
+  }
+
+  function selectAllVisibleTasks() {
+    const allSelected: Record<string, boolean> = {}
+    for (const task of tasks) {
+      allSelected[task.task_id] = true
+    }
+    setSelectedTaskIds(allSelected)
+  }
+
+  async function deleteSelectedTasks() {
+    const ids = Object.entries(selectedTaskIds)
+      .filter(([, selected]) => selected)
+      .map(([taskId]) => taskId)
+    if (ids.length === 0) return
+
+    await Promise.all(ids.map((taskId) => deleteTask(taskId).catch(() => undefined)))
+
+    if (selectedTaskId && ids.includes(selectedTaskId)) {
+      setSelectedTaskId(null)
+      setSelectedTask(null)
+    }
+
+    setSelectedTaskIds({})
+    setTaskDeleteMode(false)
+    await refreshTasks()
   }
 
   function toggleSkillActive(skillId: string) {
@@ -423,11 +486,38 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       <section className={styles.content}>
         <div className={`${styles.anchorCard} ${styles.edgeReactive}`} onMouseMove={applyEdgeGlow}>
           <p className={styles.anchorTitle}>{anchorMeta.title}</p>
-          <p className={styles.anchorSubtitle}>{anchorMeta.subtitle}</p>
-          <div className={styles.anchorMetaRow}>
-            <span className={`badge ${livePulse ? 'badge-warn' : 'badge-dim'}`}>{livePulse ? 'active now' : 'idle'}</span>
-            <span className={styles.anchorHint}>{anchorMeta.hint}</span>
-          </div>
+          {activeTab === 'tasks' ? (
+            <>
+              <p className={styles.anchorSubtitle}>
+                {taskDeleteMode
+                  ? `${selectedDeleteCount} selected for deletion`
+                  : anchorMeta.subtitle}
+              </p>
+              <div className={styles.anchorMetaRow}>
+                {!taskDeleteMode ? (
+                  <button className={styles.anchorActionBtn} onClick={enterTaskDeleteMode}>Delete Tasks</button>
+                ) : (
+                  <div className={styles.anchorActions}>
+                    <button className={styles.anchorActionBtn} onClick={selectAllVisibleTasks}>Select All</button>
+                    <button className={styles.anchorActionBtn} onClick={exitTaskDeleteMode}>Cancel</button>
+                    {selectedDeleteCount > 0 && (
+                      <button className={styles.anchorDangerBtn} onClick={() => { void deleteSelectedTasks() }}>
+                        Delete Forever
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className={styles.anchorSubtitle}>{anchorMeta.subtitle}</p>
+              <div className={styles.anchorMetaRow}>
+                <span className={`badge ${livePulse ? 'badge-warn' : 'badge-dim'}`}>{livePulse ? 'active now' : 'idle'}</span>
+                <span className={styles.anchorHint}>{anchorMeta.hint}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {activeTab === 'workspaces' && (
@@ -596,7 +686,13 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
               <div
                 key={task.task_id}
                 className={`${styles.itemRow} ${styles.edgeReactive} ${selectedTaskId === task.task_id ? styles.rowActive : ''} ${task.status === 'running' ? styles.rowHot : ''}`}
-                onClick={() => setSelectedTaskId(task.task_id)}
+                onClick={() => {
+                  if (taskDeleteMode) {
+                    toggleTaskSelection(task.task_id)
+                  } else {
+                    setSelectedTaskId(task.task_id)
+                  }
+                }}
                 title={task.description}
                 onMouseMove={applyEdgeGlow}
                 role="button"
@@ -604,16 +700,30 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
-                    setSelectedTaskId(task.task_id)
+                    if (taskDeleteMode) {
+                      toggleTaskSelection(task.task_id)
+                    } else {
+                      setSelectedTaskId(task.task_id)
+                    }
                   }
                 }}
               >
+                {taskDeleteMode && (
+                  <input
+                    type="checkbox"
+                    className={styles.taskSelectCheckbox}
+                    checked={Boolean(selectedTaskIds[task.task_id])}
+                    onChange={() => toggleTaskSelection(task.task_id)}
+                    onClick={(event) => event.stopPropagation()}
+                    aria-label={`Select task ${task.description}`}
+                  />
+                )}
                 <span className={styles.rowTitle}>{task.description}</span>
                 <div className={styles.rowActions}>
                   <span className={`badge ${task.status === 'completed' ? 'badge-ok' : task.status === 'failed' ? 'badge-error' : 'badge-warn'}`}>
                     {task.status}
                   </span>
-                  {pendingDeleteTaskId === task.task_id ? (
+                  {!taskDeleteMode && pendingDeleteTaskId === task.task_id ? (
                     <>
                       <button
                         className={styles.actionBtn}
@@ -632,7 +742,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                         ✕
                       </button>
                     </>
-                  ) : (
+                  ) : !taskDeleteMode ? (
                     <button
                       className={styles.actionBtn}
                       onClick={(event) => requestTaskDelete(task.task_id, event)}
@@ -641,7 +751,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                     >
                       ✕
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
             ))}

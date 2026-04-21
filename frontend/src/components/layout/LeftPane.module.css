@@ -122,6 +122,37 @@
   gap: 8px;
 }
 
+.anchorActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.anchorActionBtn,
+.anchorDangerBtn {
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.anchorActionBtn:hover {
+  border-color: var(--accent-primary);
+}
+
+.anchorDangerBtn {
+  border-color: color-mix(in oklab, var(--error, #ff4d4d) 60%, var(--border-default));
+  color: var(--error, #ff4d4d);
+}
+
+.anchorDangerBtn:hover {
+  background: color-mix(in oklab, var(--error, #ff4d4d) 12%, transparent);
+}
+
 .anchorHint {
   font-size: 11px;
   color: var(--text-muted);
@@ -254,6 +285,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.taskSelectCheckbox {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent-primary);
+  flex-shrink: 0;
 }
 
 .rowMeta {
