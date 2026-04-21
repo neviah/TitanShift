@@ -33,7 +33,6 @@ import {
   approveArtifact,
   deleteSchedulerTaskStack,
   fetchArtifacts,
-  fetchConfig,
   fetchLogs,
   fetchMarketList,
   fetchMemorySummary,
@@ -48,14 +47,11 @@ import {
   fetchWorkflowMetrics,
   fetchWorkspaceTree,
   revokeArtifactApproval,
-  sendChat,
   setSchedulerJobEnabled,
   triggerSchedulerTick,
-  normalizeApiError,
 } from '../../api/client'
 import type { TaskScope } from '../../api/client'
 import { useChatSessions } from '../../contexts/ChatSessionsContext'
-import { useTaskDrafts, type TaskDraft } from '../../contexts/TaskDraftsContext'
 import { useWorkspace } from '../../contexts/WorkspaceContext'
 import type { ArtifactFile, RoleTemplate, SchedulerJob, SchedulerTaskStackJob, TaskDetail, WorkflowMetrics, WorkspaceTreeNode } from '../../api/types'
 
@@ -133,22 +129,12 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { data: metricsData } = usePolling(fetchWorkflowMetrics, { interval: 15000 })
   const [artifactBusy, setArtifactBusy] = useState<string | null>(null)
   const { sessions, currentSessionId, createSession, selectSession, renameSession, archiveSession, restoreSession, deleteSession } = useChatSessions()
-  const {
-    drafts,
-    deleteDraft,
-    setExecutionResult,
-    setDraftTitle,
-    startExecution,
-    updateExecutionStep,
-    finishExecution,
-  } = useTaskDrafts()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [pendingDeleteTaskId, setPendingDeleteTaskId] = useState<string | null>(null)
   const [taskDeleteMode, setTaskDeleteMode] = useState(false)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Record<string, boolean>>({})
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
-  const [executingDraftId, setExecutingDraftId] = useState<string | null>(null)
   const [schedulerBusyId, setSchedulerBusyId] = useState<string | null>(null)
   const [activeSkillsByWorkspace, setActiveSkillsByWorkspace] = useState<Record<string, Record<string, boolean>>>(() => {
     try {
@@ -397,51 +383,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }))
   }
 
-  async function executeDraft(draft: TaskDraft) {
-    const { id: draftId, steps } = draft
-    const filteredSteps = steps.map((s) => s.trim()).filter(Boolean)
-    if (filteredSteps.length === 0) {
-      setExecutionResult(draftId, 'Cannot run draft: no non-empty steps.')
-      return
-    }
-
-    setExecutingDraftId(draftId)
-    startExecution(draftId, filteredSteps)
-
-    const outputs: string[] = []
-
-    try {
-      const cfg = await fetchConfig()
-      const backend = typeof cfg['model.default_backend'] === 'string' ? String(cfg['model.default_backend']) : undefined
-
-      for (let i = 0; i < filteredSteps.length; i += 1) {
-        const step = filteredSteps[i]
-        updateExecutionStep(draftId, i, 'running')
-        const contextBlock = outputs.length > 0
-          ? `\n\nPrevious completed step outputs:\n${outputs.map((o, idx) => `${idx + 1}. ${o}`).join('\n')}`
-          : ''
-        const prompt = `You are executing a task checklist. Complete step ${i + 1}/${filteredSteps.length}: ${step}${contextBlock}`
-        try {
-          const res = await sendChat({ prompt, ...(backend ? { model_backend: backend } : {}) })
-          const output = (res.response ?? '').slice(0, 400)
-          outputs.push(output)
-          updateExecutionStep(draftId, i, 'done', output)
-        } catch (stepError) {
-          const stepErr = stepError instanceof Error ? stepError.message : String(stepError)
-          updateExecutionStep(draftId, i, 'error', stepErr)
-          throw stepError
-        }
-      }
-
-      setExecutionResult(draftId, outputs.join('\n').slice(0, 1000))
-    } catch (e) {
-      setExecutionResult(draftId, normalizeApiError(e))
-    } finally {
-      finishExecution(draftId)
-      setExecutingDraftId(null)
-    }
-  }
-
   async function toggleSchedulerJob(job: SchedulerJob) {
     setSchedulerBusyId(job.job_id)
     try {
@@ -629,32 +570,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
               )}
             </div>
             <p className={styles.hint}>{taskScope === 'workspace' ? `Showing latest 12 tasks for ${currentWorkspaceName}` : 'Showing latest 12 tasks across all workspaces'}</p>
-            {drafts.length > 0 && (
-              <>
-                <p className={styles.hint}>Promoted tasks</p>
-                {drafts.slice(0, 10).map((draft) => (
-                  <div key={draft.id} className={`${styles.row} ${styles.edgeReactive}`} onMouseMove={applyEdgeGlow}>
-                    <div className={styles.rowMain}>
-                      <input
-                        className={styles.stepInput}
-                        value={draft.title}
-                        onChange={(e) => setDraftTitle(draft.id, e.target.value)}
-                      />
-                      <span className={styles.rowMeta}>{draft.steps.length} steps</span>
-                    </div>
-                    <div className={styles.rowActions}>
-                      <button className={styles.actionBtn} onClick={() => void executeDraft(draft)} data-tooltip="Run promoted task" aria-label="Run promoted task" disabled={executingDraftId === draft.id}>
-                        <Play size={12} />
-                      </button>
-                      <button className={styles.actionBtn} onClick={() => deleteDraft(draft.id)} data-tooltip="Delete promoted task" aria-label="Delete promoted task">
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                    {draft.lastResult && <p className={styles.detailText}>{draft.lastResult}</p>}
-                  </div>
-                ))}
-              </>
-            )}
             {tasks.length === 0 && <p className={styles.empty}>No tasks yet.</p>}
             {tasks.map((task) => (
               <div

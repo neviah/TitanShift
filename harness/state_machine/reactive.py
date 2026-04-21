@@ -157,6 +157,60 @@ class ReactiveStateMachine:
             return True
         return any(skill_id in normalized_name for skill_id in skill_ids)
 
+    def _extract_pseudo_tool_call(self, text: str, task_description: str) -> ToolCall | None:
+        """Parse JSON-like tool directives emitted as plain text.
+
+        Some providers occasionally return a literal JSON payload like:
+        {"tool": "read_file", "arguments": {...}}
+        instead of structured tool_calls. When this happens we recover by
+        parsing and executing that directive as a real tool call.
+        """
+        raw = str(text or "").strip()
+        if not raw:
+            return None
+
+        candidates: list[str] = [raw]
+        if raw.startswith("```"):
+            lines = [line for line in raw.splitlines() if not line.strip().startswith("```")]
+            fenced = "\n".join(lines).strip()
+            if fenced:
+                candidates.append(fenced)
+
+        for candidate in candidates:
+            payload: dict[str, Any] | None = None
+            try:
+                loaded = json.loads(candidate)
+                if isinstance(loaded, dict):
+                    payload = loaded
+            except Exception:
+                start = candidate.find("{")
+                end = candidate.rfind("}")
+                if start != -1 and end > start:
+                    try:
+                        loaded = json.loads(candidate[start : end + 1])
+                        if isinstance(loaded, dict):
+                            payload = loaded
+                    except Exception:
+                        payload = None
+
+            if payload is None:
+                continue
+
+            tool_name = str(payload.get("tool") or payload.get("name") or "").strip()
+            if not tool_name:
+                continue
+            args = payload.get("arguments", {})
+            if not isinstance(args, dict):
+                args = {}
+
+            tentative = ToolCall(id="pseudo-tool-call", name=tool_name, arguments=args)
+            normalized = self._normalize_tool_call(tentative, task_description)
+            if self.tools.get_tool(normalized.name) is None:
+                continue
+            return normalized
+
+        return None
+
     def _fit_messages_to_token_budget(
         self,
         messages: list[dict[str, Any]],
@@ -843,7 +897,14 @@ class ReactiveStateMachine:
             last_model_id = response.model_id
             last_provider_model_id = response.provider_model_id
 
-            if not response.tool_calls:
+            raw_tool_calls = response.tool_calls or []
+            normalized_tool_calls = [self._normalize_tool_call(raw_tc, task.description) for raw_tc in raw_tool_calls]
+            if not normalized_tool_calls:
+                pseudo_tool = self._extract_pseudo_tool_call(response.text, task.description)
+                if pseudo_tool is not None:
+                    normalized_tool_calls = [pseudo_tool]
+
+            if not normalized_tool_calls:
                 if invalid_tool_seen and not recovered_after_invalid_tool:
                     correction = (
                         "You previously attempted non-existent tools. Retry using only valid tools from schema "
@@ -883,7 +944,6 @@ class ReactiveStateMachine:
             # LM Studio compatibility note: some model/server combos reject tool-role messages.
             # We therefore feed tool outputs back as plain user context for the next turn.
             tool_result_lines: list[str] = []
-            normalized_tool_calls = [self._normalize_tool_call(raw_tc, task.description) for raw_tc in response.tool_calls]
             if requested_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
                 if not any(self._canonical_tool_name(tc.name) in requested_canonical for tc in normalized_tool_calls):
                     correction = (

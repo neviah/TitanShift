@@ -465,14 +465,23 @@ class Orchestrator:
                     )
                     impl_passed = impl_task_result.success
                     impl_output = impl_task_result.output or {}
+                    created_paths_raw = impl_output.get("created_paths")
+                    if not isinstance(created_paths_raw, list):
+                        created_paths_raw = []
+                    updated_paths_raw = impl_output.get("updated_paths")
+                    if not isinstance(updated_paths_raw, list):
+                        updated_paths_raw = []
+                    patch_summaries_raw = impl_output.get("patch_summaries")
+                    if not isinstance(patch_summaries_raw, list):
+                        patch_summaries_raw = []
                     item_result["implementer_created_paths"] = [
-                        str(path) for path in impl_output.get("created_paths", [])[:10] if isinstance(path, str)
+                        str(path) for path in created_paths_raw[:10] if isinstance(path, str)
                     ]
                     item_result["implementer_updated_paths"] = [
-                        str(path) for path in impl_output.get("updated_paths", [])[:10] if isinstance(path, str)
+                        str(path) for path in updated_paths_raw[:10] if isinstance(path, str)
                     ]
                     item_result["implementer_patch_summaries"] = [
-                        patch for patch in impl_output.get("patch_summaries", [])[:10] if isinstance(patch, dict)
+                        patch for patch in patch_summaries_raw[:10] if isinstance(patch, dict)
                     ]
                     impl_feedback = str(
                         impl_output.get("response")
