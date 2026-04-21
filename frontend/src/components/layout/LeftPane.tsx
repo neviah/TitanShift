@@ -202,7 +202,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const anchorMeta = useMemo(() => {
     if (activeTab === 'workspaces') return { title: 'Workspace Anchor', subtitle: `${workspaces.length} workspace profiles`, hint: currentWorkspaceName }
     if (activeTab === 'chat') return { title: 'Conversation Anchor', subtitle: `${recentSessions.length} active threads`, hint: currentWorkspaceName }
-    if (activeTab === 'tasks') return { title: 'Execution Anchor', subtitle: `${tasks.length} tracked tasks (${taskScope === 'workspace' ? 'this workspace' : 'all workspaces'})`, hint: latestTask?.status ?? 'idle' }
+    if (activeTab === 'tasks') return { title: 'Task Queue', subtitle: `${tasks.length} tracked tasks (${taskScope === 'workspace' ? 'this workspace' : 'all workspaces'})`, hint: latestTask?.status ?? 'idle' }
     if (activeTab === 'files') return { title: 'File Anchor', subtitle: `${treeData?.length ?? 0} root nodes`, hint: currentWorkspaceName }
     if (activeTab === 'skills') return { title: 'Skill Anchor', subtitle: `${installedSkills.length} installed`, hint: currentWorkspaceName }
     if (activeTab === 'tools') return { title: 'Tool Anchor', subtitle: `${(toolsData ?? []).length} discovered`, hint: currentWorkspaceName }
@@ -504,33 +504,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                   : anchorMeta.subtitle}
               </p>
               <div className={styles.anchorMetaRow}>
-                {!taskDeleteMode ? (
-                  <div className={styles.anchorActions}>
-                    <button
-                      className={`${styles.anchorActionBtn} ${taskScope === 'workspace' ? styles.anchorActionBtnActive : ''}`}
-                      onClick={() => switchTaskScope('workspace')}
-                    >
-                      This Workspace
-                    </button>
-                    <button
-                      className={`${styles.anchorActionBtn} ${taskScope === 'all' ? styles.anchorActionBtnActive : ''}`}
-                      onClick={() => switchTaskScope('all')}
-                    >
-                      All Workspaces
-                    </button>
-                    <button className={styles.anchorActionBtn} onClick={enterTaskDeleteMode}>Delete Tasks</button>
-                  </div>
-                ) : (
-                  <div className={styles.anchorActions}>
-                    <button className={styles.anchorActionBtn} onClick={selectAllVisibleTasks}>Select All</button>
-                    <button className={styles.anchorActionBtn} onClick={exitTaskDeleteMode}>Cancel</button>
-                    {selectedDeleteCount > 0 && (
-                      <button className={styles.anchorDangerBtn} onClick={() => { void deleteSelectedTasks() }}>
-                        Delete Forever
-                      </button>
-                    )}
-                  </div>
-                )}
+                <span className={styles.anchorHint}>Recent runs and status for the active task scope.</span>
               </div>
             </>
           ) : (
@@ -622,6 +596,39 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
         {activeTab === 'tasks' && (
           <div className={styles.list}>
+            <div className={styles.taskToolbar}>
+              {!taskDeleteMode ? (
+                <>
+                  <div className={styles.taskToolbarGroup}>
+                    <button
+                      className={`${styles.anchorActionBtn} ${taskScope === 'workspace' ? styles.anchorActionBtnActive : ''}`}
+                      onClick={() => switchTaskScope('workspace')}
+                    >
+                      This Workspace
+                    </button>
+                    <button
+                      className={`${styles.anchorActionBtn} ${taskScope === 'all' ? styles.anchorActionBtnActive : ''}`}
+                      onClick={() => switchTaskScope('all')}
+                    >
+                      All Workspaces
+                    </button>
+                  </div>
+                  <button className={styles.anchorActionBtn} onClick={enterTaskDeleteMode}>Delete Tasks</button>
+                </>
+              ) : (
+                <>
+                  <div className={styles.taskToolbarGroup}>
+                    <button className={styles.anchorActionBtn} onClick={selectAllVisibleTasks}>Select All</button>
+                    <button className={styles.anchorActionBtn} onClick={exitTaskDeleteMode}>Cancel</button>
+                  </div>
+                  {selectedDeleteCount > 0 && (
+                    <button className={styles.anchorDangerBtn} onClick={() => { void deleteSelectedTasks() }}>
+                      Delete Forever
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
             <p className={styles.hint}>{taskScope === 'workspace' ? `Showing tasks for ${currentWorkspaceName}` : 'Showing tasks across all workspaces'}</p>
             {drafts.length > 0 && (
               <>

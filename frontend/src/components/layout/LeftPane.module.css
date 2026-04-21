@@ -164,6 +164,29 @@
   color: var(--text-muted);
 }
 
+.taskToolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px;
+  margin-top: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bg-elevated) 90%, transparent);
+}
+
+.taskToolbarGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .sectionLabel {
   font-size: 10px;
   text-transform: uppercase;
