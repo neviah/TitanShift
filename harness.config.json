@@ -44,11 +44,6 @@
       "timeout_s": 1800,
       "max_tokens": 4096,
       "temperature": 0.2
-    },
-    "openai_compatible": {
-      "model": "nvidia/nemotron-3-super-120b-a12b:free",
-      "api_key": "REMOVED_SEE_LOCAL_CONFIG",
-      "timeout_s": 440
     }
   },
   "memory": {

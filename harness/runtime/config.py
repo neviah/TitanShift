@@ -11,14 +11,16 @@ class ConfigManager:
 
     def __init__(self, workspace_root: Path) -> None:
         self.workspace_root = workspace_root
+        self._base_config_path = workspace_root / "harness.config.json"
+        self._local_config_path = workspace_root / "harness.config.local.json"
         defaults_file = workspace_root / "harness" / "config_defaults.json"
         if not defaults_file.exists():
             # Fallback for installed package usage outside the source checkout.
             defaults_file = Path(__file__).resolve().parents[1] / "config_defaults.json"
         self._defaults = self._load_json(defaults_file)
-        self._base_config = self._load_json(workspace_root / "harness.config.json")
-        local_config = self._load_json(workspace_root / "harness.config.local.json")
-        # local config overlays base — local values win, base is still the only file written by set()
+        self._base_config = self._load_json(self._base_config_path)
+        local_config = self._load_json(self._local_config_path)
+        # Local config overlays base so user-specific overrides never need to touch tracked config.
         self._file_config = self._deep_merge(self._base_config, local_config)
         self._overrides: dict[str, Any] = {}
 
@@ -63,11 +65,18 @@ class ConfigManager:
 
     def set(self, key: str, value: Any) -> None:
         self._overrides[key] = value
-        # Persist only to the base config file; local overrides are never clobbered.
-        self._set_dot(self._base_config, key, value)
-        local_config = self._load_json(self.workspace_root / "harness.config.local.json")
+        local_config = self._load_json(self._local_config_path)
+
+        if self._should_persist_to_local(key):
+            # Secrets and per-user model choices belong in gitignored local config.
+            self._delete_dot(self._base_config, key)
+            self._set_dot(local_config, key, value)
+            self._save_json(self._local_config_path, local_config)
+        else:
+            self._set_dot(self._base_config, key, value)
+
         self._file_config = self._deep_merge(self._base_config, local_config)
-        self._save_file_config()
+        self._save_json(self._base_config_path, self._base_config)
 
     def get_scoped(self, scope: str, key: str, default: Any = None) -> Any:
         return self.get(f"{scope}.{key}", default)
@@ -91,10 +100,36 @@ class ConfigManager:
             current = current[part]
         current[parts[-1]] = value
 
-    def _save_file_config(self) -> None:
-        # Always write only the base config; harness.config.local.json is user-managed.
-        path = self.workspace_root / 'harness.config.json'
+    @staticmethod
+    def _delete_dot(data: dict[str, Any], dot_key: str) -> None:
+        parts = dot_key.split('.')
+        current: Any = data
+        parents: list[tuple[dict[str, Any], str]] = []
+
+        for part in parts[:-1]:
+            if not isinstance(current, dict) or part not in current or not isinstance(current[part], dict):
+                return
+            parents.append((current, part))
+            current = current[part]
+
+        if not isinstance(current, dict) or parts[-1] not in current:
+            return
+        del current[parts[-1]]
+
+        for parent, key in reversed(parents):
+            child = parent.get(key)
+            if isinstance(child, dict) and not child:
+                del parent[key]
+            else:
+                break
+
+    @staticmethod
+    def _should_persist_to_local(key: str) -> bool:
+        return key.startswith("model.") or key.endswith(".api_key")
+
+    @staticmethod
+    def _save_json(path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8') as f:
-            json.dump(self._base_config, f, indent=2)
+            json.dump(data, f, indent=2)
             f.write('\n')
