@@ -20,9 +20,6 @@ import {
   Briefcase,
   Play,
   Pause,
-  Plus,
-  ArrowUp,
-  ArrowDown,
   CheckCircle,
   XCircle,
   BarChart2,
@@ -141,12 +138,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     deleteDraft,
     setExecutionResult,
     setDraftTitle,
-    setDraftStep,
-    addDraftStep,
-    removeDraftStep,
-    moveDraftStep,
     startExecution,
-    resetExecutionFromStep,
     updateExecutionStep,
     finishExecution,
   } = useTaskDrafts()
@@ -405,7 +397,7 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }))
   }
 
-  async function executeDraft(draft: TaskDraft, startAt = 0) {
+  async function executeDraft(draft: TaskDraft) {
     const { id: draftId, steps } = draft
     const filteredSteps = steps.map((s) => s.trim()).filter(Boolean)
     if (filteredSteps.length === 0) {
@@ -414,23 +406,15 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }
 
     setExecutingDraftId(draftId)
-    if (!draft.execution || draft.execution.steps.length !== filteredSteps.length || startAt <= 0) {
-      startExecution(draftId, filteredSteps)
-    } else {
-      resetExecutionFromStep(draftId, startAt)
-    }
+    startExecution(draftId, filteredSteps)
 
-    const outputs: string[] = (draft.execution?.steps ?? [])
-      .slice(0, startAt)
-      .filter((s) => s.status === 'done' || s.status === 'skipped')
-      .map((s) => s.output ?? '')
-      .filter(Boolean)
+    const outputs: string[] = []
 
     try {
       const cfg = await fetchConfig()
       const backend = typeof cfg['model.default_backend'] === 'string' ? String(cfg['model.default_backend']) : undefined
 
-      for (let i = startAt; i < filteredSteps.length; i += 1) {
+      for (let i = 0; i < filteredSteps.length; i += 1) {
         const step = filteredSteps[i]
         updateExecutionStep(draftId, i, 'running')
         const contextBlock = outputs.length > 0
@@ -456,15 +440,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       finishExecution(draftId)
       setExecutingDraftId(null)
     }
-  }
-
-  async function retryExecutionStep(draft: TaskDraft, index: number) {
-    if (executingDraftId) return
-    await executeDraft(draft, index)
-  }
-
-  function skipExecutionStep(draftId: string, index: number, instruction: string) {
-    updateExecutionStep(draftId, index, 'skipped', `Skipped: ${instruction}`)
   }
 
   async function toggleSchedulerJob(job: SchedulerJob) {
@@ -656,81 +631,25 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
             <p className={styles.hint}>{taskScope === 'workspace' ? `Showing latest 12 tasks for ${currentWorkspaceName}` : 'Showing latest 12 tasks across all workspaces'}</p>
             {drafts.length > 0 && (
               <>
-                <p className={styles.hint}>Promoted task drafts</p>
+                <p className={styles.hint}>Promoted tasks</p>
                 {drafts.slice(0, 10).map((draft) => (
-                  <div key={draft.id} className={styles.detailCard}>
-                    <input
-                      className={styles.stepInput}
-                      value={draft.title}
-                      onChange={(e) => setDraftTitle(draft.id, e.target.value)}
-                    />
-                    <p className={styles.rowMeta}>{draft.steps.length} steps</p>
-                    <div className={styles.stepsList}>
-                      {draft.steps.map((step, index) => (
-                        <div key={`${draft.id}-step-${index}`} className={styles.stepRow}>
-                          <input
-                            className={styles.stepInput}
-                            value={step}
-                            onChange={(e) => setDraftStep(draft.id, index, e.target.value)}
-                          />
-                          <div className={styles.rowActions}>
-                            <button className={styles.actionBtn} onClick={() => moveDraftStep(draft.id, index, -1)} data-tooltip="Move up" aria-label="Move step up">
-                              <ArrowUp size={12} />
-                            </button>
-                            <button className={styles.actionBtn} onClick={() => moveDraftStep(draft.id, index, 1)} data-tooltip="Move down" aria-label="Move step down">
-                              <ArrowDown size={12} />
-                            </button>
-                            <button className={styles.actionBtn} onClick={() => removeDraftStep(draft.id, index)} data-tooltip="Remove step" aria-label="Remove step">
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                  <div key={draft.id} className={`${styles.row} ${styles.edgeReactive}`} onMouseMove={applyEdgeGlow}>
+                    <div className={styles.rowMain}>
+                      <input
+                        className={styles.stepInput}
+                        value={draft.title}
+                        onChange={(e) => setDraftTitle(draft.id, e.target.value)}
+                      />
+                      <span className={styles.rowMeta}>{draft.steps.length} steps</span>
                     </div>
                     <div className={styles.rowActions}>
-                      <button className={styles.actionBtn} onClick={() => addDraftStep(draft.id)} data-tooltip="Add step" aria-label="Add step">
-                        <Plus size={12} />
-                      </button>
-                      <button className={styles.actionBtn} onClick={() => void executeDraft(draft)} data-tooltip="Run draft" aria-label="Run draft" disabled={executingDraftId === draft.id}>
+                      <button className={styles.actionBtn} onClick={() => void executeDraft(draft)} data-tooltip="Run promoted task" aria-label="Run promoted task" disabled={executingDraftId === draft.id}>
                         <Play size={12} />
                       </button>
-                      <button className={styles.actionBtn} onClick={() => deleteDraft(draft.id)} data-tooltip="Delete draft" aria-label="Delete draft">
+                      <button className={styles.actionBtn} onClick={() => deleteDraft(draft.id)} data-tooltip="Delete promoted task" aria-label="Delete promoted task">
                         <Trash2 size={12} />
                       </button>
                     </div>
-                    {draft.execution && (
-                      <div className={styles.executionLog}>
-                        {draft.execution.steps.map((stepLog, i) => (
-                          <div key={`${draft.id}-log-${i}`} className={styles.executionItem}>
-                            <span className={`badge ${stepLog.status === 'done' ? 'badge-ok' : stepLog.status === 'error' ? 'badge-error' : stepLog.status === 'running' ? 'badge-warn' : stepLog.status === 'skipped' ? 'badge-dim' : 'badge-dim'}`}>
-                              {stepLog.status}
-                            </span>
-                            <span className={styles.executionText}>{stepLog.instruction}</span>
-                            <div className={styles.executionActions}>
-                              <button
-                                className={styles.actionBtn}
-                                onClick={() => void retryExecutionStep(draft, i)}
-                                data-tooltip="Retry from this step"
-                                aria-label="Retry from this step"
-                                disabled={executingDraftId !== null}
-                              >
-                                <RotateCcw size={12} />
-                              </button>
-                              <button
-                                className={styles.actionBtn}
-                                onClick={() => skipExecutionStep(draft.id, i, stepLog.instruction)}
-                                data-tooltip="Skip this step"
-                                aria-label="Skip this step"
-                                disabled={executingDraftId !== null || stepLog.status === 'done' || stepLog.status === 'skipped'}
-                              >
-                                <ChevronRight size={12} />
-                              </button>
-                            </div>
-                            {stepLog.output && <p className={styles.detailText}>{stepLog.output}</p>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                     {draft.lastResult && <p className={styles.detailText}>{draft.lastResult}</p>}
                   </div>
                 ))}

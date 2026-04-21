@@ -2844,6 +2844,10 @@ def create_app(workspace_root: Path) -> FastAPI:
         # Thread tenant context through for downstream isolation checks
         task_input["tenant_id"] = _scoped_tenant_id(tenant)
         task_input["allowed_tools"] = list(tenant.allowed_tools)
+        # Chat-mode runs are ephemeral and should not persist to the task history list.
+        task_input["persist_task"] = False
+        # Keep superpowered verification feedback, but do not hard-fail interactive chat runs.
+        task_input["strict_verification"] = False
 
         task = Task(
             id=str(uuid.uuid4()),
@@ -3301,6 +3305,10 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_input["workspace_root"] = str(_active_workspace["root"]).replace("\\", "/")
         task_input["tenant_id"] = _scoped_tenant_id(tenant)
         task_input["allowed_tools"] = list(tenant.allowed_tools)
+        # Streaming chat runs are also ephemeral and should not be persisted as task history.
+        task_input["persist_task"] = False
+        # Keep superpowered verification feedback, but do not hard-fail interactive chat runs.
+        task_input["strict_verification"] = False
 
         task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
         requested_mode = str(task_input.get("workflow_mode", "")).strip().lower()

@@ -345,6 +345,12 @@ class Orchestrator:
         require_verification = bool(
             self.config.get("orchestrator.superpowered_mode.require_verification_before_done", True)
         )
+        strict_verification = bool(
+            parent_task.input.get(
+                "strict_verification",
+                self.config.get("orchestrator.superpowered_mode.strict_verification", False),
+            )
+        )
 
         task_results: list[dict[str, object]] = []
 
@@ -566,12 +572,17 @@ class Orchestrator:
                     item_result["verification_feedback"] = verify_result["feedback"]
 
                 if not verification_passed:
-                    return {
-                        "ok": False,
-                        "failed_task": title,
-                        "error": "Verification failed — evidence did not meet acceptance criteria",
-                        "task_results": task_results,
-                    }
+                    item_result["verification_passed"] = False
+                    item_result["verification_warning"] = "Verification did not meet acceptance criteria"
+                    if strict_verification:
+                        return {
+                            "ok": False,
+                            "failed_task": title,
+                            "error": "Verification failed — evidence did not meet acceptance criteria",
+                            "task_results": task_results,
+                        }
+                else:
+                    item_result["verification_passed"] = True
 
             item_result["ok"] = True
             task_results.append(item_result)
@@ -828,9 +839,11 @@ class Orchestrator:
     async def run_reactive_task(self, task: Task) -> TaskResult:
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         tenant_id = str(task.input.get("tenant_id", "_system_"))
+        persist_task = bool(task.input.get("persist_task", True))
         final_result: TaskResult | None = None
-        self.task_store.create(task, tenant_id=tenant_id)
-        self.task_store.mark_started(task.id)
+        if persist_task:
+            self.task_store.create(task, tenant_id=tenant_id)
+            self.task_store.mark_started(task.id)
         review_result: dict[str, object] | None = None
         _telemetry: dict[str, object] = {
             "task_id": task.id,
@@ -914,11 +927,12 @@ class Orchestrator:
                 )
                 _telemetry["gate_blocked"] = True
                 final_result = result
-                self.task_store.mark_completed(result)
-                try:
-                    self._persist_run_to_memory(task, result)
-                except Exception:
-                    pass
+                if persist_task:
+                    self.task_store.mark_completed(result)
+                    try:
+                        self._persist_run_to_memory(task, result)
+                    except Exception:
+                        pass
                 await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                 return result
 
@@ -955,11 +969,12 @@ class Orchestrator:
                             error=msg,
                         )
                         final_result = result
-                        self.task_store.mark_completed(result)
-                        try:
-                            self._persist_run_to_memory(task, result)
-                        except Exception:
-                            pass
+                        if persist_task:
+                            self.task_store.mark_completed(result)
+                            try:
+                                self._persist_run_to_memory(task, result)
+                            except Exception:
+                                pass
                         await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                         return result
 
@@ -987,11 +1002,12 @@ class Orchestrator:
                             error=msg,
                         )
                         final_result = result
-                        self.task_store.mark_completed(result)
-                        try:
-                            self._persist_run_to_memory(task, result)
-                        except Exception:
-                            pass
+                        if persist_task:
+                            self.task_store.mark_completed(result)
+                            try:
+                                self._persist_run_to_memory(task, result)
+                            except Exception:
+                                pass
                         await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                         return result
                     task.input["review_result"] = review_result
@@ -1031,11 +1047,12 @@ class Orchestrator:
                 )
                 result = TaskResult(task_id=task.id, output={}, success=False, error=f"Unhandled runtime error: {exc}")
             final_result = result
-            self.task_store.mark_completed(result)
-            try:
-                self._persist_run_to_memory(task, result)
-            except Exception:
-                pass
+            if persist_task:
+                self.task_store.mark_completed(result)
+                try:
+                    self._persist_run_to_memory(task, result)
+                except Exception:
+                    pass
             await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
             return result
 
