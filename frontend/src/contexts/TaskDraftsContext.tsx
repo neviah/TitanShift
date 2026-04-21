@@ -39,12 +39,30 @@ interface TaskDraftsContextValue {
 
 const STORAGE_KEY = 'titanshift-task-drafts-v1'
 
+function draftFingerprint(draft: Pick<TaskDraft, 'sourceSessionId' | 'title' | 'steps'>): string {
+  const normalizedTitle = draft.title.trim().toLowerCase()
+  const normalizedSteps = draft.steps.map((step) => step.trim()).filter(Boolean).join('\n').toLowerCase()
+  return `${draft.sourceSessionId}::${normalizedTitle}::${normalizedSteps}`
+}
+
+function dedupeDrafts(drafts: TaskDraft[]): TaskDraft[] {
+  const seen = new Set<string>()
+  const deduped: TaskDraft[] = []
+  for (const draft of drafts) {
+    const key = draftFingerprint(draft)
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(draft)
+  }
+  return deduped
+}
+
 function loadInitial(): TaskDraft[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as TaskDraft[]
-    return Array.isArray(parsed) ? parsed : []
+    return Array.isArray(parsed) ? dedupeDrafts(parsed) : []
   } catch {
     return []
   }
@@ -126,8 +144,16 @@ export function TaskDraftsProvider({ children }: { children: ReactNode }) {
     if (steps.length === 0) return null
 
     const draft = createDraft(session, steps, session.title || 'Promoted Task Draft')
-    setDrafts((prev) => [draft, ...prev])
-    return draft
+    let createdDraft: TaskDraft | null = draft
+    setDrafts((prev) => {
+      const duplicate = prev.find((existing) => draftFingerprint(existing) === draftFingerprint(draft))
+      if (duplicate) {
+        createdDraft = duplicate
+        return prev
+      }
+      return [draft, ...prev]
+    })
+    return createdDraft
   }
 
   function promoteSelectionToDraft(session: ChatSession, selectedMessageIndexes: number[]): TaskDraft | null {
@@ -136,8 +162,16 @@ export function TaskDraftsProvider({ children }: { children: ReactNode }) {
 
     const baseTitle = session.title || 'Promoted Task Draft'
     const draft = createDraft(session, steps, `${baseTitle} (selection)`)
-    setDrafts((prev) => [draft, ...prev])
-    return draft
+    let createdDraft: TaskDraft | null = draft
+    setDrafts((prev) => {
+      const duplicate = prev.find((existing) => draftFingerprint(existing) === draftFingerprint(draft))
+      if (duplicate) {
+        createdDraft = duplicate
+        return prev
+      }
+      return [draft, ...prev]
+    })
+    return createdDraft
   }
 
   function deleteDraft(id: string) {

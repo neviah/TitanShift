@@ -459,6 +459,15 @@ class Orchestrator:
                     )
                     impl_passed = impl_task_result.success
                     impl_output = impl_task_result.output or {}
+                    item_result["implementer_created_paths"] = [
+                        str(path) for path in impl_output.get("created_paths", [])[:10] if isinstance(path, str)
+                    ]
+                    item_result["implementer_updated_paths"] = [
+                        str(path) for path in impl_output.get("updated_paths", [])[:10] if isinstance(path, str)
+                    ]
+                    item_result["implementer_patch_summaries"] = [
+                        patch for patch in impl_output.get("patch_summaries", [])[:10] if isinstance(patch, dict)
+                    ]
                     impl_feedback = str(
                         impl_output.get("response")
                         or impl_output.get("text")
@@ -545,7 +554,12 @@ class Orchestrator:
                     verify_context = (
                         f"Task #{idx}: {title}\n"
                         f"Iteration count: {item_result['iterations']}\n"
-                        f"Spec feedback: {item_result.get('spec_review_feedback', 'N/A')}"
+                        f"Implementer feedback: {item_result.get('implementer_feedback', 'N/A')}\n"
+                        f"Created paths: {', '.join(item_result.get('implementer_created_paths', [])) or 'none'}\n"
+                        f"Updated paths: {', '.join(item_result.get('implementer_updated_paths', [])) or 'none'}\n"
+                        f"Patch summaries: {json.dumps(item_result.get('implementer_patch_summaries', []), default=str)[:800]}\n"
+                        f"Spec feedback: {item_result.get('spec_review_feedback', 'N/A')}\n"
+                        f"Code feedback: {item_result.get('code_review_feedback', 'N/A')}"
                     )
                     verify_result = await self._invoke_role_model(parent_task, "verifier", verify_context)
                     verification_passed = verify_result["passed"]
