@@ -157,6 +157,30 @@ class ReactiveStateMachine:
             return True
         return any(skill_id in normalized_name for skill_id in skill_ids)
 
+    def _fit_messages_to_token_budget(
+        self,
+        messages: list[dict[str, Any]],
+        model: ModelAdapter,
+        max_tokens: int,
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        # Keep headroom for model output by trimming oldest history first.
+        reserve = min(4096, max(512, int(max_tokens * 0.15)))
+        target_tokens = max(1, max_tokens - reserve)
+
+        def _msg_tokens(msg: dict[str, Any]) -> int:
+            return model.estimate_tokens(str(msg.get("content", "") or ""))
+
+        total = sum(_msg_tokens(msg) for msg in messages)
+        dropped = 0
+
+        # Preserve at least system + latest user message.
+        while total > target_tokens and len(messages) > 2:
+            removed = messages.pop(1)
+            total -= _msg_tokens(removed)
+            dropped += 1
+
+        return messages, total, dropped
+
     def _detect_requested_tools(self, task_description: str) -> list[str]:
         """Detect explicitly requested tools from user task text."""
         text = task_description.lower()
@@ -649,7 +673,7 @@ class ReactiveStateMachine:
         final_text = ""
         last_model_id = model.model_id
         last_provider_model_id: str | None = None
-        total_tokens = model.estimate_tokens(task.description)
+        total_tokens = 0
         response = None
         workspace_root_path = Path(str(workspace_root or ".")).resolve()
         tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
@@ -677,9 +701,13 @@ class ReactiveStateMachine:
             content = prior.get("content", "")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
-                total_tokens += model.estimate_tokens(content)
 
         messages.append({"role": "user", "content": task.description})
+        messages, total_tokens, dropped_history_messages = self._fit_messages_to_token_budget(
+            messages,
+            model,
+            int(budget["max_tokens"]),
+        )
 
         for step in range(budget["max_steps"]):
             if total_tokens > budget["max_tokens"]:
@@ -1161,6 +1189,8 @@ class ReactiveStateMachine:
                 "patch_summaries": list(dict.fromkeys(patch_summaries)),
                 "context_provenance": context_provenance,
                 "artifacts": deduped_artifacts,
+                "context_trimmed": dropped_history_messages > 0,
+                "trimmed_history_messages": dropped_history_messages,
             },
             success=bool(final_text and not final_text.startswith("[Agent reached") and not missing_requested_tools),
         )
@@ -1252,7 +1282,7 @@ class ReactiveStateMachine:
         final_text = ""
         last_model_id = model.model_id
         last_provider_model_id: str | None = None
-        total_tokens = model.estimate_tokens(task.description)
+        total_tokens = 0
         workspace_root_path = Path(str(workspace_root or ".")).resolve()
         workflow_mode_str = str(task.input.get("workflow_mode", "lightning") if task.input else "lightning")
         is_superpowered = workflow_mode_str.lower() == "superpowered"
@@ -1275,6 +1305,17 @@ class ReactiveStateMachine:
                 ))
             except Exception:
                 pass
+
+        messages, total_tokens, dropped_history_messages = self._fit_messages_to_token_budget(
+            messages,
+            model,
+            int(budget["max_tokens"]),
+        )
+        if dropped_history_messages > 0:
+            yield {
+                "type": "context_trimmed",
+                "dropped_history_messages": dropped_history_messages,
+            }
 
         try:
             for step in range(budget["max_steps"]):

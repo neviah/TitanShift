@@ -7,7 +7,6 @@
       "max_tool_calls_per_response": 5,
       "default_budget": {
         "max_steps": 60,
-        "max_tokens": 12000,
         "max_duration_ms": 300000
       }
     },
@@ -16,7 +15,6 @@
       "require_plan_approval": true,
       "require_task_reviews": true,
       "require_verification_before_done": true,
-        "default_implementer_timeout_s": 1200,
       "artifact_paths": {
         "specs_dir": "documents/specs",
         "plans_dir": "documents/plans"
@@ -46,6 +44,11 @@
       "timeout_s": 1800,
       "max_tokens": 4096,
       "temperature": 0.2
+    },
+    "openai_compatible": {
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "api_key": "REMOVED_SEE_LOCAL_CONFIG",
+      "timeout_s": 440
     }
   },
   "memory": {
