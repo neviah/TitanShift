@@ -263,6 +263,7 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         tool_paths = runtime.config.get("tools.allowed_paths", ["."]) or ["."]
         runtime.tools.policy.allowed_paths = [(resolved_root / str(p)).resolve() for p in tool_paths]
+        runtime.tools.policy.workspace_root = resolved_root
 
         exec_roots = runtime.config.get("execution.allowed_cwd_roots", ["."]) or ["."]
         runtime.execution.policy.allowed_cwd_roots = [(resolved_root / str(p)).resolve() for p in exec_roots]
