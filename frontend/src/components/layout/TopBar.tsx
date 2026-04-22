@@ -28,6 +28,9 @@ export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRi
   const connected = checking ? false : (data?.model_connected ?? (backend === 'local_stub'))
   const statusLabel = checking ? 'checking' : (connected ? 'connected' : 'disconnected')
   const statusClass = checking ? 'badge-dim' : (connected ? 'badge-ok' : 'badge-error')
+  const backendUp = checking ? false : Boolean(data?.ok && !error)
+  const backendLabel = checking ? 'checking' : (backendUp ? 'up' : 'down')
+  const backendClass = checking ? 'badge-dim' : (backendUp ? 'badge-ok' : 'badge-error')
 
   return (
     <div className={styles.root}>
@@ -39,6 +42,11 @@ export function TopBar({ leftCollapsed, rightCollapsed, onToggleLeft, onToggleRi
       </div>
 
       <div className={styles.right}>
+        <div className={styles.modelStatus} title={error ?? 'Backend API status'}>
+          <span className={styles.modelLabel}>Backend</span>
+          <span className={`badge ${backendClass}`}>{backendLabel}</span>
+        </div>
+
         <div className={styles.modelStatus} title={error ?? data?.model_connection_reason ?? 'Model connection status'}>
           <span className={styles.modelLabel}>Model</span>
           <span className={`badge ${statusClass}`}>{statusLabel}</span>
