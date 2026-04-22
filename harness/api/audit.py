@@ -322,6 +322,36 @@ def _tool_findings(runtime: RuntimeContext) -> list[dict[str, str]]:
                 "Install the missing binaries or unregister the dependent tools.",
             )
         )
+    # AUDIT-T006: external directory guard
+    policy = runtime.tools.policy
+    if not policy.allowed_paths or all(str(p) in {".", str(policy.workspace_root)} for p in policy.allowed_paths):
+        pass  # workspace-only is the safe default; no finding needed
+    else:
+        non_workspace = [
+            str(p) for p in policy.allowed_paths
+            if not str(p).startswith(str(policy.workspace_root))
+        ]
+        if non_workspace:
+            findings.append(
+                _finding(
+                    "AUDIT-T006",
+                    "warning",
+                    "Allowed paths extend outside workspace root",
+                    f"tools.allowed_paths includes paths outside the workspace: {', '.join(non_workspace[:3])}.",
+                    "Remove non-workspace entries from allowed_paths or document the exception explicitly.",
+                )
+            )
+    # AUDIT-T007: doom-loop policy visibility
+    if policy.doom_loop_action == "ask":
+        findings.append(
+            _finding(
+                "AUDIT-T007",
+                "info",
+                "Doom-loop gate set to ask (interactive)",
+                "tools.doom_loop_action is 'ask' — runaway loops will pause and prompt for human approval instead of auto-aborting.",
+                "Confirm this is intentional for interactive sessions. For automated pipelines use 'deny'.",
+            )
+        )
     return findings
 
 

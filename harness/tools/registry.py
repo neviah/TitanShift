@@ -54,6 +54,9 @@ class PermissionPolicy:
     allowed_command_prefixes: list[str]
     workspace_root: Path = field(default_factory=lambda: Path(".").resolve())
     permission_rules: list[PermissionRule] = field(default_factory=list)
+    doom_loop_action: str = "deny"          # "deny" | "ask"
+    doom_loop_invalid_threshold: int = 3    # repeated_invalid_count limit
+    doom_loop_no_progress_threshold: int = 6  # consecutive_no_progress_steps limit
 
     @classmethod
     def from_config(cls, cfg: ConfigManager, workspace_root: Path) -> "PermissionPolicy":
@@ -70,6 +73,8 @@ class PermissionPolicy:
             if not permission or not pattern or action not in {"allow", "ask", "deny"}:
                 continue
             parsed_rules.append(PermissionRule(permission=permission, pattern=pattern, action=action))
+        raw_dl_action = str(cfg.get("tools.doom_loop_action", "deny") or "deny").strip().lower()
+        doom_loop_action = raw_dl_action if raw_dl_action in {"deny", "ask"} else "deny"
         return cls(
             deny_all_by_default=bool(cfg.get("tools.deny_all_by_default", True)),
             allow_network=bool(cfg.get("tools.allow_network", False)),
@@ -79,6 +84,9 @@ class PermissionPolicy:
             allowed_command_prefixes=list(cfg.get("tools.allowed_command_prefixes", []) or []),
             workspace_root=workspace_root.resolve(),
             permission_rules=parsed_rules,
+            doom_loop_action=doom_loop_action,
+            doom_loop_invalid_threshold=int(cfg.get("tools.doom_loop_invalid_threshold", 3)),
+            doom_loop_no_progress_threshold=int(cfg.get("tools.doom_loop_no_progress_threshold", 6)),
         )
 
     def _normalize_path(self, raw_path: str) -> Path:
@@ -222,6 +230,12 @@ class PermissionPolicy:
             if required == "*":
                 continue
             req_path = self._normalize_path(required)
+            # External-directory check: flag paths that escape the workspace root
+            try:
+                req_path.relative_to(self.workspace_root)
+            except ValueError:
+                if not any(str(req_path).startswith(str(base.resolve())) for base in self.allowed_paths):
+                    return False, f"external_directory:{req_path.as_posix()}"
             if not any(str(req_path).startswith(str(base.resolve())) for base in self.allowed_paths):
                 return False, "required_path_not_allowed"
 
@@ -230,6 +244,12 @@ class PermissionPolicy:
             if arg_value == "*":
                 continue
             req_path = self._normalize_path(arg_value)
+            # External-directory check: flag paths that escape the workspace root
+            try:
+                req_path.relative_to(self.workspace_root)
+            except ValueError:
+                if not any(str(req_path).startswith(str(base.resolve())) for base in self.allowed_paths):
+                    return False, f"external_directory:{req_path.as_posix()}"
             if not any(str(req_path).startswith(str(base.resolve())) for base in self.allowed_paths):
                 return False, "argument_path_not_allowed"
 
@@ -391,6 +411,25 @@ class ToolRegistry:
                         )
                 if not allowed:
                     self._emit_audit(name=name, status="denied", reason=reason, args=effective_args)
+                    # Emit a guardrail stream event for external-directory violations so the
+                    # live SSE timeline surfaces the block immediately.
+                    if reason.startswith("external_directory:") and self._hooks is not None:
+                        try:
+                            await self._hooks.emit(
+                                HookPayload(
+                                    event="StreamEvent",
+                                    data={
+                                        "task_id": task_id or "",
+                                        "event_type": "guardrail",
+                                        "reason_code": "external_directory",
+                                        "message": f"Tool '{name}' blocked: path outside workspace ({reason})",
+                                        "tool": name,
+                                        "path": reason[len("external_directory:"):],
+                                    },
+                                )
+                            )
+                        except Exception:
+                            pass
                     raise PermissionError(f"Tool blocked by policy: {name} ({reason})")
         else:
             reason = "bypassed_for_superpowered_mode"

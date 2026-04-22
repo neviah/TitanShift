@@ -114,7 +114,27 @@
       "last30days_research"
     ],
     "blocked_tool_names": [],
-    "permission_rules": [],
+    "permission_rules": [
+      { "permission": "bash", "pattern": "git status*", "action": "allow" },
+      { "permission": "bash", "pattern": "git log *", "action": "allow" },
+      { "permission": "bash", "pattern": "git diff*", "action": "allow" },
+      { "permission": "bash", "pattern": "git show*", "action": "allow" },
+      { "permission": "bash", "pattern": "git branch*", "action": "allow" },
+      { "permission": "bash", "pattern": "npm test*", "action": "allow" },
+      { "permission": "bash", "pattern": "npm run *", "action": "allow" },
+      { "permission": "bash", "pattern": "python --version*", "action": "allow" },
+      { "permission": "bash", "pattern": "python -m pytest*", "action": "allow" },
+      { "permission": "bash", "pattern": "git push*", "action": "ask" },
+      { "permission": "bash", "pattern": "git reset*", "action": "ask" },
+      { "permission": "bash", "pattern": "git rebase*", "action": "ask" },
+      { "permission": "bash", "pattern": "npm install*", "action": "ask" },
+      { "permission": "bash", "pattern": "npm publish*", "action": "ask" },
+      { "permission": "bash", "pattern": "rm -rf*", "action": "deny" },
+      { "permission": "bash", "pattern": "rmdir /s*", "action": "deny" },
+      { "permission": "bash", "pattern": "del /f*", "action": "deny" },
+      { "permission": "bash", "pattern": "format *", "action": "deny" },
+      { "permission": "bash", "pattern": "mkfs*", "action": "deny" }
+    ],
     "allowed_command_prefixes": [
       "where",
       "git",
@@ -169,8 +189,31 @@
       "last30days_research"
     ],
     "blocked_tool_names": [],
-    "permission_rules": [],
-    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"]
+    "permission_rules": [
+      { "permission": "bash", "pattern": "git status*", "action": "allow" },
+      { "permission": "bash", "pattern": "git log *", "action": "allow" },
+      { "permission": "bash", "pattern": "git diff*", "action": "allow" },
+      { "permission": "bash", "pattern": "git show*", "action": "allow" },
+      { "permission": "bash", "pattern": "git branch*", "action": "allow" },
+      { "permission": "bash", "pattern": "npm test*", "action": "allow" },
+      { "permission": "bash", "pattern": "npm run *", "action": "allow" },
+      { "permission": "bash", "pattern": "python --version*", "action": "allow" },
+      { "permission": "bash", "pattern": "python -m pytest*", "action": "allow" },
+      { "permission": "bash", "pattern": "git push*", "action": "ask" },
+      { "permission": "bash", "pattern": "git reset*", "action": "ask" },
+      { "permission": "bash", "pattern": "git rebase*", "action": "ask" },
+      { "permission": "bash", "pattern": "npm install*", "action": "ask" },
+      { "permission": "bash", "pattern": "npm publish*", "action": "ask" },
+      { "permission": "bash", "pattern": "rm -rf*", "action": "deny" },
+      { "permission": "bash", "pattern": "rmdir /s*", "action": "deny" },
+      { "permission": "bash", "pattern": "del /f*", "action": "deny" },
+      { "permission": "bash", "pattern": "format *", "action": "deny" },
+      { "permission": "bash", "pattern": "mkfs*", "action": "deny" }
+    ],
+    "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"],
+    "doom_loop_action": "deny",
+    "doom_loop_invalid_threshold": 3,
+    "doom_loop_no_progress_threshold": 6
   },
   "execution": {
     "allowed_cwd_roots": ["."],

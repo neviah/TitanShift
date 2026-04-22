@@ -855,6 +855,11 @@ class ReactiveStateMachine:
         llm_call_index = 0
         invalid_retry_limit = int(self.config.get("state_machine.invalid_tool_retry_limit", 3))
         no_progress_step_limit = int(self.config.get("state_machine.no_progress_step_limit", 6))
+        # Allow PermissionPolicy doom_loop thresholds to override config defaults
+        _policy = self.tools.policy
+        invalid_retry_limit = _policy.doom_loop_invalid_threshold
+        no_progress_step_limit = _policy.doom_loop_no_progress_threshold
+        doom_loop_action: str = _policy.doom_loop_action  # "deny" | "ask"
         read_paths_seen: set[str] = set()
 
         # ── SessionStart hook ──────────────────────────────────────────────
@@ -1392,6 +1397,7 @@ class ReactiveStateMachine:
                     )
                     if self.hooks is not None:
                         try:
+                            approval_id = f"doomloop-{task.id[:8]}-inv"
                             await self.hooks.emit(HookPayload(
                                 event="StreamEvent",
                                 data={
@@ -1399,10 +1405,27 @@ class ReactiveStateMachine:
                                     "event_type": "guardrail",
                                     "reason_code": "invalid_tool_loop_abort",
                                     "message": abort_message,
+                                    **({"approval_id": approval_id, "event_type": "approval_request",
+                                        "tool": "doom_loop", "match_label": "doom_loop:invalid_tool_loop"}
+                                       if doom_loop_action == "ask" else {}),
                                 },
                             ))
                         except Exception:
                             pass
+                    if doom_loop_action == "ask" and self.hooks is not None:
+                        approval_id = f"doomloop-{task.id[:8]}-inv"
+                        fut = self.tools.approval_store.register(approval_id)
+                        try:
+                            import asyncio as _asyncio
+                            decision = await _asyncio.wait_for(_asyncio.shield(fut), timeout=120.0)
+                        except _asyncio.TimeoutError:
+                            self.tools.approval_store.pending.pop(approval_id, None)
+                            decision = "reject"
+                        if decision != "reject":
+                            # User allowed continuation — reset counters and continue
+                            repeated_invalid_count = 0
+                            consecutive_no_progress_steps = 0
+                            continue
                     return TaskResult(
                         task_id=task.id,
                         output={
@@ -1433,6 +1456,30 @@ class ReactiveStateMachine:
                             ))
                         except Exception:
                             pass
+                    if doom_loop_action == "ask" and self.hooks is not None:
+                        approval_id = f"doomloop-{task.id[:8]}-nop"
+                        await self.hooks.emit(HookPayload(
+                            event="StreamEvent",
+                            data={
+                                "task_id": task.id,
+                                "event_type": "approval_request",
+                                "approval_id": approval_id,
+                                "tool": "doom_loop",
+                                "match_label": "doom_loop:no_progress",
+                                "message": abort_message,
+                            },
+                        ))
+                        fut = self.tools.approval_store.register(approval_id)
+                        try:
+                            import asyncio as _asyncio
+                            decision = await _asyncio.wait_for(_asyncio.shield(fut), timeout=120.0)
+                        except _asyncio.TimeoutError:
+                            self.tools.approval_store.pending.pop(approval_id, None)
+                            decision = "reject"
+                        if decision != "reject":
+                            consecutive_no_progress_steps = 0
+                            invalid_tool_seen = False
+                            continue
                     return TaskResult(
                         task_id=task.id,
                         output={

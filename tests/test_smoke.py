@@ -405,6 +405,104 @@ def test_approval_store_double_resolve_returns_false() -> None:
     assert second is False  # already removed from pending
 
 
+def test_permission_policy_blocks_external_directory() -> None:
+    """Paths outside workspace_root get reason code external_directory:..."""
+    workspace = Path("d:/Projects/TitantShift").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names={"write_file"},
+        blocked_tool_names=set(),
+        allowed_command_prefixes=[],
+        workspace_root=workspace,
+        permission_rules=[],
+    )
+    tool = ToolDefinition(name="write_file", description="write", capabilities=[])
+    # A path clearly outside the workspace root
+    outside_path = str(Path("C:/Windows/System32/evil.exe").resolve())
+    allowed, reason = policy.evaluate_tool(tool, {"path": outside_path})
+    assert allowed is False
+    assert reason.startswith("external_directory:")
+
+
+def test_permission_policy_doom_loop_defaults() -> None:
+    """PermissionPolicy has configurable doom-loop thresholds with safe defaults."""
+    workspace = Path(".").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names=set(),
+        blocked_tool_names=set(),
+        allowed_command_prefixes=[],
+        workspace_root=workspace,
+        permission_rules=[],
+    )
+    assert policy.doom_loop_action == "deny"
+    assert policy.doom_loop_invalid_threshold == 3
+    assert policy.doom_loop_no_progress_threshold == 6
+
+
+def test_permission_policy_doom_loop_custom() -> None:
+    """doom_loop fields can be overridden at construction."""
+    workspace = Path(".").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names=set(),
+        blocked_tool_names=set(),
+        allowed_command_prefixes=[],
+        workspace_root=workspace,
+        permission_rules=[],
+        doom_loop_action="ask",
+        doom_loop_invalid_threshold=5,
+        doom_loop_no_progress_threshold=10,
+    )
+    assert policy.doom_loop_action == "ask"
+    assert policy.doom_loop_invalid_threshold == 5
+    assert policy.doom_loop_no_progress_threshold == 10
+
+
+def test_permission_rules_risk_tiers() -> None:
+    """Risk tier defaults: safe git reads allow, git push asks, rm -rf denies."""
+    workspace = Path(".").resolve()
+    rules = [
+        PermissionRule(permission="bash", pattern="git status*", action="allow"),
+        PermissionRule(permission="bash", pattern="git log *", action="allow"),
+        PermissionRule(permission="bash", pattern="git push*", action="ask"),
+        PermissionRule(permission="bash", pattern="git reset*", action="ask"),
+        PermissionRule(permission="bash", pattern="rm -rf*", action="deny"),
+        PermissionRule(permission="bash", pattern="del /f*", action="deny"),
+    ]
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names={"shell_command"},
+        blocked_tool_names=set(),
+        allowed_command_prefixes=["git", "rm", "del"],
+        workspace_root=workspace,
+        permission_rules=rules,
+    )
+    tool = ToolDefinition(name="shell_command", description="shell", capabilities=["shell.exec"])
+
+    allowed, reason = policy.evaluate_tool(tool, {"command": "git status"})
+    assert allowed is True, f"git status should be allowed, got: {reason}"
+
+    allowed, reason = policy.evaluate_tool(tool, {"command": "git log --oneline"})
+    assert allowed is True, f"git log should be allowed, got: {reason}"
+
+    allowed, reason = policy.evaluate_tool(tool, {"command": "git push origin main"})
+    assert allowed is False
+    assert reason.startswith("approval_required:bash:git push*")
+
+    allowed, reason = policy.evaluate_tool(tool, {"command": "rm -rf /tmp/foo"})
+    assert allowed is False
+    assert reason.startswith("permission_rule_denied:bash:rm -rf*")
+
+
 def test_execution_policy_blocks_unknown_command() -> None:
     policy = ExecutionPolicy(
         allowed_cwd_roots=[Path(".").resolve()],
