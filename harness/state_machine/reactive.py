@@ -844,6 +844,7 @@ class ReactiveStateMachine:
         consecutive_no_progress_steps = 0
         repeated_invalid_signature: str | None = None
         repeated_invalid_count = 0
+        model_timeout_retries = 0
         final_text = ""
         last_model_id = model.model_id
         last_provider_model_id: str | None = None
@@ -985,6 +986,17 @@ class ReactiveStateMachine:
                 llm_call_index += 1
             except asyncio.TimeoutError:
                 if last_tool_result_lines:
+                    has_workspace_changes = bool(created_paths or updated_paths or artifacts)
+                    if not has_workspace_changes and model_timeout_retries < 2:
+                        model_timeout_retries += 1
+                        correction = (
+                            "Previous attempt timed out before completing requested file updates. "
+                            "Continue from current context. Keep response brief and prioritize tool calls to finish file edits "
+                            "before any narrative summary."
+                        )
+                        messages.append({"role": "user", "content": correction})
+                        total_tokens += model.estimate_tokens(correction)
+                        continue
                     fallback = (
                         "Timed out while generating the final response, but tool results were collected:\n\n"
                         + "\n".join(last_tool_result_lines)
@@ -1004,6 +1016,16 @@ class ReactiveStateMachine:
                 return TaskResult(task_id=task.id, output={}, success=False, error="Budget exceeded: task timeout")
             except RuntimeError as exc:
                 if last_tool_result_lines and "timed out" in str(exc).lower():
+                    has_workspace_changes = bool(created_paths or updated_paths or artifacts)
+                    if not has_workspace_changes and model_timeout_retries < 2:
+                        model_timeout_retries += 1
+                        correction = (
+                            "Model response timed out before completing the requested file work. "
+                            "Continue and finish file mutations first using tools, then provide a short final summary."
+                        )
+                        messages.append({"role": "user", "content": correction})
+                        total_tokens += model.estimate_tokens(correction)
+                        continue
                     fallback = (
                         "The model timed out while preparing the final write-up, but workspace/tool actions completed:\n\n"
                         + "\n".join(last_tool_result_lines)
@@ -1672,6 +1694,7 @@ class ReactiveStateMachine:
         tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
         allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
         llm_call_index = 0
+        model_timeout_retries = 0
         last_diff: str = ""  # last patch/replace diff captured for PreviewPanel
         read_paths_seen: set[str] = set()
 
@@ -1798,6 +1821,17 @@ class ReactiveStateMachine:
                     llm_call_index += 1
                 except asyncio.TimeoutError:
                     if last_tool_result_lines:
+                        has_workspace_changes = bool(created_paths or updated_paths or artifacts)
+                        if not has_workspace_changes and model_timeout_retries < 2:
+                            model_timeout_retries += 1
+                            correction = (
+                                "Previous attempt timed out before completing requested file updates. "
+                                "Continue from current context. Keep response brief and prioritize tool calls to finish file edits "
+                                "before any narrative summary."
+                            )
+                            messages.append({"role": "user", "content": correction})
+                            total_tokens += model.estimate_tokens(correction)
+                            continue
                         final_text = (
                             "Timed out while generating the final response, but tool results were collected:\n\n"
                             + "\n".join(last_tool_result_lines)
@@ -1808,6 +1842,16 @@ class ReactiveStateMachine:
                     return
                 except RuntimeError as exc:
                     if last_tool_result_lines and "timed out" in str(exc).lower():
+                        has_workspace_changes = bool(created_paths or updated_paths or artifacts)
+                        if not has_workspace_changes and model_timeout_retries < 2:
+                            model_timeout_retries += 1
+                            correction = (
+                                "Model response timed out before completing the requested file work. "
+                                "Continue and finish file mutations first using tools, then provide a short final summary."
+                            )
+                            messages.append({"role": "user", "content": correction})
+                            total_tokens += model.estimate_tokens(correction)
+                            continue
                         final_text = (
                             "The model timed out while preparing the final write-up, but workspace/tool actions completed:\n\n"
                             + "\n".join(last_tool_result_lines)
