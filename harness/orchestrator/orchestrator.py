@@ -867,11 +867,28 @@ class Orchestrator:
         _start = datetime.now(timezone.utc)
         lightning_spawned_ids: list[str] = []
 
+        async def _emit_stream_phase(phase: str, message: str, **extra: object) -> None:
+            if self.hooks is None:
+                return
+            payload: dict[str, object] = {
+                "task_id": task.id,
+                "event_type": "phase",
+                "phase": phase,
+                "message": message,
+                "workflow_mode": str(_telemetry.get("workflow_mode", "unknown")),
+            }
+            payload.update(extra)
+            try:
+                await self.hooks.emit(HookPayload(event="StreamEvent", data=payload))
+            except Exception:
+                pass
+
         try:
             explicit_workflow_mode = str(task.input.get("workflow_mode", "")).strip().lower() if task.input else ""
             workflow_mode = self._resolve_workflow_mode(task)
             task.input["workflow_mode"] = workflow_mode
             _telemetry["workflow_mode"] = workflow_mode
+            await _emit_stream_phase("workflow.start", f"Workflow mode resolved: {workflow_mode}")
             await self.hooks.emit(
                 HookPayload(
                     event="SessionStart",
@@ -899,9 +916,12 @@ class Orchestrator:
                 # Always run the plan phase — the brainstorm → spec → plan sequence
                 # is not optional and cannot be bypassed via config.
                 try:
+                    await _emit_stream_phase("plan.start", "Generating plan draft for approval gate")
                     plan_draft = await self._run_plan_phase(task)
+                    await _emit_stream_phase("plan.ready", "Plan draft generated", ok=bool(plan_draft.get("ok", False)))
                 except Exception as _plan_exc:
                     plan_draft = {"ok": False, "error": str(_plan_exc)}
+                    await _emit_stream_phase("plan.error", "Plan phase failed", error=str(_plan_exc), reason_code="plan_phase_error")
 
                 gate_message = (
                     "Superpowered mode requires plan approval before implementation. "
@@ -935,6 +955,12 @@ class Orchestrator:
                     error=gate_message,
                 )
                 _telemetry["gate_blocked"] = True
+                await _emit_stream_phase(
+                    "workflow.blocked",
+                    "Awaiting required approvals before implementation",
+                    reason_code="approval_missing",
+                    missing_approvals=list(missing_approvals),
+                )
                 final_result = result
                 if persist_task:
                     self.task_store.mark_completed(result)
@@ -970,6 +996,11 @@ class Orchestrator:
                         msg = (
                             "Superpowered task reviews require subagents, but orchestrator.enable_subagents is false."
                         )
+                        await _emit_stream_phase(
+                            "review.unavailable",
+                            msg,
+                            reason_code="subagents_disabled",
+                        )
                         result = TaskResult(
                             task_id=task.id,
                             output={
@@ -992,6 +1023,7 @@ class Orchestrator:
                         return result
 
                     _telemetry["review_ran"] = True
+                    await _emit_stream_phase("review.start", "Starting superpowered review loop", plan_tasks_count=len(plan_tasks))
                     review_result = await self._run_superpowered_review_loop(task, plan_tasks)
                     review_ok = bool(review_result.get("ok", False))
                     _telemetry["review_passed"] = review_ok
@@ -1003,6 +1035,11 @@ class Orchestrator:
                         )
                     if not review_ok:
                         msg = str(review_result.get("error", "Superpowered review loop failed"))
+                        await _emit_stream_phase(
+                            "review.failed",
+                            msg,
+                            reason_code="review_loop_failed",
+                        )
                         result = TaskResult(
                             task_id=task.id,
                             output={
@@ -1023,6 +1060,7 @@ class Orchestrator:
                                 pass
                         await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
                         return result
+                    await _emit_stream_phase("review.passed", "Superpowered review loop passed")
                     task.input["review_result"] = review_result
 
             is_lightning_delegate = ":lightning:" in task.id
@@ -1043,13 +1081,25 @@ class Orchestrator:
             await self.event_bus.publish("AGENT_SPAWNED", {"task_id": task.id, "subagents": self.enable_subagents})
             self.memory.append_short_term("main-agent", {"task": task.description})
             try:
+                await _emit_stream_phase("implement.start", "Starting reactive implementation run")
                 result = await self.state_machine.run_task(task)
                 result.output["workflow_mode"] = workflow_mode
                 if lightning_spawned_ids:
                     result.output["spawned_subagents"] = list(lightning_spawned_ids)
                 if review_result is not None:
                     result.output["review_result"] = review_result
+                await _emit_stream_phase(
+                    "implement.done",
+                    "Reactive implementation run finished",
+                    success=bool(result.success),
+                )
             except Exception as exc:
+                await _emit_stream_phase(
+                    "implement.error",
+                    "Reactive implementation run raised an exception",
+                    error=str(exc),
+                    reason_code="implementation_exception",
+                )
                 await self.event_bus.publish(
                     "MODULE_ERROR",
                     {

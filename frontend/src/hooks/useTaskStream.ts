@@ -1,7 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_BASE, ApiClientError, getStoredApiKey, normalizeApiError } from '../api/client'
 
-export type StreamEventType = 'start' | 'step' | 'tool_result' | 'text_delta' | 'done' | 'error' | 'eof' | 'artifact_emit'
+export type StreamEventType =
+  | 'start'
+  | 'step'
+  | 'tool_dispatch'
+  | 'tool_result'
+  | 'phase'
+  | 'guardrail'
+  | 'llm_call'
+  | 'llm_result'
+  | 'context_trimmed'
+  | 'text_delta'
+  | 'done'
+  | 'error'
+  | 'eof'
+  | 'artifact_emit'
 
 export interface StreamEvent {
   type: StreamEventType

@@ -3349,7 +3349,136 @@ def create_app(workspace_root: Path) -> FastAPI:
                     # Superpowered streaming must execute through the orchestrator so plan/review
                     # phases, role subagents, and mode-specific safeguards are honored.
                     yield f"data: {json.dumps({'type': 'start', 'task_id': task.id, 'mode': 'superpowered'})}\n\n"
-                    result = await runtime.orchestrator.run_reactive_task(task)
+
+                    stream_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+                    hook_labels: list[str] = []
+
+                    def _belongs_to_task(payload: dict[str, Any]) -> bool:
+                        payload_task_id = str(payload.get("task_id") or "")
+                        return not payload_task_id or payload_task_id == task.id
+
+                    def _enqueue(event: dict[str, Any]) -> None:
+                        event.setdefault("task_id", task.id)
+                        stream_queue.put_nowait(event)
+
+                    def _register_hook(event_name: str, callback, *, suffix: str) -> None:
+                        label = runtime.hooks.register(
+                            event_name,
+                            callback,
+                            priority=5,
+                            label=f"chat-stream:{task.id}:{suffix}:{uuid.uuid4().hex[:8]}",
+                        )
+                        hook_labels.append(label)
+
+                    def _handle_stream_event(payload: dict[str, Any]) -> None:
+                        if not _belongs_to_task(payload):
+                            return
+                        event_type = str(payload.get("event_type") or "").strip().lower()
+                        if event_type == "phase":
+                            _enqueue(
+                                {
+                                    "type": "phase",
+                                    "phase": str(payload.get("phase") or "workflow"),
+                                    "message": str(payload.get("message") or ""),
+                                    "reason_code": payload.get("reason_code"),
+                                    "workflow_mode": payload.get("workflow_mode"),
+                                }
+                            )
+                            return
+                        if event_type == "guardrail":
+                            _enqueue(
+                                {
+                                    "type": "guardrail",
+                                    "message": str(payload.get("message") or "Guardrail triggered"),
+                                    "reason_code": str(payload.get("reason_code") or "guardrail"),
+                                    "tool": payload.get("tool"),
+                                    "path": payload.get("path"),
+                                }
+                            )
+
+                    def _handle_pre_llm(payload: dict[str, Any]) -> None:
+                        if not _belongs_to_task(payload):
+                            return
+                        tool_schema = payload.get("tools_schema")
+                        _enqueue(
+                            {
+                                "type": "llm_call",
+                                "call_index": int(payload.get("call_index", 0)),
+                                "model": str(payload.get("model") or "unknown"),
+                                "tools_schema_count": len(tool_schema) if isinstance(tool_schema, list) else 0,
+                            }
+                        )
+
+                    def _handle_post_llm(payload: dict[str, Any]) -> None:
+                        if not _belongs_to_task(payload):
+                            return
+                        calls = payload.get("tool_calls")
+                        _enqueue(
+                            {
+                                "type": "llm_result",
+                                "call_index": int(payload.get("call_index", 0)),
+                                "model": str(payload.get("model") or "unknown"),
+                                "tool_call_count": len(calls) if isinstance(calls, list) else 0,
+                            }
+                        )
+
+                    def _handle_pre_tool(payload: dict[str, Any]) -> None:
+                        if not _belongs_to_task(payload):
+                            return
+                        tool_args = payload.get("tool_args")
+                        arg_keys = list(tool_args.keys())[:5] if isinstance(tool_args, dict) else []
+                        _enqueue(
+                            {
+                                "type": "tool_dispatch",
+                                "tool": str(payload.get("tool_name") or "unknown"),
+                                "call_index": int(payload.get("call_index", 0)),
+                                "arg_keys": arg_keys,
+                            }
+                        )
+
+                    def _handle_post_tool(payload: dict[str, Any]) -> None:
+                        if not _belongs_to_task(payload):
+                            return
+                        result_obj = payload.get("result")
+                        result_error = payload.get("error")
+                        ok = result_error in (None, "") and not (
+                            isinstance(result_obj, dict) and result_obj.get("ok") is False
+                        )
+                        summary = str(result_error or "")
+                        if not summary and isinstance(result_obj, dict):
+                            summary = str(result_obj.get("error") or result_obj.get("message") or "")
+                        _enqueue(
+                            {
+                                "type": "tool_result",
+                                "tool": str(payload.get("tool_name") or "unknown"),
+                                "ok": bool(ok),
+                                "summary": summary[:200],
+                            }
+                        )
+
+                    _register_hook("StreamEvent", _handle_stream_event, suffix="stream-event")
+                    _register_hook("PreLLMCall", _handle_pre_llm, suffix="pre-llm")
+                    _register_hook("PostLLMCall", _handle_post_llm, suffix="post-llm")
+                    _register_hook("PreToolUse", _handle_pre_tool, suffix="pre-tool")
+                    _register_hook("PostToolUse", _handle_post_tool, suffix="post-tool")
+
+                    run_task_future = asyncio.create_task(runtime.orchestrator.run_reactive_task(task))
+
+                    while True:
+                        if run_task_future.done() and stream_queue.empty():
+                            break
+                        try:
+                            next_event = await asyncio.wait_for(stream_queue.get(), timeout=0.25)
+                            yield f"data: {json.dumps(next_event, default=str)}\n\n"
+                        except asyncio.TimeoutError:
+                            continue
+
+                    try:
+                        result = await run_task_future
+                    finally:
+                        for label in hook_labels:
+                            runtime.hooks.unregister(label=label)
+
                     done_event = {
                         "type": "done",
                         "task_id": task.id,

@@ -10,6 +10,14 @@ function eventLabel(event: StreamEvent): string {
   switch (event.type) {
     case 'start':
       return `Task started (max ${event.max_steps as number} steps, ${event.max_tokens as number} tokens)`
+    case 'phase':
+      return `${(event.phase as string) || 'phase'}${event.message ? `: ${event.message as string}` : ''}`
+    case 'llm_call':
+      return `LLM call #${event.call_index as number} (${event.model as string})`
+    case 'llm_result':
+      return `LLM result #${event.call_index as number} (${event.tool_call_count as number} tool calls)`
+    case 'tool_dispatch':
+      return `Dispatch ${(event.tool as string) || 'tool'}`
     case 'step': {
       const calls = event.tool_calls as Array<{ tool: string }> | undefined
       if (calls && calls.length > 0) {
@@ -21,6 +29,10 @@ function eventLabel(event: StreamEvent): string {
       const ok = event.ok !== false
       return `${ok ? '✓' : '✗'} ${event.tool as string}`
     }
+    case 'guardrail':
+      return `Guardrail: ${String(event.reason_code || event.message || 'policy event')}`
+    case 'context_trimmed':
+      return `Context trimmed (${event.dropped_history_messages as number} prior messages)`
     case 'text_delta':
       return 'Model response received'
     case 'done':
@@ -38,7 +50,11 @@ function eventKind(type: string): string {
   if (type === 'error') return styles.kindError
   if (type === 'done') return styles.kindDone
   if (type === 'tool_result') return styles.kindTool
+  if (type === 'tool_dispatch') return styles.kindTool
+  if (type === 'guardrail') return styles.kindError
   if (type === 'step') return styles.kindStep
+  if (type === 'phase') return styles.kindInfo
+  if (type === 'llm_call' || type === 'llm_result') return styles.kindText
   if (type === 'text_delta') return styles.kindText
   if (type === 'artifact_emit') return styles.kindArtifact
   return styles.kindInfo
@@ -81,6 +97,12 @@ export function RunTimeline({ events, status }: RunTimelineProps) {
               )}
               {event.type === 'tool_result' && typeof event.summary === 'string' && (
                 <p className={styles.summary}>{String(event.summary).slice(0, 120)}</p>
+              )}
+              {event.type === 'tool_dispatch' && Array.isArray(event.arg_keys) && (event.arg_keys as string[]).length > 0 && (
+                <p className={styles.summary}>args: {(event.arg_keys as string[]).join(', ')}</p>
+              )}
+              {event.type === 'guardrail' && typeof event.message === 'string' && (
+                <p className={styles.summary}>{String(event.message).slice(0, 160)}</p>
               )}
               {event.type === 'artifact_emit' && typeof event.mime_type === 'string' && event.mime_type && (
                 <p className={styles.summary}>{event.mime_type}</p>

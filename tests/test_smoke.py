@@ -5127,6 +5127,31 @@ def test_chat_stream_start_event_has_task_id() -> None:
     assert start_events[0].get("task_id"), "start event must have a task_id"
 
 
+def test_chat_stream_superpowered_emits_phase_events() -> None:
+    """Superpowered /chat/stream should emit intermediate phase telemetry before done/eof."""
+    app = create_app(Path(".").resolve())
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/chat/stream",
+        json={
+            "prompt": "Create a rollout plan for a backend guardrail update",
+            "workflow_mode": "superpowered",
+            "model_backend": "local_stub",
+        },
+    ) as response:
+        assert response.status_code == 200
+        events = _collect_sse_events(response)
+
+    event_types = [str(e.get("type")) for e in events]
+    assert "phase" in event_types, f"Expected phase telemetry in stream events, got: {event_types}"
+    phases = [str(e.get("phase")) for e in events if e.get("type") == "phase"]
+    assert any(p.startswith("workflow.") or p.startswith("plan.") for p in phases), (
+        f"Expected workflow/plan phase entries, got: {phases}"
+    )
+
+
 def test_chat_stream_rejects_missing_api_key(tmp_path: Path) -> None:
     """POST /chat/stream returns 401 when an invalid API key is supplied and auth is enabled."""
     app = create_app(tmp_path)

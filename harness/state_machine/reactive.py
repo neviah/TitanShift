@@ -1143,6 +1143,21 @@ class ReactiveStateMachine:
                     requested_path = self._extract_tool_path_argument(tc.arguments)
                     normalized_target = self._normalize_tracking_path(requested_path, workspace_root_path)
                     if not normalized_target or normalized_target not in read_paths_seen:
+                        if self.hooks is not None:
+                            try:
+                                await self.hooks.emit(HookPayload(
+                                    event="StreamEvent",
+                                    data={
+                                        "task_id": task.id,
+                                        "event_type": "guardrail",
+                                        "reason_code": "edit_requires_read",
+                                        "tool": tc.name,
+                                        "path": requested_path,
+                                        "message": "edit_file blocked because read_file prerequisite was not met",
+                                    },
+                                ))
+                            except Exception:
+                                pass
                         tool_result = {
                             "ok": False,
                             "error": (
@@ -1375,6 +1390,19 @@ class ReactiveStateMachine:
                         "Aborted repeated invalid tool loop after the model retried the same unsupported tool call "
                         f"{repeated_invalid_count} times without progress."
                     )
+                    if self.hooks is not None:
+                        try:
+                            await self.hooks.emit(HookPayload(
+                                event="StreamEvent",
+                                data={
+                                    "task_id": task.id,
+                                    "event_type": "guardrail",
+                                    "reason_code": "invalid_tool_loop_abort",
+                                    "message": abort_message,
+                                },
+                            ))
+                        except Exception:
+                            pass
                     return TaskResult(
                         task_id=task.id,
                         output={
@@ -1392,6 +1420,19 @@ class ReactiveStateMachine:
                     abort_message = (
                         "Aborted no-progress run after repeated invalid tool attempts without any successful tool execution."
                     )
+                    if self.hooks is not None:
+                        try:
+                            await self.hooks.emit(HookPayload(
+                                event="StreamEvent",
+                                data={
+                                    "task_id": task.id,
+                                    "event_type": "guardrail",
+                                    "reason_code": "no_progress_abort",
+                                    "message": abort_message,
+                                },
+                            ))
+                        except Exception:
+                            pass
                     return TaskResult(
                         task_id=task.id,
                         output={
@@ -1665,6 +1706,13 @@ class ReactiveStateMachine:
                         tool_definitions=active_tool_defs,
                         timeout_s=effective_model_timeout,
                     )
+                    yield {
+                        "type": "llm_call",
+                        "step": step,
+                        "call_index": llm_call_index,
+                        "model": model.model_id,
+                        "tools_schema_count": len(active_tool_defs or []),
+                    }
                     if max_duration_s is None:
                         response = await model.generate(model_req)
                     else:
@@ -1693,6 +1741,13 @@ class ReactiveStateMachine:
                                 },
                             )
                         )
+                    yield {
+                        "type": "llm_result",
+                        "step": step,
+                        "call_index": llm_call_index,
+                        "model": response.model_id,
+                        "tool_call_count": len(response.tool_calls or []),
+                    }
                     llm_call_index += 1
                 except asyncio.TimeoutError:
                     if last_tool_result_lines:
@@ -1737,6 +1792,13 @@ class ReactiveStateMachine:
                 tool_result_lines: list[str] = []
                 for call_index, tc in enumerate(self._normalize_calls_for_stream(response.tool_calls)):
                     used_tools.append(tc.name)
+                    yield {
+                        "type": "tool_dispatch",
+                        "step": step,
+                        "tool": tc.name,
+                        "call_index": call_index,
+                        "arg_keys": list(tc.arguments.keys())[:5] if isinstance(tc.arguments, dict) else [],
+                    }
                     if self._is_skill_like_pseudo_call(tc):
                         tool_content = json.dumps({"ok": True, "skill_like_call": tc.name})
                         total_tokens += model.estimate_tokens(tool_content)
@@ -1766,6 +1828,14 @@ class ReactiveStateMachine:
                                 "tool": tc.name,
                                 "ok": False,
                                 "summary": "edit_file blocked: read_file prerequisite missing",
+                            }
+                            yield {
+                                "type": "guardrail",
+                                "step": step,
+                                "reason_code": "edit_requires_read",
+                                "message": "edit_file blocked because read_file prerequisite was not met",
+                                "tool": tc.name,
+                                "path": requested_path,
                             }
                             continue
                     # ── PreToolUse hook ──────────────────────────────────────
