@@ -536,6 +536,36 @@ class ToolApprovalReplyResponse(BaseModel):
     decision: str
 
 
+class PolicyRuleItem(BaseModel):
+    """A single permission rule entry with its runtime index."""
+
+    index: int
+    permission: str
+    pattern: str
+    action: str
+
+
+class PolicyRulesListResponse(BaseModel):
+    rules: list[PolicyRuleItem]
+
+
+class PolicyRuleAddRequest(BaseModel):
+    permission: str = Field(min_length=1, max_length=64)
+    pattern: str = Field(min_length=1, max_length=256)
+    action: Literal["allow", "ask", "deny"]
+
+
+class PolicyRuleAddResponse(BaseModel):
+    ok: bool
+    index: int
+    rule: PolicyRuleItem
+
+
+class PolicyRuleDeleteResponse(BaseModel):
+    ok: bool
+    index: int
+
+
 class ServiceControlRequest(BaseModel):
     """Request to control a repo adapter service."""
 

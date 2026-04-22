@@ -171,6 +171,11 @@ from harness.api.schemas import (
     ToolSummary,
     ToolApprovalReplyRequest,
     ToolApprovalReplyResponse,
+    PolicyRuleItem,
+    PolicyRulesListResponse,
+    PolicyRuleAddRequest,
+    PolicyRuleAddResponse,
+    PolicyRuleDeleteResponse,
 )
 from harness.api.key_store import KeyStore
 from harness.execution.queue import RunQueue
@@ -181,6 +186,7 @@ from harness.runtime.service_manager import ServiceLaunchConfig
 from harness.runtime.types import Task
 from harness.skills.registry import SkillDefinition
 from harness.tools.definitions import ToolDefinition
+from harness.tools.registry import PermissionRule
 
 T = TypeVar("T")
 
@@ -5287,6 +5293,48 @@ def create_app(workspace_root: Path) -> FastAPI:
             )
         return ToolApprovalReplyResponse(ok=True, approval_id=body.approval_id, decision=body.decision)
 
+    @app.get(
+        "/policy/rules",
+        response_model=PolicyRulesListResponse,
+        dependencies=[Depends(require_read_api_key)],
+    )
+    async def policy_rules_list() -> PolicyRulesListResponse:
+        """List all active permission rules in the current runtime policy."""
+        rules = [
+            PolicyRuleItem(index=i, permission=r.permission, pattern=r.pattern, action=r.action)
+            for i, r in enumerate(runtime.tools.policy.permission_rules)
+        ]
+        return PolicyRulesListResponse(rules=rules)
+
+    @app.post(
+        "/policy/rules",
+        response_model=PolicyRuleAddResponse,
+        dependencies=[Depends(require_read_api_key)],
+    )
+    async def policy_rules_add(body: PolicyRuleAddRequest) -> PolicyRuleAddResponse:
+        """Append a new permission rule to the live runtime policy (non-persistent)."""
+        new_rule = PermissionRule(
+            permission=body.permission.strip().lower(),
+            pattern=body.pattern.strip(),
+            action=body.action,
+        )
+        runtime.tools.policy.permission_rules.append(new_rule)
+        idx = len(runtime.tools.policy.permission_rules) - 1
+        item = PolicyRuleItem(index=idx, permission=new_rule.permission, pattern=new_rule.pattern, action=new_rule.action)
+        return PolicyRuleAddResponse(ok=True, index=idx, rule=item)
+
+    @app.delete(
+        "/policy/rules/{index}",
+        response_model=PolicyRuleDeleteResponse,
+        dependencies=[Depends(require_read_api_key)],
+    )
+    async def policy_rules_delete(index: int) -> PolicyRuleDeleteResponse:
+        """Remove a permission rule by index from the live runtime policy (non-persistent)."""
+        rules = runtime.tools.policy.permission_rules
+        if index < 0 or index >= len(rules):
+            raise HTTPException(status_code=404, detail=f"Rule index {index} is out of range (0-{len(rules)-1}).")
+        rules.pop(index)
+        return PolicyRuleDeleteResponse(ok=True, index=index)
 
 
     @app.get("/telemetry/runs", response_model=list[RunTelemetrySummary], dependencies=[Depends(require_read_api_key)])

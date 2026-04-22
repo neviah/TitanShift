@@ -77,25 +77,106 @@
     ],
     "blocked_tool_names": [],
     "permission_rules": [
-      { "permission": "bash", "pattern": "git status*", "action": "allow" },
-      { "permission": "bash", "pattern": "git log *", "action": "allow" },
-      { "permission": "bash", "pattern": "git diff*", "action": "allow" },
-      { "permission": "bash", "pattern": "git show*", "action": "allow" },
-      { "permission": "bash", "pattern": "git branch*", "action": "allow" },
-      { "permission": "bash", "pattern": "npm test*", "action": "allow" },
-      { "permission": "bash", "pattern": "npm run *", "action": "allow" },
-      { "permission": "bash", "pattern": "python --version*", "action": "allow" },
-      { "permission": "bash", "pattern": "python -m pytest*", "action": "allow" },
-      { "permission": "bash", "pattern": "git push*", "action": "ask" },
-      { "permission": "bash", "pattern": "git reset*", "action": "ask" },
-      { "permission": "bash", "pattern": "git rebase*", "action": "ask" },
-      { "permission": "bash", "pattern": "npm install*", "action": "ask" },
-      { "permission": "bash", "pattern": "npm publish*", "action": "ask" },
-      { "permission": "bash", "pattern": "rm -rf*", "action": "deny" },
-      { "permission": "bash", "pattern": "rmdir /s*", "action": "deny" },
-      { "permission": "bash", "pattern": "del /f*", "action": "deny" },
-      { "permission": "bash", "pattern": "format *", "action": "deny" },
-      { "permission": "bash", "pattern": "mkfs*", "action": "deny" }
+      {
+        "permission": "bash",
+        "pattern": "git status*",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "git log *",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "git diff*",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "git show*",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "git branch*",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "npm test*",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "npm run *",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "python --version*",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "python -m pytest*",
+        "action": "allow"
+      },
+      {
+        "permission": "bash",
+        "pattern": "git push*",
+        "action": "ask"
+      },
+      {
+        "permission": "bash",
+        "pattern": "git reset*",
+        "action": "ask"
+      },
+      {
+        "permission": "bash",
+        "pattern": "git rebase*",
+        "action": "ask"
+      },
+      {
+        "permission": "bash",
+        "pattern": "npm install*",
+        "action": "ask"
+      },
+      {
+        "permission": "bash",
+        "pattern": "npm publish*",
+        "action": "ask"
+      },
+      {
+        "permission": "bash",
+        "pattern": "rm -rf*",
+        "action": "deny"
+      },
+      {
+        "permission": "bash",
+        "pattern": "rmdir /s*",
+        "action": "deny"
+      },
+      {
+        "permission": "bash",
+        "pattern": "del /f*",
+        "action": "deny"
+      },
+      {
+        "permission": "bash",
+        "pattern": "format *",
+        "action": "deny"
+      },
+      {
+        "permission": "bash",
+        "pattern": "mkfs*",
+        "action": "deny"
+      },
+      {
+        "permission": "bash",
+        "pattern": "dd if=*",
+        "action": "deny"
+      }
     ],
     "allowed_command_prefixes": [
       "where",
@@ -105,7 +186,8 @@
       "curl",
       "dir",
       "echo"
-    ]
+    ],
+    "doom_loop_invalid_threshold": 2
   },
   "execution": {
     "allowed_cwd_roots": [
@@ -126,7 +208,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 40,
-      "max_tokens": 95000,
+      "max_tokens": 2555,
       "max_duration_ms": 600000
     },
     "invalid_tool_retry_limit": 2
@@ -136,7 +218,6 @@
   },
   "api": {
     "require_api_key": false,
-    "api_key": "dIc1A6UccNZtWXnLPr015VypivGjjANEOYblBq8ynxw",
     "require_admin_api_key": false,
     "admin_api_key": "supersecretadminkey456"
   },

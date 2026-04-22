@@ -150,6 +150,7 @@ def test_reactive_aborts_repeated_invalid_tool_loop() -> None:
 
     config = ConfigManager(Path(".").resolve())
     config.set("state_machine.invalid_tool_retry_limit", 2)
+    config.set("tools.doom_loop_invalid_threshold", 2)
     policy = PermissionPolicy.from_config(config, Path(".").resolve())
     tools = ToolRegistry(policy)
     model = LoopingModel()
@@ -501,6 +502,88 @@ def test_permission_rules_risk_tiers() -> None:
     allowed, reason = policy.evaluate_tool(tool, {"command": "rm -rf /tmp/foo"})
     assert allowed is False
     assert reason.startswith("permission_rule_denied:bash:rm -rf*")
+
+
+def test_policy_rules_list_and_mutate() -> None:
+    """PermissionPolicy.permission_rules is a mutable list supporting runtime add/remove."""
+    workspace = Path(".").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names=set(),
+        blocked_tool_names=set(),
+        allowed_command_prefixes=[],
+        workspace_root=workspace,
+        permission_rules=[
+            PermissionRule(permission="bash", pattern="git status*", action="allow"),
+        ],
+    )
+    assert len(policy.permission_rules) == 1
+
+    # append
+    policy.permission_rules.append(PermissionRule(permission="bash", pattern="rm -rf*", action="deny"))
+    assert len(policy.permission_rules) == 2
+    assert policy.permission_rules[1].action == "deny"
+
+    # delete by index
+    policy.permission_rules.pop(0)
+    assert len(policy.permission_rules) == 1
+    assert policy.permission_rules[0].pattern == "rm -rf*"
+
+
+def test_audit_t003_wildcard_allow_flagged() -> None:
+    """AUDIT-T003 should trigger when a blanket wildcard allow rule exists."""
+    from harness.api.audit import _tool_findings
+    from unittest.mock import MagicMock
+
+    workspace = Path(".").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names=set(),
+        blocked_tool_names=set(),
+        allowed_command_prefixes=[],
+        workspace_root=workspace,
+        permission_rules=[
+            PermissionRule(permission="bash", pattern="*", action="allow"),
+        ],
+    )
+    runtime = MagicMock()
+    runtime.tools.list_tools.return_value = []
+    runtime.tools.policy = policy
+    runtime.execution.policy.allowed_command_prefixes = []
+
+    findings = _tool_findings(runtime)
+    ids = {f["id"] for f in findings}
+    assert "AUDIT-T003" in ids, f"Expected AUDIT-T003, got: {ids}"
+
+
+def test_audit_t008_missing_deny_baselines() -> None:
+    """AUDIT-T008 should trigger when destructive patterns lack deny rules."""
+    from harness.api.audit import _tool_findings
+    from unittest.mock import MagicMock
+
+    workspace = Path(".").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names=set(),
+        blocked_tool_names=set(),
+        allowed_command_prefixes=[],
+        workspace_root=workspace,
+        permission_rules=[],  # no deny rules at all
+    )
+    runtime = MagicMock()
+    runtime.tools.list_tools.return_value = []
+    runtime.tools.policy = policy
+    runtime.execution.policy.allowed_command_prefixes = []
+
+    findings = _tool_findings(runtime)
+    ids = {f["id"] for f in findings}
+    assert "AUDIT-T008" in ids, f"Expected AUDIT-T008, got: {ids}"
 
 
 def test_execution_policy_blocks_unknown_command() -> None:
@@ -2293,11 +2376,14 @@ def test_emergency_diagnosis_for_policy_blocked_skill_execution() -> None:
 
     runtime.tools.policy.allowed_tool_names.clear()
     runtime.tools.policy.deny_all_by_default = True
+    saved_rules = list(runtime.tools.policy.permission_rules)
+    runtime.tools.policy.permission_rules.clear()
     blocked = client.post(
         f"/agents/{agent_id}/skills/safe_shell_command/execute",
         json={"input": {"command": "python --version"}},
     )
     assert blocked.status_code == 403
+    runtime.tools.policy.permission_rules.extend(saved_rules)
     runtime.tools.policy.deny_all_by_default = False
 
     diag_logs = client.get("/logs?event_type=EMERGENCY_DIAGNOSIS&limit=10")

@@ -133,7 +133,8 @@
       { "permission": "bash", "pattern": "rmdir /s*", "action": "deny" },
       { "permission": "bash", "pattern": "del /f*", "action": "deny" },
       { "permission": "bash", "pattern": "format *", "action": "deny" },
-      { "permission": "bash", "pattern": "mkfs*", "action": "deny" }
+      { "permission": "bash", "pattern": "mkfs*", "action": "deny" },
+      { "permission": "bash", "pattern": "dd if=*", "action": "deny" }
     ],
     "allowed_command_prefixes": [
       "where",
@@ -208,7 +209,8 @@
       { "permission": "bash", "pattern": "rmdir /s*", "action": "deny" },
       { "permission": "bash", "pattern": "del /f*", "action": "deny" },
       { "permission": "bash", "pattern": "format *", "action": "deny" },
-      { "permission": "bash", "pattern": "mkfs*", "action": "deny" }
+      { "permission": "bash", "pattern": "mkfs*", "action": "deny" },
+      { "permission": "bash", "pattern": "dd if=*", "action": "deny" }
     ],
     "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"],
     "doom_loop_action": "deny",

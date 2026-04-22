@@ -352,6 +352,41 @@ def _tool_findings(runtime: RuntimeContext) -> list[dict[str, str]]:
                 "Confirm this is intentional for interactive sessions. For automated pipelines use 'deny'.",
             )
         )
+    # AUDIT-T003: overly permissive wildcard allow rules
+    wildcard_allow_rules = [
+        r for r in policy.permission_rules
+        if r.action == "allow" and r.pattern in {"*", "**"}
+    ]
+    if wildcard_allow_rules:
+        perms = ", ".join(f"{r.permission}:{r.pattern}" for r in wildcard_allow_rules[:3])
+        findings.append(
+            _finding(
+                "AUDIT-T003",
+                "warning",
+                "Overly permissive wildcard allow rule(s)",
+                f"Permission rules contain blanket allow patterns: {perms}. These bypass all command-level enforcement.",
+                "Replace wildcard allow rules with explicit safe-command patterns and rely on deny rules for the rest.",
+            )
+        )
+    # AUDIT-T008: missing deny baselines for destructive operations
+    _destructive_patterns = {"rm -rf*", "rmdir /s*", "del /f*", "format *", "mkfs*", "dd if=*"}
+    covered_deny = {
+        r.pattern
+        for r in policy.permission_rules
+        if r.action == "deny" and r.permission in {"bash", "*"}
+    }
+    missing_deny = _destructive_patterns - covered_deny
+    if missing_deny:
+        missing_str = ", ".join(sorted(missing_deny)[:5])
+        findings.append(
+            _finding(
+                "AUDIT-T008",
+                "warning",
+                "Missing deny baselines for destructive bash patterns",
+                f"No deny rules found for potentially destructive commands: {missing_str}.",
+                "Add explicit deny rules for these patterns in tools.permission_rules.",
+            )
+        )
     return findings
 
 
