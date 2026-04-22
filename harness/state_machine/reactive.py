@@ -346,9 +346,21 @@ class ReactiveStateMachine:
                 matched.add("list_directory")
 
         # File-operation intent mapping for natural phrasing.
+        existing_file_edit_intent = any(
+            token in text
+            for token in [
+                "edit existing file",
+                "modify existing file",
+                "update existing file",
+                "change existing file",
+                "existing file",
+            ]
+        )
         if any(token in text for token in ["append a new line", "append new line", "append a line", "append to ", "append ", "appending "]):
             if "append_file" in available:
                 matched.add("append_file")
+        if existing_file_edit_intent and "patch_file" in available:
+            matched.add("patch_file")
         if any(token in text for token in ["edit file", "edit existing", "replace text", "replace this", "exact replace"]):
             if "edit_file" in available:
                 matched.add("edit_file")
@@ -358,6 +370,8 @@ class ReactiveStateMachine:
         if any(token in text for token in ["edit ", "update ", "modify ", "change ", "append ", "appending "]):
             if "edit_file" in available:
                 matched.add("edit_file")
+            elif "patch_file" in available and existing_file_edit_intent:
+                matched.add("patch_file")
             elif "write_file" in available:
                 matched.add("write_file")
         if any(token in text for token in ["create one", "create it", "create a file", "if you don't see", "if it does not exist"]):
@@ -407,6 +421,9 @@ class ReactiveStateMachine:
         if any(token in text for token in ["create a file named", "create file named", "must create", "use write_file", "write_file tool"]):
             if "write_file" in available:
                 mandatory.add("write_file")
+        if any(token in text for token in ["edit existing file", "modify existing file", "update existing file", "change existing file"]):
+            if "patch_file" in available:
+                mandatory.add("patch_file")
         if any(token in text for token in ["edit existing file", "replace text", "use edit_file", "edit_file tool"]):
             if "edit_file" in available:
                 mandatory.add("edit_file")
@@ -434,6 +451,8 @@ class ReactiveStateMachine:
             "write_file",
             "append_file",
             "read_file",
+            "edit_file",
+            "patch_file",
         }
         support_tools = {
             "list_directory",
@@ -754,8 +773,9 @@ class ReactiveStateMachine:
             "When you need live information, use the most specific available tool for the user request. "
             "Use web_fetch first for website retrieval, and if fetch output is blocked, empty, or incomplete, use web_browse as fallback. "
             "Use web_fetch for direct API/static data endpoints such as JSON, XML, or text feeds.",
-            "When the user asks you to create or modify workspace files, use create_directory and write_file. "
-            "Do not merely describe the files when you can create them.",
+            "When the user asks you to create workspace files, use create_directory and write_file. "
+            "When the user asks to modify existing files, prefer patch_file first, then edit_file when exact old/new replacement is needed. "
+            "Use write_file for full rewrites or creation. Do not merely describe the files when you can edit/create them.",
             "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
             "For frontend page generation, default to a self-contained HTML file with embedded CSS unless the user explicitly requests separate files.",
             "After completing file operations, summarize what was created and where. Do not paste full file contents "
@@ -1506,7 +1526,8 @@ class ReactiveStateMachine:
             "You are a helpful AI assistant integrated into the TitanShift agent harness.",
             "When you need live information, use the most specific available tool for the user request.",
             "Use web_fetch first for website retrieval. If fetch output is blocked, empty, or incomplete, use web_browse.",
-            "When the user asks you to create or modify workspace files, use create_directory and write_file.",
+            "When the user asks you to create workspace files, use create_directory and write_file.",
+            "When the user asks to modify existing files, prefer patch_file first, then edit_file for exact old/new replacement.",
             "Never invent tool names. HTML tags like head/body are not tools; pass full HTML/CSS/JS text via write_file or append_file content.",
             "For frontend page generation, default to a self-contained HTML file with embedded CSS unless the user explicitly requests separate files.",
             "After completing file operations, summarize what was created and where.",

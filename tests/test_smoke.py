@@ -253,6 +253,42 @@ def test_edit_file_requires_read_before_edit() -> None:
             target.unlink()
 
 
+def test_requested_tools_prefers_patch_for_existing_file_edits() -> None:
+    config = ConfigManager(Path(".").resolve())
+    models = ModelRegistry.from_config(config)
+    policy = PermissionPolicy.from_config(config, Path(".").resolve())
+    tools = ToolRegistry(policy)
+
+    # Minimal registry for routing-intent detection.
+    for tool_name in ["read_file", "write_file", "edit_file", "patch_file"]:
+        tools.register_tool(ToolDefinition(name=tool_name, description=f"{tool_name} tool"))
+
+    state_machine = ReactiveStateMachine(models, config, tools)
+    requested = state_machine._detect_requested_tools(
+        "Edit existing file src/App.tsx to change a button label without rewriting the whole file"
+    )
+
+    assert "patch_file" in requested
+    assert "write_file" not in requested
+
+
+def test_mandatory_tools_include_patch_for_existing_file_edits() -> None:
+    config = ConfigManager(Path(".").resolve())
+    models = ModelRegistry.from_config(config)
+    policy = PermissionPolicy.from_config(config, Path(".").resolve())
+    tools = ToolRegistry(policy)
+
+    for tool_name in ["read_file", "write_file", "edit_file", "patch_file"]:
+        tools.register_tool(ToolDefinition(name=tool_name, description=f"{tool_name} tool"))
+
+    state_machine = ReactiveStateMachine(models, config, tools)
+    mandatory = state_machine._detect_mandatory_tools(
+        "Please edit existing file src/App.tsx and preserve unrelated content"
+    )
+
+    assert "patch_file" in mandatory
+
+
 def test_permission_policy_deny_all() -> None:
     policy = PermissionPolicy(
         deny_all_by_default=True,
