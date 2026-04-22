@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,28 @@ class PermissionRule:
     permission: str
     pattern: str
     action: str
+
+
+class ApprovalStore:
+    """Tracks pending interactive approval futures and session-granted match labels."""
+
+    def __init__(self) -> None:
+        self.pending: dict[str, "asyncio.Future[str]"] = {}
+        self.session_allows: set[str] = set()
+
+    def register(self, approval_id: str) -> "asyncio.Future[str]":
+        loop = asyncio.get_event_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        self.pending[approval_id] = fut
+        return fut
+
+    def resolve(self, approval_id: str, decision: str) -> bool:
+        """Deliver a decision to a pending approval future. Returns True if found."""
+        fut = self.pending.pop(approval_id, None)
+        if fut is None or fut.done():
+            return False
+        fut.set_result(decision)
+        return True
 
 
 @dataclass(slots=True)
@@ -237,6 +260,7 @@ class ToolRegistry:
         self._audit_sink = audit_sink
         self._hooks: ApiHooks | None = None
         self._rollback_store: Any | None = None  # RollbackStore — set after construction
+        self.approval_store = ApprovalStore()
         # Per-category concurrency caps
         self._shell_semaphore = asyncio.Semaphore(max(1, max_concurrent_shell_evals))
         self._browser_semaphore = asyncio.Semaphore(max(1, max_concurrent_browser_sessions))
@@ -271,6 +295,44 @@ class ToolRegistry:
     def preview_policy(self, tool: ToolDefinition) -> tuple[bool, str]:
         """Policy preview with empty args for UI/API listing."""
         return self.policy.evaluate_tool(tool, {})
+
+    async def _request_approval(
+        self,
+        tool: ToolDefinition,
+        args: dict[str, Any],
+        match_label: str,
+        task_id: str | None,
+    ) -> tuple[bool, str]:
+        """Emit an approval_request stream event and suspend until the user responds.
+
+        Returns (True, reason) on once/always grants, (False, reason) on reject/timeout.
+        """
+        approval_id = f"approval-{uuid.uuid4().hex[:12]}"
+        if self._hooks is not None:
+            await self._hooks.emit(
+                HookPayload(
+                    event="StreamEvent",
+                    data={
+                        "task_id": task_id or "",
+                        "event_type": "approval_request",
+                        "approval_id": approval_id,
+                        "tool": tool.name,
+                        "match_label": match_label,
+                        "message": f"Tool '{tool.name}' requires approval ({match_label})",
+                    },
+                )
+            )
+        fut = self.approval_store.register(approval_id)
+        try:
+            decision = await asyncio.wait_for(asyncio.shield(fut), timeout=120.0)
+        except asyncio.TimeoutError:
+            self.approval_store.pending.pop(approval_id, None)
+            return False, f"approval_timeout:{match_label}"
+        if decision == "reject":
+            return False, f"approval_rejected:{match_label}"
+        if decision == "always":
+            self.approval_store.session_allows.add(match_label)
+        return True, f"approval_granted:{match_label}"
 
     async def execute_tool(
         self,
@@ -318,8 +380,18 @@ class ToolRegistry:
         if not bypass_policy:
             allowed, reason = self.policy.evaluate_tool(tool, effective_args)
             if not allowed:
-                self._emit_audit(name=name, status="denied", reason=reason, args=effective_args)
-                raise PermissionError(f"Tool blocked by policy: {name} ({reason})")
+                if reason.startswith("approval_required:"):
+                    match_label = reason[len("approval_required:"):]
+                    if match_label in self.approval_store.session_allows:
+                        allowed = True
+                        reason = f"session_approved:{match_label}"
+                    else:
+                        allowed, reason = await self._request_approval(
+                            tool=tool, args=effective_args, match_label=match_label, task_id=task_id
+                        )
+                if not allowed:
+                    self._emit_audit(name=name, status="denied", reason=reason, args=effective_args)
+                    raise PermissionError(f"Tool blocked by policy: {name} ({reason})")
         else:
             reason = "bypassed_for_superpowered_mode"
 

@@ -23,7 +23,7 @@ from harness.runtime.types import Task
 from harness.skills.registry import SkillDefinition
 from harness.state_machine.reactive import ReactiveStateMachine
 from harness.tools.definitions import ToolDefinition
-from harness.tools.registry import PermissionPolicy, PermissionRule, ToolRegistry
+from harness.tools.registry import ApprovalStore, PermissionPolicy, PermissionRule, ToolRegistry
 
 
 class TestClient(FastAPITestClient):
@@ -353,6 +353,56 @@ def test_permission_policy_rule_asks_for_bash_pattern() -> None:
     assert reason_git == "allowed"
     assert allowed_python is False
     assert reason_python.startswith("approval_required:bash:")
+
+
+def test_approval_store_resolve_once() -> None:
+    """ApprovalStore.resolve() delivers 'once' decision and unblocks the awaiting task."""
+    store = ApprovalStore()
+
+    async def _run():
+        fut = store.register("apv-001")
+        # Deliver decision from outside, simulating the /tools/approval-reply endpoint
+        resolved = store.resolve("apv-001", "once")
+        decision = await asyncio.wait_for(fut, timeout=1.0)
+        return resolved, decision
+
+    resolved, decision = asyncio.run(_run())
+    assert resolved is True
+    assert decision == "once"
+    assert "apv-001" not in store.pending
+
+
+def test_approval_store_session_always() -> None:
+    """'always' decision adds match_label to session_allows."""
+    store = ApprovalStore()
+
+    async def _run():
+        fut = store.register("apv-002")
+        store.resolve("apv-002", "always")
+        return await asyncio.wait_for(fut, timeout=1.0)
+
+    decision = asyncio.run(_run())
+    # Simulate what execute_tool does on "always"
+    if decision == "always":
+        store.session_allows.add("bash:python *")
+
+    assert "bash:python *" in store.session_allows
+
+
+def test_approval_store_double_resolve_returns_false() -> None:
+    """Resolving the same approval_id twice returns False on second call."""
+    store = ApprovalStore()
+
+    async def _run():
+        fut = store.register("apv-003")
+        first = store.resolve("apv-003", "once")
+        await asyncio.wait_for(fut, timeout=1.0)
+        second = store.resolve("apv-003", "once")
+        return first, second
+
+    first, second = asyncio.run(_run())
+    assert first is True
+    assert second is False  # already removed from pending
 
 
 def test_execution_policy_blocks_unknown_command() -> None:

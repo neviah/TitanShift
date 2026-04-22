@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -521,6 +521,19 @@ class RunTelemetrySummary(BaseModel):
     duration_ms: int = 0
     started_at: str = ""
     completed_at: str | None = None
+
+
+class ToolApprovalReplyRequest(BaseModel):
+    """Reply to a pending tool-use approval request emitted over the SSE stream."""
+
+    approval_id: str = Field(min_length=1)
+    decision: Literal["once", "always", "reject"]
+
+
+class ToolApprovalReplyResponse(BaseModel):
+    ok: bool
+    approval_id: str
+    decision: str
 
 
 class ServiceControlRequest(BaseModel):

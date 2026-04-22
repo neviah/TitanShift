@@ -1,9 +1,12 @@
+import { useCallback, useState } from 'react'
 import type { StreamEvent } from '../hooks/useTaskStream'
+import { API_BASE, getStoredApiKey } from '../api/client'
 import styles from './RunTimeline.module.css'
 
 interface RunTimelineProps {
   events: StreamEvent[]
   status: 'idle' | 'connecting' | 'streaming' | 'done' | 'error'
+  taskId?: string | null
 }
 
 function eventLabel(event: StreamEvent): string {
@@ -31,6 +34,8 @@ function eventLabel(event: StreamEvent): string {
     }
     case 'guardrail':
       return `Guardrail: ${String(event.reason_code || event.message || 'policy event')}`
+    case 'approval_request':
+      return `Approval required: ${String(event.match_label || event.tool || 'tool')}`
     case 'context_trimmed':
       return `Context trimmed (${event.dropped_history_messages as number} prior messages)`
     case 'text_delta':
@@ -52,6 +57,7 @@ function eventKind(type: string): string {
   if (type === 'tool_result') return styles.kindTool
   if (type === 'tool_dispatch') return styles.kindTool
   if (type === 'guardrail') return styles.kindError
+  if (type === 'approval_request') return styles.kindWarning
   if (type === 'step') return styles.kindStep
   if (type === 'phase') return styles.kindInfo
   if (type === 'llm_call' || type === 'llm_result') return styles.kindText
@@ -60,7 +66,76 @@ function eventKind(type: string): string {
   return styles.kindInfo
 }
 
-export function RunTimeline({ events, status }: RunTimelineProps) {
+type ApprovalDecision = 'once' | 'always' | 'reject'
+
+function ApprovalButtons({
+  approvalId,
+  taskId,
+}: {
+  approvalId: string
+  taskId: string | null | undefined
+}) {
+  const [resolved, setResolved] = useState<ApprovalDecision | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const decide = useCallback(
+    async (decision: ApprovalDecision) => {
+      if (resolved || busy) return
+      setBusy(true)
+      try {
+        const apiKey = getStoredApiKey('read') || getStoredApiKey('admin')
+        await fetch(`${API_BASE}/tools/approval-reply`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'x-api-key': apiKey } : {}),
+          },
+          body: JSON.stringify({ approval_id: approvalId, decision }),
+        })
+        setResolved(decision)
+      } catch {
+        // silently ignore — the tool will timeout on its own
+      } finally {
+        setBusy(false)
+      }
+    },
+    [approvalId, resolved, busy, taskId],
+  )
+
+  if (resolved) {
+    const label =
+      resolved === 'once' ? 'Allowed once' : resolved === 'always' ? 'Allowed for session' : 'Rejected'
+    return <span className={styles.approvalResolved}>{label}</span>
+  }
+
+  return (
+    <span className={styles.approvalActions}>
+      <button
+        className={`${styles.approvalBtn} ${styles.approvalBtnOnce}`}
+        disabled={busy}
+        onClick={() => void decide('once')}
+      >
+        Allow once
+      </button>
+      <button
+        className={`${styles.approvalBtn} ${styles.approvalBtnAlways}`}
+        disabled={busy}
+        onClick={() => void decide('always')}
+      >
+        Always
+      </button>
+      <button
+        className={`${styles.approvalBtn} ${styles.approvalBtnReject}`}
+        disabled={busy}
+        onClick={() => void decide('reject')}
+      >
+        Reject
+      </button>
+    </span>
+  )
+}
+
+export function RunTimeline({ events, status, taskId }: RunTimelineProps) {
   if (status === 'idle') return null
 
   return (
@@ -103,6 +178,17 @@ export function RunTimeline({ events, status }: RunTimelineProps) {
               )}
               {event.type === 'guardrail' && typeof event.message === 'string' && (
                 <p className={styles.summary}>{String(event.message).slice(0, 160)}</p>
+              )}
+              {event.type === 'approval_request' && (
+                <div className={styles.approvalRow}>
+                  <span className={styles.summary}>
+                    {String(event.message || '').slice(0, 200)}
+                  </span>
+                  <ApprovalButtons
+                    approvalId={String(event.approval_id || '')}
+                    taskId={taskId}
+                  />
+                </div>
               )}
               {event.type === 'artifact_emit' && typeof event.mime_type === 'string' && event.mime_type && (
                 <p className={styles.summary}>{event.mime_type}</p>

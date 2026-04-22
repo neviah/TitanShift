@@ -134,3 +134,58 @@
   color: var(--text-muted);
   font-size: 10px;
 }
+
+/* Kind warning — used for approval_request events */
+.kindWarning .dot { background: #f59e0b; }
+.kindWarning { border-left-color: #f59e0b; }
+
+/* Approval prompt */
+.approvalRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.approvalActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.approvalBtn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.4;
+  transition: opacity 0.15s;
+}
+.approvalBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.approvalBtnOnce {
+  background: var(--accent-dim, rgba(99,102,241,0.15));
+  border-color: var(--accent-primary, #6366f1);
+  color: var(--accent-primary, #6366f1);
+}
+.approvalBtnAlways {
+  background: rgba(34,197,94,0.12);
+  border-color: #22c55e;
+  color: #22c55e;
+}
+.approvalBtnReject {
+  background: rgba(239,68,68,0.12);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.approvalResolved {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}

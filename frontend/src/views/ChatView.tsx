@@ -570,7 +570,7 @@ export function ChatView() {
               Run Timeline
             </button>
             {timelineOpen && (
-              <RunTimeline events={streamState.events} status={streamState.status} />
+              <RunTimeline events={streamState.events} status={streamState.status} taskId={streamState.taskId} />
             )}
             {(streamRunning || sending) && (
               <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>

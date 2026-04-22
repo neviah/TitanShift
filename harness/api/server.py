@@ -169,6 +169,8 @@ from harness.api.schemas import (
     WorkspaceFileResponse,
     WorkspaceTreeNode,
     ToolSummary,
+    ToolApprovalReplyRequest,
+    ToolApprovalReplyResponse,
 )
 from harness.api.key_store import KeyStore
 from harness.execution.queue import RunQueue
@@ -3374,6 +3376,17 @@ def create_app(workspace_root: Path) -> FastAPI:
                         if not _belongs_to_task(payload):
                             return
                         event_type = str(payload.get("event_type") or "").strip().lower()
+                        if event_type == "approval_request":
+                            _enqueue(
+                                {
+                                    "type": "approval_request",
+                                    "approval_id": str(payload.get("approval_id") or ""),
+                                    "tool": str(payload.get("tool") or ""),
+                                    "match_label": str(payload.get("match_label") or ""),
+                                    "message": str(payload.get("message") or "Approval required"),
+                                }
+                            )
+                            return
                         if event_type == "phase":
                             _enqueue(
                                 {
@@ -5251,6 +5264,30 @@ def create_app(workspace_root: Path) -> FastAPI:
                 )
             )
         return out
+
+    @app.post(
+        "/tools/approval-reply",
+        response_model=ToolApprovalReplyResponse,
+        dependencies=[Depends(require_read_api_key)],
+    )
+    async def tool_approval_reply(body: ToolApprovalReplyRequest) -> ToolApprovalReplyResponse:
+        """Deliver an interactive approval decision for a pending tool-use gate.
+
+        The approval_id is emitted via the /chat/stream SSE channel as an
+        `approval_request` event. Call this endpoint with decision:
+        - "once"   — allow this single invocation
+        - "always" — allow all matching invocations for this session
+        - "reject" — deny the tool call
+        """
+        ok = runtime.tools.approval_store.resolve(body.approval_id, body.decision)
+        if not ok:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Approval request '{body.approval_id}' not found or already resolved.",
+            )
+        return ToolApprovalReplyResponse(ok=True, approval_id=body.approval_id, decision=body.decision)
+
+
 
     @app.get("/telemetry/runs", response_model=list[RunTelemetrySummary], dependencies=[Depends(require_read_api_key)])
     async def telemetry_runs(limit: int = 50) -> list[RunTelemetrySummary]:

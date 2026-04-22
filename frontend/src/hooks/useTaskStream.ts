@@ -11,6 +11,7 @@ export type StreamEventType =
   | 'llm_call'
   | 'llm_result'
   | 'context_trimmed'
+  | 'approval_request'
   | 'text_delta'
   | 'done'
   | 'error'
