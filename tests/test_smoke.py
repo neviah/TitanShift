@@ -21,8 +21,9 @@ from harness.runtime.config import ConfigManager
 from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.runtime.types import Task
 from harness.skills.registry import SkillDefinition
+from harness.state_machine.reactive import ReactiveStateMachine
 from harness.tools.definitions import ToolDefinition
-from harness.tools.registry import PermissionPolicy
+from harness.tools.registry import PermissionPolicy, ToolRegistry
 
 
 class TestClient(FastAPITestClient):
@@ -119,6 +120,48 @@ def test_budget_enforcement_reactive() -> None:
     result = asyncio.run(runtime.orchestrator.run_reactive_task(task))
     assert result.success is False
     assert result.error is not None
+
+
+def test_reactive_aborts_repeated_invalid_tool_loop() -> None:
+    class LoopingModel:
+        model_id = "looping-model"
+        timeout_s = 1.0
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate(self, request):
+            self.calls += 1
+            return ModelResponse(
+                text="",
+                model_id=self.model_id,
+                tool_calls=[ToolCall(id=f"loop-{self.calls}", name="head", arguments={"title": "x"})],
+            )
+
+        def estimate_tokens(self, text: str) -> int:
+            return max(1, len(text) // 4)
+
+    class LoopingRegistry:
+        def __init__(self, model) -> None:
+            self._model = model
+
+        def select_model(self, preferred_backend=None):
+            return self._model
+
+    config = ConfigManager(Path(".").resolve())
+    config.set("state_machine.invalid_tool_retry_limit", 2)
+    policy = PermissionPolicy.from_config(config, Path(".").resolve())
+    tools = ToolRegistry(policy)
+    model = LoopingModel()
+    state_machine = ReactiveStateMachine(LoopingRegistry(model), config, tools)
+
+    task = Task(id="invalid-loop", description="Update an existing html file", input={"workflow_mode": "superpowered"})
+    result = asyncio.run(state_machine.run_task(task))
+
+    assert result.success is False
+    assert result.error is not None
+    assert "repeated invalid tool loop" in result.error.lower()
+    assert model.calls <= 2
 
 
 def test_permission_policy_deny_all() -> None:

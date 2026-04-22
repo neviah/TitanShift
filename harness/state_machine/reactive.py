@@ -146,6 +146,13 @@ class ReactiveStateMachine:
         }
         return candidate in html_like
 
+    def _tool_call_signature(self, tool_call: ToolCall) -> str:
+        try:
+            args_json = json.dumps(tool_call.arguments, sort_keys=True, default=str)
+        except Exception:
+            args_json = str(tool_call.arguments)
+        return f"{self._canonical_tool_name(tool_call.name)}:{args_json}"
+
     def _should_escalate_web_fetch(self, tool_result: Any) -> bool:
         if not isinstance(tool_result, dict):
             return True
@@ -784,6 +791,9 @@ class ReactiveStateMachine:
         invalid_tool_seen = False
         recovered_after_invalid_tool = False
         invalid_html_tool_attempts = 0
+        consecutive_no_progress_steps = 0
+        repeated_invalid_signature: str | None = None
+        repeated_invalid_count = 0
         final_text = ""
         last_model_id = model.model_id
         last_provider_model_id: str | None = None
@@ -793,6 +803,8 @@ class ReactiveStateMachine:
         tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
         allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
         llm_call_index = 0
+        invalid_retry_limit = int(self.config.get("state_machine.invalid_tool_retry_limit", 3))
+        no_progress_step_limit = int(self.config.get("state_machine.no_progress_step_limit", 6))
 
         # ── SessionStart hook ──────────────────────────────────────────────
         if self.hooks is not None:
@@ -1005,6 +1017,7 @@ class ReactiveStateMachine:
             # LM Studio compatibility note: some model/server combos reject tool-role messages.
             # We therefore feed tool outputs back as plain user context for the next turn.
             tool_result_lines: list[str] = []
+            step_made_progress = False
             if requested_tools and not any(self._canonical_tool_name(name) in requested_canonical for name in used_tools):
                 if not any(self._canonical_tool_name(tc.name) in requested_canonical for tc in normalized_tool_calls):
                     correction = (
@@ -1032,6 +1045,12 @@ class ReactiveStateMachine:
                 used_tools.append(tc.name)
                 if self.tools.get_tool(tc.name) is None:
                     invalid_tool_seen = True
+                    signature = self._tool_call_signature(tc)
+                    if signature == repeated_invalid_signature:
+                        repeated_invalid_count += 1
+                    else:
+                        repeated_invalid_signature = signature
+                        repeated_invalid_count = 1
                     if self._looks_like_html_tag_tool(tc.name):
                         invalid_html_tool_attempts += 1
                     tool_result = {
@@ -1102,6 +1121,15 @@ class ReactiveStateMachine:
                     tool_result: dict[str, Any] | Any = result
                     if invalid_tool_seen and isinstance(tool_result, dict) and bool(tool_result.get("ok", False)):
                         recovered_after_invalid_tool = True
+                    if isinstance(tool_result, dict):
+                        if tool_result.get("ok", True) is not False:
+                            step_made_progress = True
+                            repeated_invalid_signature = None
+                            repeated_invalid_count = 0
+                    else:
+                        step_made_progress = True
+                        repeated_invalid_signature = None
+                        repeated_invalid_count = 0
                 except PermissionError as exc:
                     tool_errors.append(f"{tc.name}: {exc}")
                     if tc.name == "shell_command":
@@ -1138,6 +1166,12 @@ class ReactiveStateMachine:
                     tool_errors.append(f"{tc.name}: {exc}")
                     if "tool not found" in str(exc).lower():
                         invalid_tool_seen = True
+                        signature = self._tool_call_signature(tc)
+                        if signature == repeated_invalid_signature:
+                            repeated_invalid_count += 1
+                        else:
+                            repeated_invalid_signature = signature
+                            repeated_invalid_count = 1
                     tool_result = {"ok": False, "error": str(exc)}
 
                 if tc.name == "web_fetch" and self.tools.get_tool("web_browse") is not None:
@@ -1258,6 +1292,46 @@ class ReactiveStateMachine:
                     f"Tool `{tc.name}` called with {json.dumps(tc.arguments)} returned: {condensed}"
                 )
             last_tool_result_lines = tool_result_lines.copy()
+
+            if step_made_progress:
+                consecutive_no_progress_steps = 0
+            else:
+                consecutive_no_progress_steps += 1
+                if repeated_invalid_count >= invalid_retry_limit:
+                    abort_message = (
+                        "Aborted repeated invalid tool loop after the model retried the same unsupported tool call "
+                        f"{repeated_invalid_count} times without progress."
+                    )
+                    return TaskResult(
+                        task_id=task.id,
+                        output={
+                            "response": abort_message,
+                            "model": last_model_id,
+                            "provider_model": last_provider_model_id,
+                            "mode": "reactive",
+                            "estimated_total_tokens": total_tokens,
+                            "used_tools": used_tools,
+                        },
+                        success=False,
+                        error=abort_message,
+                    )
+                if invalid_tool_seen and not recovered_after_invalid_tool and consecutive_no_progress_steps >= no_progress_step_limit:
+                    abort_message = (
+                        "Aborted no-progress run after repeated invalid tool attempts without any successful tool execution."
+                    )
+                    return TaskResult(
+                        task_id=task.id,
+                        output={
+                            "response": abort_message,
+                            "model": last_model_id,
+                            "provider_model": last_provider_model_id,
+                            "mode": "reactive",
+                            "estimated_total_tokens": total_tokens,
+                            "used_tools": used_tools,
+                        },
+                        success=False,
+                        error=abort_message,
+                    )
 
             messages.append({
                 "role": "user",

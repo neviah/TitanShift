@@ -2850,6 +2850,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_input["strict_verification"] = False
         # Interactive chat should not fail on review-loop orchestration timeouts.
         task_input["require_task_reviews"] = False
+        _apply_interactive_superpowered_budget(task_input)
 
         task = Task(
             id=str(uuid.uuid4()),
@@ -3265,6 +3266,20 @@ def create_app(workspace_root: Path) -> FastAPI:
             ],
         )
 
+    def _apply_interactive_superpowered_budget(task_input: dict[str, Any]) -> None:
+        workflow_mode = str(task_input.get("workflow_mode", "")).strip().lower()
+        if workflow_mode != "superpowered":
+            return
+        budget = task_input.get("budget")
+        if not isinstance(budget, dict):
+            budget = {}
+            task_input["budget"] = budget
+        if int(budget.get("max_duration_ms", 0) or 0) > 0:
+            return
+        timeout_s = int(runtime.config.get("orchestrator.superpowered_mode.interactive_run_timeout_seconds", 600))
+        if timeout_s > 0:
+            budget["max_duration_ms"] = timeout_s * 1000
+
     @app.post("/chat/stream")
     async def chat_stream(
         body: ChatRequest,
@@ -3313,6 +3328,7 @@ def create_app(workspace_root: Path) -> FastAPI:
         task_input["strict_verification"] = False
         # Interactive chat should not fail on review-loop orchestration timeouts.
         task_input["require_task_reviews"] = False
+        _apply_interactive_superpowered_budget(task_input)
 
         task = Task(id=str(uuid.uuid4()), description=body.prompt, input=task_input)
         requested_mode = str(task_input.get("workflow_mode", "")).strip().lower()
