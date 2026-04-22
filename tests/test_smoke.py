@@ -164,6 +164,95 @@ def test_reactive_aborts_repeated_invalid_tool_loop() -> None:
     assert model.calls <= 2
 
 
+def test_edit_file_requires_read_before_edit() -> None:
+    runtime = build_runtime(Path(".").resolve())
+
+    class ScriptedModel:
+        model_id = "scripted-edit-read"
+        timeout_s = 1.0
+
+        def __init__(self, target_path: str) -> None:
+            self.calls = 0
+            self.target_path = target_path
+
+        async def generate(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                return ModelResponse(
+                    text="",
+                    model_id=self.model_id,
+                    tool_calls=[
+                        ToolCall(
+                            id="edit-before-read",
+                            name="edit_file",
+                            arguments={
+                                "target_path": self.target_path,
+                                "old_string": "Hello",
+                                "new_string": "Hi",
+                            },
+                        )
+                    ],
+                )
+            if self.calls == 2:
+                return ModelResponse(
+                    text="",
+                    model_id=self.model_id,
+                    tool_calls=[
+                        ToolCall(
+                            id="read-now",
+                            name="read_file",
+                            arguments={"path": self.target_path},
+                        )
+                    ],
+                )
+            if self.calls == 3:
+                return ModelResponse(
+                    text="",
+                    model_id=self.model_id,
+                    tool_calls=[
+                        ToolCall(
+                            id="edit-after-read",
+                            name="edit_file",
+                            arguments={
+                                "target_path": self.target_path,
+                                "old_string": "Hello",
+                                "new_string": "Hi",
+                            },
+                        )
+                    ],
+                )
+            return ModelResponse(text="done", model_id=self.model_id, tool_calls=[])
+
+        def estimate_tokens(self, text: str) -> int:
+            return max(1, len(text) // 4)
+
+    target = Path(".harness/test_edit_file_requires_read.txt")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("Hello world\n", encoding="utf-8")
+
+    try:
+        model = ScriptedModel(str(target))
+        runtime.models.adapters["scripted_edit_read"] = model
+        task = Task(
+            id="edit-read-prereq",
+            description="Edit an existing file safely",
+            input={
+                "model_backend": "scripted_edit_read",
+                "workflow_mode": "lightning",
+                "budget": {"max_steps": 6, "max_tokens": 12000, "max_duration_ms": 30000},
+                "require_task_reviews": False,
+            },
+        )
+
+        result = asyncio.run(runtime.orchestrator.run_reactive_task(task))
+        assert result.success is True
+        assert model.calls >= 4
+        assert target.read_text(encoding="utf-8") == "Hi world\n"
+    finally:
+        if target.exists():
+            target.unlink()
+
+
 def test_permission_policy_deny_all() -> None:
     policy = PermissionPolicy(
         deny_all_by_default=True,

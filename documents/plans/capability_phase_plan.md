@@ -39,6 +39,9 @@
 - Release helpers now support `dry_run` mode to preview actions before file or git mutations.
 - Release notes generation now groups commits into features, fixes, chore, and other sections using commit prefixes.
 - Added FastAPI and static-site scenario coverage for `generate_route`, plus static-site scenario coverage for `generate_component`.
+- Implemented first-class `edit_file` tool with exact old/new replacement semantics.
+- Reactive loop now enforces read-before-edit: `edit_file` requires prior successful `read_file` on the same path in-run.
+- Added smoke regression coverage for the `edit_file` read prerequisite.
 
 ## Acceptance Criteria
 

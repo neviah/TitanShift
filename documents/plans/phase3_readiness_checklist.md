@@ -14,8 +14,9 @@ Start Phase 3 implementation with minimal discovery and clear contracts for scaf
   - `test_failure_summary`
   - `test_failed_count`
 - Built-in editing and validation tools available for scaffolding workflows:
-  - `write_file`, `append_file`, `replace_in_file`, `insert_at_line`, `delete_range`, `json_edit`, `yaml_edit`
+  - `write_file`, `append_file`, `replace_in_file`, `edit_file`, `insert_at_line`, `delete_range`, `json_edit`, `yaml_edit`
   - `run_tests`, `lint_and_fix`, `run_project_check`
+- `edit_file` is guarded by read-before-edit policy in the reactive loop (same-path `read_file` required first).
 - Initial scaffold tool implemented:
   - `init_project` for `fastapi`, `vite-react`, and `static-site`
 - Additional generators implemented:

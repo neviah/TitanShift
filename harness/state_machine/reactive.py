@@ -153,6 +153,27 @@ class ReactiveStateMachine:
             args_json = str(tool_call.arguments)
         return f"{self._canonical_tool_name(tool_call.name)}:{args_json}"
 
+    def _normalize_tracking_path(self, raw_path: str, workspace_root: Path) -> str:
+        text = str(raw_path or "").strip()
+        if not text:
+            return ""
+        path_obj = Path(text)
+        if not path_obj.is_absolute():
+            path_obj = workspace_root / path_obj
+        try:
+            resolved = path_obj.resolve()
+        except Exception:
+            resolved = path_obj
+        return str(resolved).replace("\\", "/").lower()
+
+    def _extract_tool_path_argument(self, args: dict[str, Any]) -> str:
+        return str(
+            args.get("path")
+            or args.get("target_path")
+            or args.get("file_path")
+            or ""
+        ).strip()
+
     def _should_escalate_web_fetch(self, tool_result: Any) -> bool:
         if not isinstance(tool_result, dict):
             return True
@@ -328,11 +349,16 @@ class ReactiveStateMachine:
         if any(token in text for token in ["append a new line", "append new line", "append a line", "append to ", "append ", "appending "]):
             if "append_file" in available:
                 matched.add("append_file")
+        if any(token in text for token in ["edit file", "edit existing", "replace text", "replace this", "exact replace"]):
+            if "edit_file" in available:
+                matched.add("edit_file")
         if any(token in text for token in ["read_file", "read the file", "open the file", "return the full final file content", "edit ", "update ", "modify ", "change "]):
             if "read_file" in available:
                 matched.add("read_file")
         if any(token in text for token in ["edit ", "update ", "modify ", "change ", "append ", "appending "]):
-            if "write_file" in available:
+            if "edit_file" in available:
+                matched.add("edit_file")
+            elif "write_file" in available:
                 matched.add("write_file")
         if any(token in text for token in ["create one", "create it", "create a file", "if you don't see", "if it does not exist"]):
             if "write_file" in available:
@@ -365,6 +391,7 @@ class ReactiveStateMachine:
             "append_file": ["use append_file_tool", "append_file_tool", "append file tool"],
             "read_file": ["use read_file_tool", "read_file_tool", "read file tool"],
             "write_file": ["use write_file_tool", "write_file_tool", "write file tool"],
+            "edit_file": ["use edit_file_tool", "edit_file_tool", "edit file tool"],
         }
         for tool_name, aliases in alias_map.items():
             if tool_name in available and any(alias in text for alias in aliases):
@@ -380,6 +407,9 @@ class ReactiveStateMachine:
         if any(token in text for token in ["create a file named", "create file named", "must create", "use write_file", "write_file tool"]):
             if "write_file" in available:
                 mandatory.add("write_file")
+        if any(token in text for token in ["edit existing file", "replace text", "use edit_file", "edit_file tool"]):
+            if "edit_file" in available:
+                mandatory.add("edit_file")
 
         # Only require browser automation when UI navigation is explicitly requested.
         if any(token in text for token in ["use browser", "browser tool", "visually", "screenshot", "click", "scroll"]):
@@ -805,6 +835,7 @@ class ReactiveStateMachine:
         llm_call_index = 0
         invalid_retry_limit = int(self.config.get("state_machine.invalid_tool_retry_limit", 3))
         no_progress_step_limit = int(self.config.get("state_machine.no_progress_step_limit", 6))
+        read_paths_seen: set[str] = set()
 
         # ── SessionStart hook ──────────────────────────────────────────────
         if self.hooks is not None:
@@ -1088,6 +1119,23 @@ class ReactiveStateMachine:
                         f"Tool-like skill call `{tc.name}` with {json.dumps(tc.arguments)} was converted into guidance: {tool_content}"
                     )
                     continue
+                if tc.name == "edit_file":
+                    requested_path = self._extract_tool_path_argument(tc.arguments)
+                    normalized_target = self._normalize_tracking_path(requested_path, workspace_root_path)
+                    if not normalized_target or normalized_target not in read_paths_seen:
+                        tool_result = {
+                            "ok": False,
+                            "error": (
+                                "edit_file requires a successful read_file on the same target earlier in this run. "
+                                "Call read_file for the file before editing."
+                            ),
+                        }
+                        tool_content = json.dumps(tool_result)
+                        total_tokens += model.estimate_tokens(tool_content)
+                        tool_result_lines.append(
+                            f"Tool `{tc.name}` blocked for missing read prerequisite on `{requested_path}`: {tool_content}"
+                        )
+                        continue
                 # ── PreToolUse hook ───────────────────────────────────────
                 if self.hooks is not None:
                     try:
@@ -1214,6 +1262,11 @@ class ReactiveStateMachine:
                     browser_proofs.append(proof)
 
                 if isinstance(tool_result, dict):
+                    if tc.name == "read_file" and bool(tool_result.get("ok", False)):
+                        read_path_raw = str(tool_result.get("path") or self._extract_tool_path_argument(tc.arguments) or "")
+                        normalized_read = self._normalize_tracking_path(read_path_raw, workspace_root_path)
+                        if normalized_read:
+                            read_paths_seen.add(normalized_read)
                     created = tool_result.get("created_paths")
                     if isinstance(created, list):
                         created_paths.extend(str(path) for path in created if str(path).strip())
@@ -1511,6 +1564,7 @@ class ReactiveStateMachine:
         allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
         llm_call_index = 0
         last_diff: str = ""  # last patch/replace diff captured for PreviewPanel
+        read_paths_seen: set[str] = set()
 
         # ── SessionStart hook ──────────────────────────────────────────────
         if self.hooks is not None:
@@ -1668,6 +1722,31 @@ class ReactiveStateMachine:
                         tool_result_lines.append(f"Tool `{tc.name}` returned: {tool_content}")
                         yield {"type": "tool_result", "step": step, "tool": tc.name, "ok": True, "summary": "skill-like call redirected"}
                         continue
+                    if tc.name == "edit_file":
+                        requested_path = self._extract_tool_path_argument(tc.arguments)
+                        normalized_target = self._normalize_tracking_path(requested_path, workspace_root_path)
+                        if not normalized_target or normalized_target not in read_paths_seen:
+                            tool_result = {
+                                "ok": False,
+                                "error": (
+                                    "edit_file requires a successful read_file on the same target earlier in this run. "
+                                    "Call read_file for the file before editing."
+                                ),
+                            }
+                            tool_content = json.dumps(tool_result)
+                            total_tokens += model.estimate_tokens(tool_content)
+                            condensed = tool_content[:800]
+                            tool_result_lines.append(
+                                f"Tool `{tc.name}` blocked for missing read prerequisite on `{requested_path}`: {condensed}"
+                            )
+                            yield {
+                                "type": "tool_result",
+                                "step": step,
+                                "tool": tc.name,
+                                "ok": False,
+                                "summary": "edit_file blocked: read_file prerequisite missing",
+                            }
+                            continue
                     # ── PreToolUse hook ──────────────────────────────────────
                     if self.hooks is not None:
                         try:
@@ -1705,6 +1784,11 @@ class ReactiveStateMachine:
                         tool_result = {"ok": False, "error": str(exc)}
 
                     if isinstance(tool_result, dict):
+                        if tc.name == "read_file" and bool(tool_result.get("ok", False)):
+                            read_path_raw = str(tool_result.get("path") or self._extract_tool_path_argument(tc.arguments) or "")
+                            normalized_read = self._normalize_tracking_path(read_path_raw, workspace_root_path)
+                            if normalized_read:
+                                read_paths_seen.add(normalized_read)
                         cp = tool_result.get("created_paths")
                         if isinstance(cp, list):
                             created_paths.extend(str(p) for p in cp if str(p).strip())

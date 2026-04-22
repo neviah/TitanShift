@@ -2290,6 +2290,73 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         )
     )
 
+    async def edit_file_handler(args: dict[str, Any]) -> dict[str, Any]:
+        raw_path = str(
+            args.get("target_path")
+            or args.get("file_path")
+            or args.get("path")
+            or ""
+        ).strip()
+        old_string = str(args.get("old_string") or args.get("old_text") or "")
+        new_string = str(args.get("new_string") or args.get("new_text") or "")
+        replace_all = bool(args.get("replace_all", False))
+        raw_count = args.get("count")
+
+        if not raw_path:
+            raise ValueError("target_path is required")
+        if not old_string:
+            raise ValueError("old_string is required")
+        if old_string == new_string:
+            raise ValueError("No changes to apply: old_string and new_string are identical")
+
+        count = int(raw_count) if raw_count is not None else 1
+        if count < 1:
+            raise ValueError("count must be >= 1")
+        effective_count = -1 if replace_all else count
+
+        target = _resolve_workspace_path(raw_path)
+        if not target.exists() or not target.is_file():
+            raise ValueError(f"file not found: {target}")
+
+        content = target.read_text(encoding="utf-8", errors="replace")
+        occurrences = content.count(old_string)
+        if occurrences == 0:
+            raise ValueError("old_string not found in target file")
+
+        replaced = content.replace(old_string, new_string, effective_count)
+        applied = occurrences if replace_all else min(occurrences, count)
+        target.write_text(replaced, encoding="utf-8")
+
+        return {
+            "ok": True,
+            "path": str(target).replace("\\", "/"),
+            "replacements": applied,
+            "replace_all": replace_all,
+            "bytes_written": len(replaced.encode("utf-8")),
+        }
+
+    tools.register_tool(
+        ToolDefinition(
+            name="edit_file",
+            description=(
+                "Edit an existing UTF-8 file by replacing old_string with new_string. "
+                "Use this for precise existing-file edits. Requires read_file first in the same run."
+            ),
+            handler=edit_file_handler,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_path": {"type": "string", "description": "File path relative to workspace root or absolute allowed path"},
+                    "old_string": {"type": "string", "description": "Exact existing text to replace"},
+                    "new_string": {"type": "string", "description": "Replacement text"},
+                    "replace_all": {"type": "boolean", "description": "Replace all occurrences when true (default false)"},
+                    "count": {"type": "integer", "description": "Maximum replacements when replace_all is false; defaults to 1"},
+                },
+                "required": ["target_path", "old_string", "new_string"],
+            },
+        )
+    )
+
     async def json_edit_handler(args: dict[str, Any]) -> dict[str, Any]:
         raw_path = str(args.get("target_path") or args.get("path") or "").strip()
         updates = args.get("updates")

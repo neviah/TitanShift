@@ -66,6 +66,7 @@
       "write_file",
       "append_file",
       "replace_in_file",
+      "edit_file",
       "json_edit",
       "read_file",
       "list_directory",
@@ -106,7 +107,8 @@
       "max_steps": 40,
       "max_tokens": 95000,
       "max_duration_ms": 600000
-    }
+    },
+    "invalid_tool_retry_limit": 2
   },
   "ingestion": {
     "enable_graphify_plugin": false

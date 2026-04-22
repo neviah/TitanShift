@@ -90,6 +90,7 @@ The runtime includes built-in tools grouped into practical categories.
 - write_file
 - append_file
 - replace_in_file
+- edit_file
 - patch_file
 - insert_at_line
 - delete_range
