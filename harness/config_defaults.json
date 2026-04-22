@@ -114,6 +114,7 @@
       "last30days_research"
     ],
     "blocked_tool_names": [],
+    "permission_rules": [],
     "allowed_command_prefixes": [
       "where",
       "git",
@@ -168,6 +169,7 @@
       "last30days_research"
     ],
     "blocked_tool_names": [],
+    "permission_rules": [],
     "allowed_command_prefixes": ["where", "git", "python", "npm", "curl", "dir", "echo"]
   },
   "execution": {

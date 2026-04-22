@@ -23,7 +23,7 @@ from harness.runtime.types import Task
 from harness.skills.registry import SkillDefinition
 from harness.state_machine.reactive import ReactiveStateMachine
 from harness.tools.definitions import ToolDefinition
-from harness.tools.registry import PermissionPolicy, ToolRegistry
+from harness.tools.registry import PermissionPolicy, PermissionRule, ToolRegistry
 
 
 class TestClient(FastAPITestClient):
@@ -301,6 +301,58 @@ def test_permission_policy_deny_all() -> None:
     allowed, reason = policy.evaluate_tool(ToolDefinition(name="demo", description="demo"), args={})
     assert allowed is False
     assert reason == "tool_not_in_allowlist"
+
+
+def test_permission_policy_rule_denies_edit_path_pattern() -> None:
+    workspace = Path(".").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=True,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names=set(),
+        blocked_tool_names=set(),
+        allowed_command_prefixes=["git", "python"],
+        workspace_root=workspace,
+        permission_rules=[
+            PermissionRule(permission="edit", pattern="frontend/src/*", action="allow"),
+            PermissionRule(permission="edit", pattern="frontend/src/secrets/*", action="deny"),
+        ],
+    )
+
+    tool = ToolDefinition(name="edit_file", description="edit")
+    allowed_safe, reason_safe = policy.evaluate_tool(tool, {"target_path": "frontend/src/App.tsx"})
+    allowed_secret, reason_secret = policy.evaluate_tool(tool, {"target_path": "frontend/src/secrets/keys.txt"})
+
+    assert allowed_safe is True
+    assert reason_safe == "allowed"
+    assert allowed_secret is False
+    assert reason_secret.startswith("permission_rule_denied:edit:")
+
+
+def test_permission_policy_rule_asks_for_bash_pattern() -> None:
+    workspace = Path(".").resolve()
+    policy = PermissionPolicy(
+        deny_all_by_default=False,
+        allow_network=False,
+        allowed_paths=[workspace],
+        allowed_tool_names={"shell_command"},
+        blocked_tool_names=set(),
+        allowed_command_prefixes=["git", "python", "npm"],
+        workspace_root=workspace,
+        permission_rules=[
+            PermissionRule(permission="bash", pattern="git *", action="allow"),
+            PermissionRule(permission="bash", pattern="python *", action="ask"),
+        ],
+    )
+
+    tool = ToolDefinition(name="shell_command", description="shell", capabilities=["shell.exec"])
+    allowed_git, reason_git = policy.evaluate_tool(tool, {"command": "git status"})
+    allowed_python, reason_python = policy.evaluate_tool(tool, {"command": "python -V"})
+
+    assert allowed_git is True
+    assert reason_git == "allowed"
+    assert allowed_python is False
+    assert reason_python.startswith("approval_required:bash:")
 
 
 def test_execution_policy_blocks_unknown_command() -> None:

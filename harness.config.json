@@ -76,6 +76,7 @@
       "run_project_check"
     ],
     "blocked_tool_names": [],
+    "permission_rules": [],
     "allowed_command_prefixes": [
       "where",
       "git",

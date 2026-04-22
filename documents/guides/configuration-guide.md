@@ -79,7 +79,16 @@ Superpowered phase sequence enforcement:
 - tools.allowed_paths
 - tools.allowed_tool_names
 - tools.blocked_tool_names
+- tools.permission_rules
 - tools.allowed_command_prefixes
+
+`tools.permission_rules` accepts ordered wildcard rules with `permission`, `pattern`, and `action` (`allow`, `ask`, `deny`).
+Examples:
+
+- `{ "permission": "edit", "pattern": "frontend/src/*", "action": "allow" }`
+- `{ "permission": "edit", "pattern": "*", "action": "ask" }`
+- `{ "permission": "bash", "pattern": "git *", "action": "allow" }`
+- `{ "permission": "bash", "pattern": "*", "action": "deny" }`
 
 ### memory
 

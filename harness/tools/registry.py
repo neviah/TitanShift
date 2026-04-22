@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import fnmatch
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,13 @@ from harness.tools.definitions import ToolDefinition
 
 
 @dataclass(slots=True)
+class PermissionRule:
+    permission: str
+    pattern: str
+    action: str
+
+
+@dataclass(slots=True)
 class PermissionPolicy:
     deny_all_by_default: bool
     allow_network: bool
@@ -21,11 +29,24 @@ class PermissionPolicy:
     allowed_tool_names: set[str]
     blocked_tool_names: set[str]
     allowed_command_prefixes: list[str]
+    workspace_root: Path = field(default_factory=lambda: Path(".").resolve())
+    permission_rules: list[PermissionRule] = field(default_factory=list)
 
     @classmethod
     def from_config(cls, cfg: ConfigManager, workspace_root: Path) -> "PermissionPolicy":
         raw_paths = cfg.get("tools.allowed_paths", []) or []
         resolved = [workspace_root / p for p in raw_paths]
+        raw_rules = cfg.get("tools.permission_rules", []) or []
+        parsed_rules: list[PermissionRule] = []
+        for row in raw_rules:
+            if not isinstance(row, dict):
+                continue
+            permission = str(row.get("permission") or "").strip().lower()
+            pattern = str(row.get("pattern") or "").strip()
+            action = str(row.get("action") or "").strip().lower()
+            if not permission or not pattern or action not in {"allow", "ask", "deny"}:
+                continue
+            parsed_rules.append(PermissionRule(permission=permission, pattern=pattern, action=action))
         return cls(
             deny_all_by_default=bool(cfg.get("tools.deny_all_by_default", True)),
             allow_network=bool(cfg.get("tools.allow_network", False)),
@@ -33,42 +54,160 @@ class PermissionPolicy:
             allowed_tool_names=set(cfg.get("tools.allowed_tool_names", []) or []),
             blocked_tool_names=set(cfg.get("tools.blocked_tool_names", []) or []),
             allowed_command_prefixes=list(cfg.get("tools.allowed_command_prefixes", []) or []),
+            workspace_root=workspace_root.resolve(),
+            permission_rules=parsed_rules,
         )
+
+    def _normalize_path(self, raw_path: str) -> Path:
+        candidate = Path(str(raw_path))
+        if candidate.is_absolute():
+            return candidate.resolve()
+        return (self.workspace_root / candidate).resolve()
+
+    def _path_variants(self, raw_path: str) -> set[str]:
+        path = self._normalize_path(raw_path)
+        variants = {path.as_posix()}
+        try:
+            rel = path.relative_to(self.workspace_root)
+            variants.add(rel.as_posix())
+        except ValueError:
+            pass
+        return variants
+
+    def _collect_path_values(self, tool: ToolDefinition, args: dict[str, Any], *, include_required: bool = True) -> set[str]:
+        path_values: set[str] = set()
+        path_keys = ["path", "target_path", "directory_path", "source_path", "destination_path", "file_path"]
+        capabilities = tool.capabilities or []
+        is_http_tool = any(cap.startswith("http.") or cap == "api.request" for cap in capabilities)
+        if is_http_tool:
+            path_keys = [k for k in path_keys if k != "path"]
+
+        for key in path_keys:
+            value = args.get(key)
+            if not value:
+                continue
+            path_values.update(self._path_variants(str(value)))
+
+        if include_required:
+            for required in tool.required_paths:
+                if not required:
+                    continue
+                path_values.update(self._path_variants(str(required)))
+
+        return path_values
+
+    def _resolve_permission_domain(self, tool: ToolDefinition, args: dict[str, Any]) -> str:
+        name = tool.name.lower()
+        caps = tool.capabilities or []
+        has_command = bool(str(args.get("command", "")).strip()) or bool(tool.required_commands)
+
+        if has_command or any(cap in ("shell.exec", "shell.command", "process.exec") for cap in caps) or name in {
+            "shell_command",
+            "run_tests",
+            "run_project_check",
+            "lint_and_fix",
+            "install_dependencies",
+            "version_bump",
+            "tag_and_publish_release",
+            "generate_release_notes",
+        }:
+            return "bash"
+
+        if tool.needs_network or name in {"web_fetch", "web_browse"}:
+            return "webfetch"
+
+        edit_tools = {
+            "create_directory",
+            "write_file",
+            "append_file",
+            "replace_in_file",
+            "edit_file",
+            "json_edit",
+            "insert_at_line",
+            "delete_range",
+            "yaml_edit",
+            "patch_file",
+            "rename_or_move",
+            "delete_file",
+        }
+        if name in edit_tools:
+            return "edit"
+
+        read_tools = {
+            "read_file",
+            "list_directory",
+            "search_workspace",
+            "read_context",
+            "index_project",
+            "propose_wiring",
+        }
+        if name in read_tools:
+            return "read"
+
+        return name
+
+    def _evaluate_permission_rules(self, tool: ToolDefinition, args: dict[str, Any]) -> tuple[str | None, str | None]:
+        if not self.permission_rules:
+            return None, None
+
+        permission = self._resolve_permission_domain(tool, args)
+        if permission == "bash":
+            candidates = {str(args.get("command", "")).strip()} if str(args.get("command", "")).strip() else set()
+            candidates.update(str(cmd).strip() for cmd in tool.required_commands if str(cmd).strip())
+            if not candidates:
+                candidates = {"*"}
+        elif permission in {"read", "edit"}:
+            candidates = self._collect_path_values(tool, args)
+            if not candidates:
+                candidates = {"*"}
+        else:
+            candidates = {"*", tool.name}
+
+        matched_action: str | None = None
+        matched_pattern: str | None = None
+        for rule in self.permission_rules:
+            if rule.permission not in {permission, "*"}:
+                continue
+            if any(fnmatch.fnmatch(candidate, rule.pattern) for candidate in candidates):
+                matched_action = rule.action
+                matched_pattern = rule.pattern
+
+        if matched_action is None:
+            return None, None
+        return matched_action, f"{permission}:{matched_pattern}"
 
     def evaluate_tool(self, tool: ToolDefinition, args: dict[str, Any]) -> tuple[bool, str]:
         if tool.name in self.blocked_tool_names:
             return False, "blocked_tool_name"
 
-        if self.deny_all_by_default:
+        rule_action, rule_match = self._evaluate_permission_rules(tool, args)
+        if rule_action == "deny":
+            return False, f"permission_rule_denied:{rule_match}"
+        if rule_action == "ask":
+            return False, f"approval_required:{rule_match}"
+        allowed_by_rule = rule_action == "allow"
+
+        if self.deny_all_by_default and not allowed_by_rule:
             if tool.name not in self.allowed_tool_names:
                 return False, "tool_not_in_allowlist"
 
         if tool.needs_network and not self.allow_network:
             return False, "network_not_allowed"
 
-        for required in tool.required_paths:
-            req = str((Path(required)).resolve())
-            if not any(req.startswith(str(base.resolve())) for base in self.allowed_paths):
+        required_paths = self._collect_path_values(tool, args, include_required=True)
+        for required in required_paths:
+            if required == "*":
+                continue
+            req_path = self._normalize_path(required)
+            if not any(str(req_path).startswith(str(base.resolve())) for base in self.allowed_paths):
                 return False, "required_path_not_allowed"
 
-        capabilities = tool.capabilities or []
-        is_http_tool = any(cap.startswith("http.") or cap == "api.request" for cap in capabilities)
-        path_keys = ["path", "target_path", "directory_path", "source_path", "destination_path"]
-        if is_http_tool:
-            path_keys = [k for k in path_keys if k != "path"]
-
-        for path_key in path_keys:
-            arg_path = args.get(path_key)
-            if not arg_path:
+        arg_paths = self._collect_path_values(tool, args, include_required=False)
+        for arg_value in arg_paths:
+            if arg_value == "*":
                 continue
-            candidate = Path(str(arg_path))
-            if candidate.is_absolute():
-                req = str(candidate.resolve())
-            elif self.allowed_paths:
-                req = str((self.allowed_paths[0] / candidate).resolve())
-            else:
-                req = str(candidate.resolve())
-            if not any(req.startswith(str(base.resolve())) for base in self.allowed_paths):
+            req_path = self._normalize_path(arg_value)
+            if not any(str(req_path).startswith(str(base.resolve())) for base in self.allowed_paths):
                 return False, "argument_path_not_allowed"
 
         if tool.required_commands:
@@ -84,7 +223,6 @@ class PermissionPolicy:
                 return False, "command_prefix_not_allowed"
 
         return True, "allowed"
-
 
 class ToolRegistry:
     def __init__(
@@ -181,7 +319,7 @@ class ToolRegistry:
             allowed, reason = self.policy.evaluate_tool(tool, effective_args)
             if not allowed:
                 self._emit_audit(name=name, status="denied", reason=reason, args=effective_args)
-                raise PermissionError(f"Tool blocked by deny-all policy: {name}")
+                raise PermissionError(f"Tool blocked by policy: {name} ({reason})")
         else:
             reason = "bypassed_for_superpowered_mode"
 
