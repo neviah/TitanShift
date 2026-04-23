@@ -108,7 +108,12 @@ class Orchestrator:
             "verifier": RoleTemplate(
                 role_key="verifier",
                 role_name="Verification Agent",
-                goal="Run evidence-based validation before marking work complete.",
+                goal=(
+                    "Review the evidence provided. PASS if the implementer created or modified "
+                    "the expected files and their feedback indicates the work is complete. "
+                    "Only FAIL if key deliverables are explicitly absent from the created/updated "
+                    "paths or the implementer explicitly reported an unresolved error."
+                ),
                 required_skills=["verification-before-completion"],
             ),
             "planner": RoleTemplate(
@@ -352,6 +357,15 @@ class Orchestrator:
             )
         )
 
+        # Pull acceptance criteria stored by the approve-plan endpoint so reviewers
+        # and the verifier check against concrete goals rather than inventing criteria.
+        _acceptance_criteria: list[str] = []
+        if parent_task.input:
+            _raw_criteria = parent_task.input.get("acceptance_criteria", [])
+            if isinstance(_raw_criteria, list):
+                _acceptance_criteria = [str(c) for c in _raw_criteria if c]
+        _criteria_text = "\n".join(f"- {c}" for c in _acceptance_criteria)
+
         task_results: list[dict[str, object]] = []
 
         for idx, item in enumerate(plan_tasks, start=1):
@@ -422,9 +436,14 @@ class Orchestrator:
                         )
                 except Exception:
                     pass  # non-fatal: snapshot is optional context
+                _criteria_section = (
+                    f"\nAcceptance criteria (your implementation MUST satisfy ALL of these):\n{_criteria_text}\n"
+                    if _criteria_text else ""
+                )
                 impl_description = (
                     f"Implement task #{idx}: {title}. "
                     f"{str(item.get('description', title))}\n"
+                    f"{_criteria_section}"
                     f"{implementation_rules}"
                     f"{_workspace_snapshot}"
                 )
@@ -531,7 +550,10 @@ class Orchestrator:
                 if not simulation_mode:
                     review_context = (
                         f"Task #{idx}: {title}\n"
-                        f"Implementer output: {item_result.get('implementer_feedback', 'N/A')}"
+                        f"Implementer output: {item_result.get('implementer_feedback', 'N/A')}\n"
+                        f"Created paths: {', '.join(item_result.get('implementer_created_paths', [])) or 'none'}\n"
+                        f"Updated paths: {', '.join(item_result.get('implementer_updated_paths', [])) or 'none'}"
+                        + (f"\nAcceptance criteria:\n{_criteria_text}" if _criteria_text else "")
                     )
                     spec_result = await self._invoke_role_model(parent_task, "spec_reviewer", review_context)
                     code_result = await self._invoke_role_model(parent_task, "code_reviewer", review_context)
@@ -567,6 +589,7 @@ class Orchestrator:
                     verification_passed = bool(item.get("verification_passed", True))
                 else:
                     verify_context = (
+                        f"Original request: {str(parent_task.description or '')[:400]}\n"
                         f"Task #{idx}: {title}\n"
                         f"Iteration count: {item_result['iterations']}\n"
                         f"Implementer feedback: {item_result.get('implementer_feedback', 'N/A')}\n"
@@ -575,6 +598,7 @@ class Orchestrator:
                         f"Patch summaries: {json.dumps(item_result.get('implementer_patch_summaries', []), default=str)[:800]}\n"
                         f"Spec feedback: {item_result.get('spec_review_feedback', 'N/A')}\n"
                         f"Code feedback: {item_result.get('code_review_feedback', 'N/A')}"
+                        + (f"\nAcceptance criteria to verify against:\n{_criteria_text}" if _criteria_text else "")
                     )
                     verify_result = await self._invoke_role_model(parent_task, "verifier", verify_context)
                     verification_passed = verify_result["passed"]
