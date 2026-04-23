@@ -4125,9 +4125,33 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         max_chars = int(args.get("max_chars", 8000))
 
         verify = bool(args.get("verify_tls", True))
+
+        # Build headers that mimic a real browser so sites like Reddit don't 403.
+        # Reddit's API additionally requires a descriptive User-Agent; handle it specifically.
+        if "reddit.com" in url:
+            ua = "TitanShift/1.0 (automated research agent; +https://github.com/titanshift)"
+            # Prefer old.reddit.com – it's lighter and more bot-friendly.
+            if "old.reddit.com" not in url:
+                url = (
+                    url.replace("://www.reddit.com", "://old.reddit.com")
+                       .replace("://reddit.com", "://old.reddit.com")
+                )
+        else:
+            ua = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+
+        headers = {
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml,application/json,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
         try:
             async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True, verify=verify) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=headers)
                 response.raise_for_status()
                 body = response.text
         except Exception as exc:
@@ -4136,7 +4160,7 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
             if "certificate verify failed" not in msg:
                 raise
             async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True, verify=False) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=headers)
                 response.raise_for_status()
                 body = response.text
 
