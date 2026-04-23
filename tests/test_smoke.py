@@ -1756,6 +1756,16 @@ def test_generate_route_tool_creates_react_route_and_test() -> None:
         shutil.rmtree(target_dir, ignore_errors=True)
 
 
+def test_state_machine_builds_tool_schema_from_allowed_tools() -> None:
+    app = create_app(Path(".").resolve())
+    runtime = app.state.runtime
+
+    defs = runtime.orchestrator.state_machine._build_tool_definitions(["list_directory", "read_file", "write_file"])
+    names = {str(item.get("function", {}).get("name", "")) for item in defs}
+
+    assert names == {"list_directory", "read_file", "write_file"}
+
+
 def test_generate_route_tool_creates_fastapi_route_and_test() -> None:
     app = create_app(Path(".").resolve())
     runtime = app.state.runtime
@@ -5310,6 +5320,58 @@ def test_openai_compatible_adapter_parses_pseudo_tool_call_content() -> None:
     assert len(parsed) == 1
     assert parsed[0].name == "web_fetch"
     assert parsed[0].arguments == {"url": "https://example.org", "timeout_s": 12}
+
+
+def test_openai_compatible_adapter_parses_functions_marker_tool_call() -> None:
+    adapter = CloudOpenAIAdapter(
+        base_url="https://example.com/v1",
+        default_model="test-model",
+        provider_name="Test OpenAI-compatible",
+    )
+
+    parsed = adapter._extract_pseudo_tool_calls(
+        '<|tool_calls_section_begin|><|tool_call_begin|> functions.list_directory:0 '
+        '<|tool_call_argument_begin|> {"path": "emutalk-blog"} <|tool_call_end|><|tool_calls_section_end|>'
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].name == "list_directory"
+    assert parsed[0].arguments == {"path": "emutalk-blog"}
+
+
+def test_openai_compatible_adapter_parses_functions_tag_tool_call() -> None:
+    adapter = CloudOpenAIAdapter(
+        base_url="https://example.com/v1",
+        default_model="test-model",
+        provider_name="Test OpenAI-compatible",
+    )
+
+    parsed = adapter._extract_pseudo_tool_calls(
+        '<functions.read_file:0>{"path": "emutalk-blog/index.html"}</functions>'
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].name == "read_file"
+    assert parsed[0].arguments == {"path": "emutalk-blog/index.html"}
+
+
+def test_openai_compatible_adapter_parses_functions_tag_write_file_with_nested_braces() -> None:
+    adapter = CloudOpenAIAdapter(
+        base_url="https://example.com/v1",
+        default_model="test-model",
+        provider_name="Test OpenAI-compatible",
+    )
+
+    parsed = adapter._extract_pseudo_tool_calls(
+        '<functions.write_file:0>{"path": "emutalk-blog/style.css", "content": "body { color: #123; }\n.card { display: grid; }"}</functions>'
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].name == "write_file"
+    assert parsed[0].arguments == {
+        "path": "emutalk-blog/style.css",
+        "content": "body { color: #123; }\n.card { display: grid; }",
+    }
 
 
 def test_lmstudio_adapter_parses_curly_brace_tool_call_syntax() -> None:

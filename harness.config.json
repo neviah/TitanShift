@@ -216,7 +216,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 40,
-      "max_tokens": 2555,
+      "max_tokens": 240000,
       "max_duration_ms": 600000
     },
     "invalid_tool_retry_limit": 2

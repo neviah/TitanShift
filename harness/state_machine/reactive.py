@@ -440,6 +440,27 @@ class ReactiveStateMachine:
 
         return sorted(mandatory)
 
+    @staticmethod
+    def _likely_requires_workspace_changes(task_description: str) -> bool:
+        text = task_description.lower()
+        signals = [
+            "create",
+            "write",
+            "update",
+            "modify",
+            "edit",
+            "patch",
+            "complete",
+            "finish",
+            "style.css",
+            "index.html",
+            "website",
+            "web site",
+            "folder",
+            "file",
+        ]
+        return any(token in text for token in signals)
+
     def _build_active_tool_definitions(self, requested_tools: list[str], *, allow_support_tools: bool = True) -> list[dict[str, Any]]:
         """Build tool definitions, optionally narrowed when user explicitly requests tools."""
         all_defs = self._build_tool_definitions()
@@ -564,10 +585,11 @@ class ReactiveStateMachine:
             "image/jpeg",
             "image/webp",
         }
+        safe_tenant_id = self._normalize_artifact_id(tenant_id)
         run_root = (
             (workspace_root / ".titantshift" / "artifacts" / task_id)
             if tenant_id == "_system_"
-            else (workspace_root / ".titantshift" / "artifacts" / tenant_id / task_id)
+            else (workspace_root / ".titantshift" / "artifacts" / safe_tenant_id / task_id)
         ).resolve()
         persisted: list[dict[str, Any]] = []
         created_paths: list[str] = []
@@ -853,6 +875,16 @@ class ReactiveStateMachine:
         workspace_root_path = Path(str(workspace_root or ".")).resolve()
         tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
         allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
+        if allowed_tools:
+            allowed_set = set(allowed_tools)
+            tool_defs = [
+                td for td in tool_defs
+                if str(td.get("function", {}).get("name", "")) in allowed_set
+            ]
+            if not tool_defs:
+                tool_defs = self._build_tool_definitions(allowed_tools)
+        elif is_superpowered:
+            tool_defs = self._build_tool_definitions([tool.name for tool in self.tools.list_tools()])
         llm_call_index = 0
         invalid_retry_limit = int(self.config.get("state_machine.invalid_tool_retry_limit", 3))
         no_progress_step_limit = int(self.config.get("state_machine.no_progress_step_limit", 6))
@@ -948,11 +980,12 @@ class ReactiveStateMachine:
                     if max_duration_s is not None
                     else max(5.0, model_timeout_s)
                 )
+                selected_tool_defs = active_tool_defs or tool_defs
                 model_req = ModelRequest(
                     prompt="",
                     system_prompt=system_prompt,
                     messages=llm_messages,
-                    tool_definitions=active_tool_defs,
+                    tool_definitions=selected_tool_defs,
                     timeout_s=effective_model_timeout,
                 )
                 if max_duration_s is None:
@@ -1082,6 +1115,19 @@ class ReactiveStateMachine:
                         "You must first attempt at least one explicitly requested tool before finishing. "
                         + "Requested tools: "
                         + ", ".join(requested_tools)
+                    )
+                    messages.append({"role": "user", "content": correction})
+                    total_tokens += model.estimate_tokens(correction)
+                    continue
+                if (
+                    self._likely_requires_workspace_changes(task.description)
+                    and not created_paths
+                    and not updated_paths
+                    and str(response.text or "").strip().lower() in {"", "none", "null", "[openai_compatible] empty response"}
+                ):
+                    correction = (
+                        "You inspected the workspace but have not completed the requested file changes yet. "
+                        "Use file tools now to modify or create the required workspace files before finishing."
                     )
                     messages.append({"role": "user", "content": correction})
                     total_tokens += model.estimate_tokens(correction)
@@ -1693,6 +1739,16 @@ class ReactiveStateMachine:
         is_superpowered = workflow_mode_str.lower() == "superpowered"
         tenant_id = str(task.input.get("tenant_id", "_system_")) if task.input else "_system_"
         allowed_tools = list(task.input.get("allowed_tools", [])) if task.input else []
+        if allowed_tools:
+            allowed_set = set(allowed_tools)
+            tool_defs = [
+                td for td in tool_defs
+                if str(td.get("function", {}).get("name", "")) in allowed_set
+            ]
+            if not tool_defs:
+                tool_defs = self._build_tool_definitions(allowed_tools)
+        elif is_superpowered:
+            tool_defs = self._build_tool_definitions([tool.name for tool in self.tools.list_tools()])
         llm_call_index = 0
         model_timeout_retries = 0
         last_diff: str = ""  # last patch/replace diff captured for PreviewPanel
@@ -1751,7 +1807,7 @@ class ReactiveStateMachine:
                                 "tenant_id": tenant_id,
                                 "model": model.model_id,
                                 "messages": llm_messages,
-                                "tools_schema": active_tool_defs or [],
+                                "tools_schema": selected_tool_defs or [],
                                 "call_index": llm_call_index,
                             },
                         )
@@ -1769,11 +1825,12 @@ class ReactiveStateMachine:
                         if max_duration_s is not None
                         else max(5.0, model_timeout_s)
                     )
+                    selected_tool_defs = active_tool_defs or tool_defs
                     model_req = ModelRequest(
                         prompt="",
                         system_prompt=system_prompt,
                         messages=llm_messages,
-                        tool_definitions=active_tool_defs,
+                        tool_definitions=selected_tool_defs,
                         timeout_s=effective_model_timeout,
                     )
                     yield {
@@ -1781,7 +1838,7 @@ class ReactiveStateMachine:
                         "step": step,
                         "call_index": llm_call_index,
                         "model": model.model_id,
-                        "tools_schema_count": len(active_tool_defs or []),
+                        "tools_schema_count": len(selected_tool_defs or []),
                     }
                     if max_duration_s is None:
                         response = await model.generate(model_req)
@@ -2119,13 +2176,18 @@ class ReactiveStateMachine:
         """Thin wrapper: reuse _normalize_tool_call for each raw call."""
         return [self._normalize_tool_call(raw_tc, "") for raw_tc in raw_calls]
 
-    def _build_tool_definitions(self) -> list[dict[str, Any]]:
-        """Return OpenAI-format tool schemas for all policy-allowed tools."""
+    def _build_tool_definitions(self, allowed_tool_names: list[str] | None = None) -> list[dict[str, Any]]:
+        """Return OpenAI-format tool schemas for tools this run may actually execute."""
         result = []
+        allowed_set = {str(name).strip() for name in (allowed_tool_names or []) if str(name).strip()}
         for tool in self.tools.list_tools():
-            allowed, _ = self.tools.preview_policy(tool)
-            if not allowed:
-                continue
+            if allowed_set:
+                if tool.name not in allowed_set:
+                    continue
+            else:
+                allowed, _ = self.tools.preview_policy(tool)
+                if not allowed:
+                    continue
             result.append({
                 "type": "function",
                 "function": {

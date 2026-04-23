@@ -94,7 +94,8 @@ class CloudOpenAIAdapter:
                 loaded = _json.loads(text)
                 return loaded if isinstance(loaded, dict) else {}
             except Exception:
-                return {}
+                if text.endswith("}"):
+                    text = text[1:-1].strip()
 
         args: dict[str, Any] = {}
         pattern = re.compile(r'["\']?([\w-]+)["\']?\s*:\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^,]+)(?:,|$)')
@@ -113,10 +114,89 @@ class CloudOpenAIAdapter:
             args[key] = value
         return args
 
+    @staticmethod
+    def _extract_balanced_json_object(raw: str) -> str:
+        start = raw.find("{")
+        if start == -1:
+            return ""
+        depth = 0
+        in_string = False
+        escape = False
+        for index in range(start, len(raw)):
+            char = raw[index]
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return raw[start : index + 1]
+        return ""
+
     def _extract_pseudo_tool_calls(self, content: str) -> list[ToolCall]:
         text = content.strip()
         if not text:
             return []
+
+        marker_tool_calls: list[ToolCall] = []
+        marker_seen: set[tuple[str, str]] = set()
+        marker_index = 0
+        for match in re.finditer(
+            r'functions\.([a-zA-Z0-9_.:-]+)\s*:\s*\d+\s*(?:<\|tool_call_argument_begin\|>\s*)?',
+            text,
+            re.DOTALL,
+        ):
+            raw_name = match.group(1).strip()
+            normalized_name = raw_name.replace('.', '_').replace(':', '_')
+            raw_args = self._extract_balanced_json_object(text[match.end() :])
+            if not raw_args:
+                continue
+            identity = (normalized_name, raw_args)
+            if identity in marker_seen:
+                continue
+            marker_seen.add(identity)
+            marker_tool_calls.append(
+                ToolCall(
+                    id=f'marker_call_{marker_index}',
+                    name=normalized_name,
+                    arguments=self._parse_loose_arguments(raw_args),
+                )
+            )
+            marker_index += 1
+        for match in re.finditer(
+            r'<functions\.([a-zA-Z0-9_.:-]+)\s*:\s*\d+>\s*',
+            text,
+            re.DOTALL,
+        ):
+            raw_name = match.group(1).strip()
+            normalized_name = raw_name.replace('.', '_').replace(':', '_')
+            tail = text[match.end() :]
+            end_tag = tail.find('</functions>')
+            raw_args = self._extract_balanced_json_object(tail[:end_tag] if end_tag != -1 else tail)
+            if not raw_args:
+                continue
+            identity = (normalized_name, raw_args)
+            if identity in marker_seen:
+                continue
+            marker_seen.add(identity)
+            marker_tool_calls.append(
+                ToolCall(
+                    id=f'marker_call_{marker_index}',
+                    name=normalized_name,
+                    arguments=self._parse_loose_arguments(raw_args),
+                )
+            )
+            marker_index += 1
 
         segments: list[str] = []
         for pattern in [
@@ -212,6 +292,11 @@ class CloudOpenAIAdapter:
         for xtc in xml_tool_calls:
             if xtc.name not in {tc.name for tc in tool_calls}:
                 tool_calls.append(xtc)
+        for marker_tc in marker_tool_calls:
+            if (marker_tc.name, str(sorted(marker_tc.arguments.items()))) not in {
+                (tc.name, str(sorted(tc.arguments.items()))) for tc in tool_calls
+            }:
+                tool_calls.append(marker_tc)
         return tool_calls
 
     def _build_headers(self) -> dict[str, str]:
