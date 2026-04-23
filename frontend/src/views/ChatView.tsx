@@ -14,6 +14,7 @@ import styles from './ChatView.module.css'
 
 const VISUAL_STATE_KEY = 'titanshift-workflow-visual-state'
 const VISUAL_EVENT_NAME = 'titanshift:workflow-visual'
+const RUN_TASK_FROM_QUEUE_EVENT = 'titanshift:run-task-from-queue'
 
 export function ChatView() {
   const [input, setInput] = useState('')
@@ -47,6 +48,9 @@ export function ChatView() {
   const { data: polledConfig } = usePolling(fetchConfig, { interval: 5000 })
   const { data: artifactsData, refresh: refreshArtifacts } = usePolling(fetchArtifacts, { interval: 15000 })
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const nonStreamAbortControllerRef = useRef<AbortController | null>(null)
+  const stopRequestedRef = useRef(false)
+  const sendPromptRef = useRef<(text: string) => Promise<void>>(async () => {})
 
   const messages = currentSession.messages
 
@@ -113,7 +117,26 @@ export function ChatView() {
     setPendingApprovals([])
     setBlockedPrompt(null)
     cancelStream()
+    nonStreamAbortControllerRef.current?.abort()
+    nonStreamAbortControllerRef.current = null
   }, [cancelStream, currentSession.id])
+
+  useEffect(() => {
+    function handleRunTaskFromQueue(event: Event) {
+      const detail = (event as CustomEvent<{ prompt?: string; autoSend?: boolean }>).detail
+      const prompt = detail?.prompt?.trim() ?? ''
+      if (!prompt) return
+      setInput(prompt)
+      if (detail?.autoSend) {
+        void sendPromptRef.current(prompt)
+      }
+    }
+
+    window.addEventListener(RUN_TASK_FROM_QUEUE_EVENT, handleRunTaskFromQueue as EventListener)
+    return () => {
+      window.removeEventListener(RUN_TASK_FROM_QUEUE_EVENT, handleRunTaskFromQueue as EventListener)
+    }
+  }, [])
 
   useEffect(() => {
     if (streamState.taskId) {
@@ -190,6 +213,11 @@ export function ChatView() {
           .filter(Boolean)
           .map((title) => ({ title }))
         : []
+
+      const abortController = new AbortController()
+      nonStreamAbortControllerRef.current = abortController
+      stopRequestedRef.current = false
+
       const result = await sendChat({
         prompt: text,
         ...(priorMessages.length > 0 ? { history: priorMessages } : {}),
@@ -202,7 +230,7 @@ export function ChatView() {
               ...(parsedPlanTasks.length > 0 ? { plan_tasks: parsedPlanTasks } : {}),
             }
           : {}),
-      })
+      }, abortController.signal)
       if (result.task_id) setCurrentTaskId(result.task_id)
       const reply = (
         (result.response ?? '').trim()
@@ -231,10 +259,18 @@ export function ChatView() {
       }
     } catch (e) {
       const msg = normalizeApiError(e)
-      setError(msg)
-      appendMessage({ role: 'assistant', text: 'Request failed. Check Health and provider settings, then try again.' })
-      setWorkflowPhase('error')
+      const aborted = stopRequestedRef.current || msg.toLowerCase().includes('abort') || msg.toLowerCase().includes('cancel')
+      if (aborted) {
+        setError(null)
+        setWorkflowPhase('idle')
+      } else {
+        setError(msg)
+        appendMessage({ role: 'assistant', text: 'Request failed. Check Health and provider settings, then try again.' })
+        setWorkflowPhase('error')
+      }
     } finally {
+      nonStreamAbortControllerRef.current = null
+      stopRequestedRef.current = false
       setSending(false)
       setCurrentTaskId(null)
       setCancelling(false)
@@ -264,6 +300,9 @@ export function ChatView() {
   async function stopActiveRun() {
     if (cancelling) return
     setCancelling(true)
+    stopRequestedRef.current = true
+    nonStreamAbortControllerRef.current?.abort()
+
     try {
       if (currentTaskId) {
         await cancelTask(currentTaskId)
@@ -290,6 +329,10 @@ export function ChatView() {
       setError('Copy failed. Clipboard permission may be blocked.')
     }
   }
+
+  useEffect(() => {
+    sendPromptRef.current = (text: string) => sendPrompt(text)
+  })
 
   async function send() {
     await sendPrompt(input)
@@ -544,19 +587,9 @@ export function ChatView() {
         {sending && !streamEnabled && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <StatusIndicator isActive />
-            {currentTaskId && (
-              <button
-                className={styles.cancelBtn}
-                disabled={cancelling}
-                onClick={() => {
-                  if (!currentTaskId || cancelling) return
-                  setCancelling(true)
-                  void cancelTask(currentTaskId).catch(() => {}).finally(() => setCancelling(false))
-                }}
-              >
-                {cancelling ? 'Cancelling…' : 'Cancel'}
-              </button>
-            )}
+            <button className={styles.cancelBtn} disabled={cancelling} onClick={() => void stopActiveRun()}>
+              {cancelling ? 'Stopping…' : 'Stop'}
+            </button>
           </div>
         )}
         {streamEnabled && streamState.status !== 'idle' && (

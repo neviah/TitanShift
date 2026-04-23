@@ -315,10 +315,11 @@ export function uninstallRepoIntakeSkill(skill_id: string): Promise<SkillRepoInt
 
 // ---- Chat ----
 
-export function sendChat(requestBody: ChatRequest): Promise<ChatResponse> {
+export function sendChat(requestBody: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
   return request('/chat', {
     method: 'POST',
     body: JSON.stringify(requestBody),
+    signal,
   })
 }
 

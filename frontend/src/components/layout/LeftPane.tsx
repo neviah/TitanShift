@@ -93,6 +93,7 @@ function countdownLabel(nextRunAt?: string | null): string {
 
 const ACTIVE_SKILLS_KEY = 'titanshift-active-skills-by-workspace-v1'
 const ACTIVE_TOOLS_KEY = 'titanshift-active-tools-by-workspace-v1'
+const RUN_TASK_FROM_QUEUE_EVENT = 'titanshift:run-task-from-queue'
 
 const TABS: { id: NavTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'workspaces', label: 'Workspaces', Icon: Briefcase },
@@ -130,7 +131,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const [artifactBusy, setArtifactBusy] = useState<string | null>(null)
   const { sessions, currentSessionId, createSession, selectSession, renameSession, archiveSession, restoreSession, deleteSession } = useChatSessions()
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [pendingDeleteTaskId, setPendingDeleteTaskId] = useState<string | null>(null)
   const [taskDeleteMode, setTaskDeleteMode] = useState(false)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Record<string, boolean>>({})
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
@@ -271,29 +271,19 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     }
   }
 
-  function requestTaskDelete(taskId: string, event: MouseEvent<HTMLButtonElement>) {
+  function handleRunTaskFromQueue(taskDescription: string, event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation()
-    setPendingDeleteTaskId(taskId)
-  }
-
-  function cancelTaskDelete(event: MouseEvent<HTMLButtonElement>) {
-    event.stopPropagation()
-    setPendingDeleteTaskId(null)
-  }
-
-  function confirmTaskDelete(taskId: string, event: MouseEvent<HTMLButtonElement>) {
-    event.stopPropagation()
-    void deleteTask(taskId, taskScope)
-      .then(() => {
-        if (selectedTaskId === taskId) {
-          setSelectedTaskId(null)
-          setSelectedTask(null)
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        setPendingDeleteTaskId(null)
-      })
+    const prompt = taskDescription.trim()
+    if (!prompt) return
+    onTabChange('chat')
+    window.dispatchEvent(
+      new CustomEvent(RUN_TASK_FROM_QUEUE_EVENT, {
+        detail: {
+          prompt,
+          autoSend: true,
+        },
+      }),
+    )
   }
 
   function switchTaskScope(scope: TaskScope) {
@@ -301,12 +291,10 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     setSelectedTaskId(null)
     setSelectedTask(null)
     setSelectedTaskIds({})
-    setPendingDeleteTaskId(null)
   }
 
   function enterTaskDeleteMode() {
     setTaskDeleteMode(true)
-    setPendingDeleteTaskId(null)
     setSelectedTaskIds({})
   }
 
@@ -355,7 +343,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
     await purgeTasks(taskScope)
 
-    setPendingDeleteTaskId(null)
     setSelectedTaskIds({})
     setTaskDeleteMode(false)
     setSelectedTaskId(null)
@@ -612,33 +599,14 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                   <span className={`badge ${task.status === 'completed' ? 'badge-ok' : task.status === 'failed' ? 'badge-error' : 'badge-warn'}`}>
                     {task.status}
                   </span>
-                  {!taskDeleteMode && pendingDeleteTaskId === task.task_id ? (
-                    <>
-                      <button
-                        className={styles.actionBtn}
-                        onClick={(event) => cancelTaskDelete(event)}
-                        data-tooltip="Keep task"
-                        aria-label="Keep task"
-                      >
-                        ✓
-                      </button>
-                      <button
-                        className={styles.actionBtn}
-                        onClick={(event) => confirmTaskDelete(task.task_id, event)}
-                        data-tooltip="Delete task"
-                        aria-label="Delete task"
-                      >
-                        ✕
-                      </button>
-                    </>
-                  ) : !taskDeleteMode ? (
+                  {!taskDeleteMode ? (
                     <button
                       className={styles.actionBtn}
-                      onClick={(event) => requestTaskDelete(task.task_id, event)}
-                      data-tooltip="Delete task"
-                      aria-label="Delete task"
+                      onClick={(event) => handleRunTaskFromQueue(task.description, event)}
+                      data-tooltip="Run task in chat"
+                      aria-label="Run task in chat"
                     >
-                      ✕
+                      <Play size={13} />
                     </button>
                   ) : null}
                 </div>
