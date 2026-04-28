@@ -19,9 +19,27 @@ class EngineRouter:
 
     def _shared_env(self) -> dict[str, str]:
         raw = self.config.get("engine.sidecar.shared_env", {})
-        if not isinstance(raw, dict):
-            return {}
-        return {str(k): str(v) for k, v in raw.items() if str(k).strip()}
+        user_env = {str(k): str(v) for k, v in raw.items() if str(k).strip()} if isinstance(raw, dict) else {}
+
+        base_url = str(self.config.get("model.openai_compatible.base_url", "") or "").strip()
+        api_key = str(self.config.get("model.openai_compatible.api_key", "") or "").strip()
+        model = str(self.config.get("model.openai_compatible.model", "") or "").strip()
+
+        derived: dict[str, str] = {
+            # openclaude expects this for OpenAI-compatible routing.
+            "CLAUDE_CODE_USE_OPENAI": "1",
+            "OPENCLAUDE_PROVIDER": "openai",
+        }
+        if base_url:
+            derived["OPENAI_BASE_URL"] = base_url
+        if api_key:
+            derived["OPENAI_API_KEY"] = api_key
+        if model:
+            derived["OPENAI_MODEL"] = model
+
+        # User-provided env overrides derived defaults.
+        derived.update(user_env)
+        return derived
 
     def _build_adapter(self, workflow_mode: str) -> SidecarProcessAdapter:
         mode_key = "superpowered" if workflow_mode == "superpowered" else "lightning"

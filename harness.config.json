@@ -39,16 +39,22 @@
     "skill_execution_timeout_s": 15.0
   },
   "engine": {
-    "use_sidecar": false,
+    "use_sidecar": true,
     "disable_legacy_skills": true,
     "sidecar": {
       "shared_env": {},
       "lightning": {
-        "command": [],
+        "command": [
+          "python",
+          "scripts/engine_sidecar_opencode.py"
+        ],
         "timeout_s": 1800
       },
       "superpowered": {
-        "command": [],
+        "command": [
+          "python",
+          "scripts/engine_sidecar_openclaude.py"
+        ],
         "timeout_s": 3600
       }
     }
