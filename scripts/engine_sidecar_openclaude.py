@@ -14,10 +14,16 @@ def _safe_text(value: Any) -> str:
 
 
 def _extract_response(parsed: dict[str, Any], fallback: str) -> str:
-    for key in ("response", "text", "message", "content", "output"):
+    for key in ("result", "response", "text", "message", "content", "output"):
         value = parsed.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
+    message_obj = parsed.get("message")
+    if isinstance(message_obj, dict):
+        for key in ("text", "content", "message"):
+            nested = message_obj.get(key)
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
     messages = parsed.get("messages")
     if isinstance(messages, list):
         for item in reversed(messages):

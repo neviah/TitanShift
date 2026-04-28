@@ -39,6 +39,7 @@ def _collect_tool_names(raw: str) -> list[str]:
 
 
 def _extract_response(raw: str) -> str:
+    chunks: list[str] = []
     last_text = ""
     for line in raw.splitlines():
         line = line.strip()
@@ -48,13 +49,28 @@ def _extract_response(raw: str) -> str:
             payload = json.loads(line)
         except Exception:
             continue
-        if isinstance(payload, dict):
-            for key in ("result", "text", "message", "content", "response", "output", "summary"):
-                value = payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    last_text = value.strip()
+        if not isinstance(payload, dict):
+            continue
+
+        # opencode stream messages are often nested in a `part` envelope.
+        part = payload.get("part")
+        if isinstance(part, dict):
+            part_text = part.get("text")
+            if isinstance(part_text, str) and part_text.strip():
+                text = part_text.strip()
+                chunks.append(text)
+                last_text = text
+
+        # Some events return text directly at top level.
+        for key in ("result", "text", "message", "content", "response", "output", "summary"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                last_text = value.strip()
+
+    if chunks:
+        return "\n".join(chunks).strip()
     if last_text:
-        return last_text
+        return last_text.strip()
     return raw.strip()[-8000:]
 
 
