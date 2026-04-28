@@ -49,7 +49,6 @@
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "",
-      "timeout_s": 300,
       "max_tokens": 1536,
       "temperature": 0.2
     }
@@ -216,7 +215,7 @@
   "state_machine": {
     "default_budget": {
       "max_steps": 40,
-      "max_tokens": 240000,
+      "max_tokens": 100000,
       "max_duration_ms": 600000
     },
     "invalid_tool_retry_limit": 2

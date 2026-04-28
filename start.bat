@@ -13,7 +13,7 @@ start "TitanShift Backend" cmd /k ".venv\Scripts\python.exe -m harness serve-api
 timeout /t 2 /nobreak >nul
 
 echo [2/2] Starting frontend (port 5173)...
-start "TitanShift Frontend" cmd /k "cd frontend && npm run dev"
+start "TitanShift Frontend" cmd /k "cd frontend && npm run dev -- --host 127.0.0.1"
 
 echo.
 echo Both servers are starting in separate windows.
