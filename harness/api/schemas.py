@@ -642,106 +642,12 @@ class EmergencyDiagnosis(BaseModel):
     suggested_fix: str
 
 
-class EmergencyFixAction(BaseModel):
-    action_type: str
-    target_id: str | None = None
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
-class EmergencyFixPlan(BaseModel):
-    failure_id: str
-    recommended_hypothesis: str
-    risk_level: str
-    requires_user_approval: bool = True
-    actions: list[EmergencyFixAction] = Field(default_factory=list)
-    notes: str
-
-
-class EmergencyConsensusEntry(BaseModel):
-    hypothesis: str
-    confidence_avg: float
-    source_weight: float
-    vote_count: int
-    consensus_score: float
-
-
 class EmergencyDiagnosisEntry(BaseModel):
     timestamp: str
     source: str
     agent_id: str | None = None
     skill_id: str | None = None
     diagnoses: list[EmergencyDiagnosis]
-
-
-class EmergencyDiagnosisQueryResponse(BaseModel):
-    items: list[EmergencyDiagnosisEntry]
-    limit: int
-    offset: int
-    has_more: bool
-    next_offset: int | None = None
-
-
-class EmergencyAnalyzeRequest(BaseModel):
-    source: str = Field(min_length=1)
-    error: str = Field(min_length=1)
-    agent_id: str | None = None
-    skill_id: str | None = None
-    context: dict[str, Any] = Field(default_factory=dict)
-
-
-class EmergencyAnalyzeResponse(BaseModel):
-    ok: bool
-    failure_id: str
-    diagnoses: list[EmergencyDiagnosis]
-    selected_hypothesis: str
-    consensus: list[EmergencyConsensusEntry]
-    fix_plan: EmergencyFixPlan
-
-
-class EmergencyFixApplyRequest(BaseModel):
-    fix_plan: EmergencyFixPlan
-    approved: bool = False
-    dry_run: bool = True
-
-
-class EmergencyFixApplyResponse(BaseModel):
-    ok: bool
-    applied: bool
-    dry_run: bool
-    execution_id: str | None = None
-    rollback_available: bool = False
-    results: list[dict[str, Any]]
-    message: str
-
-
-class EmergencyFixRollbackRequest(BaseModel):
-    execution_id: str = Field(min_length=1)
-    dry_run: bool = True
-
-
-class EmergencyFixRollbackResponse(BaseModel):
-    ok: bool
-    rolled_back: bool
-    dry_run: bool
-    execution_id: str
-    results: list[dict[str, Any]]
-    message: str
-
-
-class EmergencyDiagnosisSnapshot(BaseModel):
-    generated_at: datetime
-    signing_version: str
-    report_hash: str
-    source: str | None = None
-    agent_id: str | None = None
-    skill_id: str | None = None
-    after: str | None = None
-    before: str | None = None
-    limit: int
-    offset: int
-    has_more: bool
-    next_offset: int | None = None
-    items: list[EmergencyDiagnosisEntry]
 
 
 class RunHistoryReport(BaseModel):
@@ -874,90 +780,6 @@ class IncidentReportVerifyRequest(BaseModel):
 
 
 class IncidentReportVerifyResponse(BaseModel):
-    ok: bool
-    path: str
-    valid: bool
-    stored_hash: str
-    computed_hash: str
-    signing_version: str | None = None
-
-
-class EmergencyDiagnosisExportRequest(BaseModel):
-    path: str = Field(min_length=1)
-    source: str | None = None
-    agent_id: str | None = None
-    skill_id: str | None = None
-    after: str | None = None
-    before: str | None = None
-    offset: int = Field(default=0, ge=0)
-    limit: int = Field(default=50, ge=1, le=500)
-
-
-class EmergencyDiagnosisExportResponse(BaseModel):
-    ok: bool
-    path: str
-    bytes_written: int
-    report_hash: str
-
-
-class EmergencyDiagnosisVerifyRequest(BaseModel):
-    path: str = Field(min_length=1)
-
-
-class EmergencyDiagnosisVerifyResponse(BaseModel):
-    ok: bool
-    path: str
-    valid: bool
-    stored_hash: str
-    computed_hash: str
-    signing_version: str | None = None
-
-
-class EmergencyFixExecutionQueryResponse(BaseModel):
-    items: list[LogEntry]
-    limit: int
-    offset: int
-    has_more: bool
-    next_offset: int | None = None
-
-
-class EmergencyFixExecutionSnapshot(BaseModel):
-    generated_at: datetime
-    signing_version: str
-    report_hash: str
-    execution_id: str | None = None
-    failure_id: str | None = None
-    after: str | None = None
-    before: str | None = None
-    limit: int
-    offset: int
-    has_more: bool
-    next_offset: int | None = None
-    items: list[LogEntry]
-
-
-class EmergencyFixExecutionExportRequest(BaseModel):
-    path: str = Field(min_length=1)
-    execution_id: str | None = None
-    failure_id: str | None = None
-    after: str | None = None
-    before: str | None = None
-    offset: int = Field(default=0, ge=0)
-    limit: int = Field(default=50, ge=1, le=500)
-
-
-class EmergencyFixExecutionExportResponse(BaseModel):
-    ok: bool
-    path: str
-    bytes_written: int
-    report_hash: str
-
-
-class EmergencyFixExecutionVerifyRequest(BaseModel):
-    path: str = Field(min_length=1)
-
-
-class EmergencyFixExecutionVerifyResponse(BaseModel):
     ok: bool
     path: str
     valid: bool

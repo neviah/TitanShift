@@ -34,15 +34,6 @@ from harness.memory.graph.migration import (
 from harness.model.adapter import ModelRegistry
 
 from harness.api.schemas import (
-    EmergencyAnalyzeRequest,
-    EmergencyAnalyzeResponse,
-    EmergencyConsensusEntry,
-    EmergencyFixAction,
-    EmergencyFixApplyRequest,
-    EmergencyFixApplyResponse,
-    EmergencyFixPlan,
-    EmergencyFixRollbackRequest,
-    EmergencyFixRollbackResponse,
     AgentAssignSkillsRequest,
     AgentAssignSkillsResponse,
     AgentSkillExecuteRequest,
@@ -71,20 +62,8 @@ from harness.api.schemas import (
     IngestionDedupeEntry,
     IngestionDedupeLogResponse,
     IngestionStatsResponse,
-    EmergencyDiagnosisExportRequest,
-    EmergencyDiagnosisExportResponse,
     EmergencyDiagnosis,
     EmergencyDiagnosisEntry,
-    EmergencyDiagnosisQueryResponse,
-    EmergencyDiagnosisSnapshot,
-    EmergencyDiagnosisVerifyRequest,
-    EmergencyDiagnosisVerifyResponse,
-    EmergencyFixExecutionExportRequest,
-    EmergencyFixExecutionExportResponse,
-    EmergencyFixExecutionQueryResponse,
-    EmergencyFixExecutionSnapshot,
-    EmergencyFixExecutionVerifyRequest,
-    EmergencyFixExecutionVerifyResponse,
     IncidentReport,
     IncidentReportExportRequest,
     IncidentReportExportResponse,
@@ -205,7 +184,6 @@ def create_app(workspace_root: Path) -> FastAPI:
         expose_headers=["X-Trace-ID", "Retry-After"],
     )
     app.state.runtime = runtime
-    emergency_fix_history: dict[str, dict[str, Any]] = {}
 
     # ── Observability: in-memory metric counters ──────────────────────────────
     _metrics_lock = threading.Lock()
@@ -527,43 +505,6 @@ def create_app(workspace_root: Path) -> FastAPI:
             "module_errors": report_data.get("module_errors"),
             "diagnoses": report_data.get("diagnoses"),
             "related_events": report_data.get("related_events"),
-        }
-
-    def _signature_payload_from_diagnosis_snapshot(report_data: dict[str, Any]) -> dict[str, Any]:
-        generated_at = report_data.get("generated_at")
-        if isinstance(generated_at, str) and generated_at.endswith("Z"):
-            generated_at = generated_at[:-1] + "+00:00"
-        return {
-            "generated_at": generated_at,
-            "signing_version": report_data.get("signing_version"),
-            "source": report_data.get("source"),
-            "agent_id": report_data.get("agent_id"),
-            "skill_id": report_data.get("skill_id"),
-            "after": report_data.get("after"),
-            "before": report_data.get("before"),
-            "limit": report_data.get("limit"),
-            "offset": report_data.get("offset"),
-            "has_more": report_data.get("has_more"),
-            "next_offset": report_data.get("next_offset"),
-            "items": report_data.get("items"),
-        }
-
-    def _signature_payload_from_fix_execution_snapshot(report_data: dict[str, Any]) -> dict[str, Any]:
-        generated_at = report_data.get("generated_at")
-        if isinstance(generated_at, str) and generated_at.endswith("Z"):
-            generated_at = generated_at[:-1] + "+00:00"
-        return {
-            "generated_at": generated_at,
-            "signing_version": report_data.get("signing_version"),
-            "execution_id": report_data.get("execution_id"),
-            "failure_id": report_data.get("failure_id"),
-            "after": report_data.get("after"),
-            "before": report_data.get("before"),
-            "limit": report_data.get("limit"),
-            "offset": report_data.get("offset"),
-            "has_more": report_data.get("has_more"),
-            "next_offset": report_data.get("next_offset"),
-            "items": report_data.get("items"),
         }
 
     def _build_run_history_report(task_limit: int, log_limit: int, redact: bool | None) -> RunHistoryReport:
@@ -1968,100 +1909,6 @@ def create_app(workspace_root: Path) -> FastAPI:
         report_hash = _compute_report_hash_from_payload(payload)
         return IncidentReport(report_hash=report_hash, **payload)
 
-    def _build_diagnosis_snapshot(
-        *,
-        source: str | None,
-        agent_id: str | None,
-        skill_id: str | None,
-        after: str | None,
-        before: str | None,
-        offset: int,
-        limit: int,
-    ) -> EmergencyDiagnosisSnapshot:
-        clamped_limit = max(1, min(limit, 500))
-        rows = runtime.logger.query(
-            event_type="EMERGENCY_DIAGNOSIS",
-            source=source,
-            agent_id=agent_id,
-            skill_id=skill_id,
-            after=after,
-            before=before,
-            offset=offset,
-            limit=clamped_limit + 1,
-        )
-        items, has_more, next_offset = _paginate(_diagnosis_entries_from_rows(rows), clamped_limit, offset)
-        generated_at = datetime.now(timezone.utc)
-        signing_version = "v1"
-        payload = {
-            "generated_at": generated_at.isoformat(),
-            "signing_version": signing_version,
-            "source": source,
-            "agent_id": agent_id,
-            "skill_id": skill_id,
-            "after": after,
-            "before": before,
-            "limit": clamped_limit,
-            "offset": max(0, offset),
-            "has_more": has_more,
-            "next_offset": next_offset,
-            "items": [item.model_dump(mode="json") for item in items],
-        }
-        report_hash = _compute_report_hash_from_payload(payload)
-        return EmergencyDiagnosisSnapshot(report_hash=report_hash, **payload)
-
-    def _build_fix_execution_snapshot(
-        *,
-        execution_id: str | None,
-        failure_id: str | None,
-        after: str | None,
-        before: str | None,
-        offset: int,
-        limit: int,
-    ) -> EmergencyFixExecutionSnapshot:
-        clamped_limit = max(1, min(limit, 500))
-        rows = runtime.logger.query(
-            event_type="EMERGENCY_FIX_APPLY",
-            execution_id=execution_id,
-            after=after,
-            before=before,
-            offset=offset,
-            limit=clamped_limit + 1,
-        ) + runtime.logger.query(
-            event_type="EMERGENCY_FIX_ROLLBACK",
-            execution_id=execution_id,
-            after=after,
-            before=before,
-            offset=offset,
-            limit=clamped_limit + 1,
-        )
-        rows.sort(key=lambda r: str(r.get("timestamp", "")))
-        filtered = rows
-        if failure_id:
-            filtered = [
-                row
-                for row in filtered
-                if str(dict(row.get("payload", {})).get("failure_id", "")) == failure_id
-            ]
-
-        items, has_more, next_offset = _paginate([LogEntry(**r) for r in filtered], clamped_limit, offset)
-        generated_at = datetime.now(timezone.utc)
-        signing_version = "v1"
-        payload = {
-            "generated_at": generated_at.isoformat(),
-            "signing_version": signing_version,
-            "execution_id": execution_id,
-            "failure_id": failure_id,
-            "after": after,
-            "before": before,
-            "limit": clamped_limit,
-            "offset": max(0, offset),
-            "has_more": has_more,
-            "next_offset": next_offset,
-            "items": [item.model_dump(mode="json") for item in items],
-        }
-        report_hash = _compute_report_hash_from_payload(payload)
-        return EmergencyFixExecutionSnapshot(report_hash=report_hash, **payload)
-
     def _storage_root() -> Path:
         return runtime.logger.log_file.parent.resolve()
 
@@ -2088,190 +1935,6 @@ def create_app(workspace_root: Path) -> FastAPI:
             candidates.append(runtime.logger.log_file.resolve())
         deduped: dict[str, Path] = {str(path.resolve()): path.resolve() for path in candidates}
         return list(deduped.values())
-
-    def _recompute_agent_tools(agent_id: str) -> None:
-        agent = runtime.orchestrator.get_agent(agent_id)
-        if agent is None:
-            return
-        allowed_tools = sorted(
-            {
-                tool_name
-                for sid in list(agent.assigned_skills)
-                for tool_name in (
-                    runtime.skills.get_skill(sid).required_tools if runtime.skills.get_skill(sid) is not None else []
-                )
-            }
-        )
-        agent.allowed_tools = allowed_tools
-
-    def _apply_fix_action(action: EmergencyFixAction, *, dry_run: bool) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        if action.action_type == "restart_module":
-            return {
-                "action_type": action.action_type,
-                "target_id": action.target_id,
-                "status": "simulated" if dry_run else "queued",
-            }, None
-
-        if action.action_type == "restart_agent":
-            return {
-                "action_type": action.action_type,
-                "target_id": action.target_id,
-                "status": "simulated" if dry_run else "queued",
-            }, None
-
-        if action.action_type == "disable_skill":
-            changed_agents: list[str] = []
-            for agent in runtime.orchestrator.agents.values():
-                if action.target_id and action.target_id in agent.assigned_skills:
-                    changed_agents.append(agent.agent_id)
-                    if not dry_run:
-                        agent.assigned_skills = [s for s in agent.assigned_skills if s != action.target_id]
-                        _recompute_agent_tools(agent.agent_id)
-            rollback_action = {
-                "action_type": "restore_agent_skill_assignments",
-                "params": {"skill_id": action.target_id, "agent_ids": changed_agents},
-            }
-            return {
-                "action_type": action.action_type,
-                "target_id": action.target_id,
-                "status": "simulated" if dry_run else "applied",
-                "changed_agents": changed_agents,
-            }, rollback_action
-
-        if action.action_type == "enable_skill":
-            target_skill = str(action.target_id or "")
-            changed_agents: list[str] = []
-            preferred_agent_id = str(action.params.get("agent_id", "")) if action.params else ""
-            if target_skill:
-                for agent in runtime.orchestrator.agents.values():
-                    if preferred_agent_id and agent.agent_id != preferred_agent_id:
-                        continue
-                    if target_skill not in agent.assigned_skills:
-                        changed_agents.append(agent.agent_id)
-                        if not dry_run:
-                            agent.assigned_skills = sorted(set(agent.assigned_skills + [target_skill]))
-                            _recompute_agent_tools(agent.agent_id)
-                    if preferred_agent_id:
-                        break
-            rollback_action = {
-                "action_type": "remove_agent_skill_assignments",
-                "params": {"skill_id": target_skill, "agent_ids": changed_agents},
-            }
-            return {
-                "action_type": action.action_type,
-                "target_id": action.target_id,
-                "status": "simulated" if dry_run else "applied",
-                "changed_agents": changed_agents,
-            }, rollback_action
-
-        if action.action_type == "disable_tool":
-            tool_name = str(action.target_id or "")
-            prior = {
-                "in_blocked": tool_name in runtime.tools.policy.blocked_tool_names,
-                "in_allowed": tool_name in runtime.tools.policy.allowed_tool_names,
-            }
-            if tool_name:
-                if not dry_run:
-                    runtime.tools.policy.blocked_tool_names.add(tool_name)
-                    runtime.tools.policy.allowed_tool_names.discard(tool_name)
-            rollback_action = {
-                "action_type": "restore_tool_policy_state",
-                "params": {"tool_name": tool_name, **prior},
-            }
-            return {
-                "action_type": action.action_type,
-                "target_id": action.target_id,
-                "status": "simulated" if dry_run else "applied",
-            }, rollback_action
-
-        if action.action_type == "enable_tool":
-            tool_name = str(action.target_id or "")
-            prior = {
-                "in_blocked": tool_name in runtime.tools.policy.blocked_tool_names,
-                "in_allowed": tool_name in runtime.tools.policy.allowed_tool_names,
-            }
-            if tool_name and not dry_run:
-                runtime.tools.policy.blocked_tool_names.discard(tool_name)
-                runtime.tools.policy.allowed_tool_names.add(tool_name)
-            rollback_action = {
-                "action_type": "restore_tool_policy_state",
-                "params": {"tool_name": tool_name, **prior},
-            }
-            return {
-                "action_type": action.action_type,
-                "target_id": action.target_id,
-                "status": "simulated" if dry_run else "applied",
-            }, rollback_action
-
-        if action.action_type == "update_config":
-            key = str(action.params.get("key", "")) if action.params else ""
-            value = action.params.get("value") if action.params else None
-            old_value = runtime.config.get(key) if key else None
-            if key and not dry_run:
-                runtime.config.set(key, value)
-            rollback_action = {
-                "action_type": "update_config",
-                "params": {"key": key, "value": old_value},
-            }
-            return {
-                "action_type": action.action_type,
-                "status": "simulated" if dry_run else "applied",
-                "key": key,
-            }, rollback_action
-
-        if action.action_type == "restore_tool_policy_state":
-            params = action.params or {}
-            tool_name = str(params.get("tool_name", ""))
-            in_blocked = bool(params.get("in_blocked", False))
-            in_allowed = bool(params.get("in_allowed", False))
-            if tool_name and not dry_run:
-                if in_blocked:
-                    runtime.tools.policy.blocked_tool_names.add(tool_name)
-                else:
-                    runtime.tools.policy.blocked_tool_names.discard(tool_name)
-                if in_allowed:
-                    runtime.tools.policy.allowed_tool_names.add(tool_name)
-                else:
-                    runtime.tools.policy.allowed_tool_names.discard(tool_name)
-            return {
-                "action_type": action.action_type,
-                "target_id": tool_name,
-                "status": "simulated" if dry_run else "applied",
-            }, None
-
-        if action.action_type in ["restore_agent_skill_assignments", "remove_agent_skill_assignments"]:
-            params = action.params or {}
-            target_skill = str(params.get("skill_id", ""))
-            agent_ids = [str(a) for a in list(params.get("agent_ids", []))]
-            changed_agents: list[str] = []
-            for agent_id in agent_ids:
-                agent = runtime.orchestrator.get_agent(agent_id)
-                if agent is None:
-                    continue
-                if action.action_type == "restore_agent_skill_assignments":
-                    if target_skill and target_skill not in agent.assigned_skills:
-                        changed_agents.append(agent.agent_id)
-                        if not dry_run:
-                            agent.assigned_skills = sorted(set(agent.assigned_skills + [target_skill]))
-                            _recompute_agent_tools(agent.agent_id)
-                else:
-                    if target_skill and target_skill in agent.assigned_skills:
-                        changed_agents.append(agent.agent_id)
-                        if not dry_run:
-                            agent.assigned_skills = [s for s in agent.assigned_skills if s != target_skill]
-                            _recompute_agent_tools(agent.agent_id)
-            return {
-                "action_type": action.action_type,
-                "target_id": target_skill,
-                "status": "simulated" if dry_run else "applied",
-                "changed_agents": changed_agents,
-            }, None
-
-        return {
-            "action_type": action.action_type,
-            "target_id": action.target_id,
-            "status": "unsupported",
-        }, None
 
     def _cleanup_artifacts(max_age_days: int, include_logs: bool, dry_run: bool) -> tuple[list[str], list[str]]:
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
