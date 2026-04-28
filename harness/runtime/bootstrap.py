@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 from harness.api.hooks import ApiHooks, HookPayload
-from harness.emergency.module import EmergencyModule
 from harness.execution.policy import ExecutionPolicy
 from harness.execution.runner import ExecutionModule
 from harness.logging.logger import JsonLogger
@@ -39,7 +38,6 @@ class RuntimeContext:
     logger: JsonLogger
     module_loader: ModuleLoader
     execution: ExecutionModule
-    emergency: EmergencyModule
     health: HealthRegistry
     scheduler: Scheduler
     skills: SkillRegistry
@@ -193,7 +191,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     workspace_import_root = str(workspace_root.resolve())
     if workspace_import_root not in sys.path:
         sys.path.insert(0, workspace_import_root)
-    emergency = EmergencyModule()
     scheduler = Scheduler()
 
     async def _scheduler_heartbeat_job() -> None:
@@ -217,7 +214,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
             callback=_scheduler_heartbeat_job,
         )
     )
-    health.set("emergency", "healthy")
     health.set("scheduler", "healthy", {"jobs": [j["job_id"] for j in scheduler.list_jobs()]})
 
     async def on_agent_spawned(payload: dict) -> None:
@@ -234,27 +230,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
             str(payload.get("source", "unknown")),
             "degraded",
             {"last_error": str(payload.get("error", "unknown"))},
-        )
-        analysis = await emergency.analyze_failure(payload)
-        logger.log(
-            "EMERGENCY_DIAGNOSIS",
-            {
-                "source": payload.get("source", "unknown"),
-                "agent_id": payload.get("agent_id"),
-                "skill_id": payload.get("skill_id"),
-                "failure_id": analysis.failure_id,
-                "diagnoses": [asdict(d) for d in analysis.diagnoses],
-            },
-        )
-        logger.log(
-            "EMERGENCY_FIX_PLAN",
-            {
-                "failure_id": analysis.failure_id,
-                "source": analysis.source,
-                "risk_level": analysis.fix_plan.risk_level,
-                "requires_user_approval": analysis.fix_plan.requires_user_approval,
-                "actions": [asdict(a) for a in analysis.fix_plan.actions],
-            },
         )
         await hooks.emit(HookPayload(event="MODULE_ERROR", data=payload))
 
@@ -298,7 +273,6 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         logger=logger,
         module_loader=module_loader,
         execution=execution,
-        emergency=emergency,
         health=health,
         scheduler=scheduler,
         skills=skills,
