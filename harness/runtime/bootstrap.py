@@ -88,28 +88,33 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     register_builtin_tools(tools, execution)
     register_last30days_tools(tools, cfg_skills=cfg.get("skills", {}))
 
-    skills = SkillRegistry(skill_base_path=str(workspace_root / "harness" / "skills"))
-    skills.register_skill(
-        SkillDefinition(
-            skill_id="reactive_chat",
-            description="Single-agent reactive response generation",
-            mode="prompt",
-            domain="orchestration",
-            tags=["chat", "reactive", "phase1"],
-            required_tools=[],
-            prompt_template="Respond to user input reactively and safely: {input}",
+    sidecar_enabled = bool(cfg.get("engine.use_sidecar", False))
+    disable_legacy_skills = bool(cfg.get("engine.disable_legacy_skills", sidecar_enabled))
+
+    skill_base_path = "" if disable_legacy_skills else str(workspace_root / "harness" / "skills")
+    skills = SkillRegistry(skill_base_path=skill_base_path)
+    if not disable_legacy_skills:
+        skills.register_skill(
+            SkillDefinition(
+                skill_id="reactive_chat",
+                description="Single-agent reactive response generation",
+                mode="prompt",
+                domain="orchestration",
+                tags=["chat", "reactive", "phase1"],
+                required_tools=[],
+                prompt_template="Respond to user input reactively and safely: {input}",
+            )
         )
-    )
-    skills.register_skill(
-        SkillDefinition(
-            skill_id="safe_shell_command",
-            description="Policy-constrained shell command execution wrapper",
-            mode="code",
-            domain="execution",
-            tags=["tools", "execution", "safety", "phase1"],
-            required_tools=["shell_command"],
+        skills.register_skill(
+            SkillDefinition(
+                skill_id="safe_shell_command",
+                description="Policy-constrained shell command execution wrapper",
+                mode="code",
+                domain="execution",
+                tags=["tools", "execution", "safety", "phase1"],
+                required_tools=["shell_command"],
+            )
         )
-    )
 
     async def _safe_shell_handler(payload: dict) -> dict:
         command = str(payload.get("command", "")).strip()
@@ -119,8 +124,11 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
         result = await tools.execute_tool("shell_command", args)
         return {"ok": True, "tool": "shell_command", "result": result}
 
-    skills.register_code_handler("safe_shell_command", _safe_shell_handler)
-    health.set("skills", "healthy", {"count": len(skills.list_skills())})
+    if not disable_legacy_skills:
+        skills.register_code_handler("safe_shell_command", _safe_shell_handler)
+        health.set("skills", "healthy", {"count": len(skills.list_skills())})
+    else:
+        health.set("skills", "disabled", {"reason": "engine.disable_legacy_skills=true"})
 
     hooks = ApiHooks()
     tools.set_hooks(hooks)

@@ -22,6 +22,21 @@
       "disable_budget_timeout": true
     }
   },
+  "engine": {
+    "use_sidecar": false,
+    "disable_legacy_skills": false,
+    "sidecar": {
+      "shared_env": {},
+      "lightning": {
+        "command": [],
+        "timeout_s": 1800
+      },
+      "superpowered": {
+        "command": [],
+        "timeout_s": 3600
+      }
+    }
+  },
   "skills": {
     "market_registry_file": "skills_market_registry.json",
     "market_installed_file": "skills_market_installed.json",

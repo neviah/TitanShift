@@ -38,6 +38,21 @@
     },
     "skill_execution_timeout_s": 15.0
   },
+  "engine": {
+    "use_sidecar": false,
+    "disable_legacy_skills": true,
+    "sidecar": {
+      "shared_env": {},
+      "lightning": {
+        "command": [],
+        "timeout_s": 1800
+      },
+      "superpowered": {
+        "command": [],
+        "timeout_s": 3600
+      }
+    }
+  },
   "skills": {
     "market_trusted_public_keys": [
       "E35LKCz0IaBXidb3PM4HDgos8ChGlsqez2zuFJJXnVc="

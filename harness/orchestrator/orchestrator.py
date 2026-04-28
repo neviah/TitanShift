@@ -9,6 +9,7 @@ from pathlib import Path
 
 from harness.api.hooks import ApiHooks
 from harness.api.hooks import HookPayload
+from harness.engine.router import EngineRouter
 from harness.memory.manager import MemoryManager
 from harness.model.adapter import ModelRegistry, ModelRequest
 from harness.orchestrator.task_store import TaskStore
@@ -62,6 +63,7 @@ class Orchestrator:
     role_templates: dict[str, RoleTemplate] = field(init=False)
     task_store: TaskStore = field(init=False)
     agents: dict[str, AgentRecord] = field(init=False)
+    engine_router: EngineRouter = field(init=False)
 
     def __post_init__(self) -> None:
         self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools, self.skills, self.hooks)
@@ -71,6 +73,7 @@ class Orchestrator:
         _storage_raw = str(self.config.get("memory.storage_dir", ".harness"))
         _storage_dir = Path(_storage_raw) if Path(_storage_raw).is_absolute() else Path.cwd() / _storage_raw
         self.task_store = TaskStore(db_path=_storage_dir / "tasks.db")
+        self.engine_router = EngineRouter(self.config)
         self.agents = {
             "main-agent": AgentRecord(
                 agent_id="main-agent",
@@ -869,6 +872,130 @@ class Orchestrator:
             missing.append("plan")
         return missing
 
+    def _sidecar_enabled(self) -> bool:
+        return self.engine_router.sidecar_enabled()
+
+    async def _run_sidecar_task(
+        self,
+        task: Task,
+        *,
+        tenant_id: str,
+        persist_task: bool,
+    ) -> TaskResult:
+        workflow_mode = self._resolve_workflow_mode(task)
+        task.input["workflow_mode"] = workflow_mode
+        started_at = datetime.now(timezone.utc)
+
+        if self.hooks is not None:
+            try:
+                await self.hooks.emit(
+                    HookPayload(
+                        event="SessionStart",
+                        data={
+                            "task_id": task.id,
+                            "tenant_id": tenant_id,
+                            "description": task.description,
+                            "workflow_mode": workflow_mode,
+                            "model_backend": str(
+                                task.input.get("model_backend", self.config.get("model.default_backend", "local_stub"))
+                            ),
+                            "started_at": started_at.isoformat(),
+                            "metadata": dict(task.input),
+                            "execution_mode": "sidecar",
+                        },
+                    )
+                )
+            except Exception:
+                pass
+
+        try:
+            sidecar_result = await self.engine_router.run_task(
+                task,
+                workflow_mode=workflow_mode,
+                workspace_root=self.config.workspace_root,
+            )
+            output: dict[str, object] = {
+                "response": sidecar_result.response,
+                "mode": "sidecar",
+                "workflow_mode": workflow_mode,
+                "model": sidecar_result.model,
+                "provider_model": sidecar_result.provider_model,
+                "used_engine": sidecar_result.engine,
+                "used_tools": list(sidecar_result.used_tools or []),
+                "created_paths": list(sidecar_result.created_paths or []),
+                "updated_paths": list(sidecar_result.updated_paths or []),
+                "artifacts": list(sidecar_result.artifacts or []),
+                "stderr": sidecar_result.stderr,
+            }
+            if sidecar_result.error:
+                output["error"] = sidecar_result.error
+            result = TaskResult(
+                task_id=task.id,
+                output=output,
+                success=bool(sidecar_result.success),
+                error=sidecar_result.error,
+            )
+        except Exception as exc:
+            result = TaskResult(
+                task_id=task.id,
+                output={
+                    "response": "",
+                    "mode": "sidecar",
+                    "workflow_mode": workflow_mode,
+                    "used_engine": "unknown",
+                },
+                success=False,
+                error=f"Sidecar execution failed: {type(exc).__name__}: {exc}",
+            )
+
+        if persist_task:
+            self.task_store.mark_completed(result)
+            try:
+                self._persist_run_to_memory(task, result)
+            except Exception:
+                pass
+
+        duration_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+        await self.event_bus.publish("TASK_COMPLETED", {"task_id": task.id, "success": result.success})
+        await self.event_bus.publish(
+            "WORKFLOW_TELEMETRY",
+            {
+                "task_id": task.id,
+                "workflow_mode": workflow_mode,
+                "duration_ms": duration_ms,
+                "gate_blocked": False,
+                "review_ran": False,
+                "review_passed": None,
+                "review_iterations": None,
+                "lightning_subagents_spawned": 0,
+                "execution_mode": "sidecar",
+            },
+        )
+
+        if self.hooks is not None:
+            try:
+                await self.hooks.emit(
+                    HookPayload(
+                        event="Stop",
+                        data={
+                            "task_id": task.id,
+                            "tenant_id": tenant_id,
+                            "success": bool(result.success),
+                            "error": result.error,
+                            "total_tool_calls": len(result.output.get("used_tools", [])) if isinstance(result.output, dict) else 0,
+                            "total_llm_calls": 0,
+                            "duration_ms": duration_ms,
+                            "artifacts": list(result.output.get("artifacts", [])) if isinstance(result.output, dict) else [],
+                            "output": dict(result.output) if isinstance(result.output, dict) else {},
+                            "execution_mode": "sidecar",
+                        },
+                    )
+                )
+            except Exception:
+                pass
+
+        return result
+
     async def run_reactive_task(self, task: Task) -> TaskResult:
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         tenant_id = str(task.input.get("tenant_id", "_system_"))
@@ -877,6 +1004,8 @@ class Orchestrator:
         if persist_task:
             self.task_store.create(task, tenant_id=tenant_id)
             self.task_store.mark_started(task.id)
+        if self._sidecar_enabled():
+            return await self._run_sidecar_task(task, tenant_id=tenant_id, persist_task=persist_task)
         review_result: dict[str, object] | None = None
         _telemetry: dict[str, object] = {
             "task_id": task.id,
