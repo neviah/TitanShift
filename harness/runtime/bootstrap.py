@@ -86,10 +86,12 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     health.set("execution", "healthy")
 
     register_builtin_tools(tools, execution)
-    register_last30days_tools(tools, cfg_skills=cfg.get("skills", {}))
 
     sidecar_enabled = bool(cfg.get("engine.use_sidecar", False))
     disable_legacy_skills = bool(cfg.get("engine.disable_legacy_skills", sidecar_enabled))
+
+    if not disable_legacy_skills:
+        register_last30days_tools(tools, cfg_skills=cfg.get("skills", {}))
 
     skill_base_path = "" if disable_legacy_skills else str(workspace_root / "harness" / "skills")
     skills = SkillRegistry(skill_base_path=skill_base_path)

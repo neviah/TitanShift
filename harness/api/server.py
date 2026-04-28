@@ -278,7 +278,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         """Refresh model adapters in-memory after config changes."""
         runtime.models = ModelRegistry.from_config(runtime.config)
         runtime.orchestrator.models = runtime.models
-        runtime.orchestrator.state_machine.models = runtime.models
+        if runtime.orchestrator.state_machine is not None:
+            runtime.orchestrator.state_machine.models = runtime.models
         runtime.health.set("models", "healthy", {"default": runtime.config.get("model.default_backend")})
 
     def _reload_run_queue() -> None:

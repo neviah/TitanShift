@@ -17,8 +17,12 @@ from harness.runtime.config import ConfigManager
 from harness.runtime.event_bus import EventBus
 from harness.runtime.types import Task, TaskResult
 from harness.skills.registry import SkillRegistry
-from harness.state_machine.reactive import ReactiveStateMachine
 from harness.tools.registry import ToolRegistry
+
+try:
+    from harness.state_machine.reactive import ReactiveStateMachine
+except ImportError:
+    ReactiveStateMachine = None  # type: ignore[assignment,misc]
 
 
 @dataclass(slots=True)
@@ -58,7 +62,7 @@ class Orchestrator:
     skills: SkillRegistry
     tools: ToolRegistry
     hooks: ApiHooks
-    state_machine: ReactiveStateMachine = field(init=False)
+    state_machine: ReactiveStateMachine | None = field(init=False, default=None)
     enable_subagents: bool = field(init=False)
     role_templates: dict[str, RoleTemplate] = field(init=False)
     task_store: TaskStore = field(init=False)
@@ -66,7 +70,11 @@ class Orchestrator:
     engine_router: EngineRouter = field(init=False)
 
     def __post_init__(self) -> None:
-        self.state_machine = ReactiveStateMachine(self.models, self.config, self.tools, self.skills, self.hooks)
+        _sidecar = bool(self.config.get("engine.use_sidecar", False))
+        if not _sidecar and ReactiveStateMachine is not None:
+            self.state_machine = ReactiveStateMachine(
+                self.models, self.config, self.tools, self.skills, self.hooks
+            )
         self.enable_subagents = bool(self.config.get("orchestrator.enable_subagents", False))
         self.role_templates = self._build_default_role_templates()
         # Use SQLite-backed TaskStore so task history survives restarts.
