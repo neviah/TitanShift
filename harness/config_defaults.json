@@ -26,6 +26,7 @@
     "use_sidecar": false,
     "disable_legacy_skills": false,
     "sidecar": {
+      "allow_model_fallback": false,
       "shared_env": {},
       "lightning": {
         "command": [],

@@ -20,6 +20,7 @@ class EngineRouter:
     def _shared_env(self, workflow_mode: str) -> dict[str, str]:
         raw = self.config.get("engine.sidecar.shared_env", {})
         user_env = {str(k): str(v) for k, v in raw.items() if str(k).strip()} if isinstance(raw, dict) else {}
+        allow_model_fallback = bool(self.config.get("engine.sidecar.allow_model_fallback", False))
 
         base_url = str(self.config.get("model.openai_compatible.base_url", "") or "").strip()
         api_key = str(self.config.get("model.openai_compatible.api_key", "") or "").strip()
@@ -44,6 +45,9 @@ class EngineRouter:
         if model:
             derived["OPENAI_MODEL"] = model
             derived["OPENROUTER_MODEL"] = model
+
+        # Keep model selection explicit by default to avoid costly unintended provider defaults.
+        derived["OPENCODE_ALLOW_MODEL_FALLBACK"] = "1" if allow_model_fallback else "0"
 
         # User-provided env overrides derived defaults.
         derived.update(user_env)
