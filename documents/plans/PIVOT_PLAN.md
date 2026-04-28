@@ -10,7 +10,8 @@
 - Completed: Legacy skill packs archived; legacy skill loading disabled by default in sidecar mode
 - Completed: Phase 1 install/verify for harness CLIs (`opencode 1.14.28`, `openclaude 0.7.0`)
 - Completed: Sidecar wrapper scripts added for non-interactive JSON in/out execution
-- Current blocker: Runtime auth/provider alignment still needs final hardening (current direct smoke calls report provider auth/login errors)
+- Completed: Runtime auth/provider alignment fixed while keeping existing API key
+- Completed: Both workflow modes validated through `/chat` sidecar path (lightning + superpowered)
 
 ---
 

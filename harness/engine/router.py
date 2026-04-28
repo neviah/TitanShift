@@ -34,8 +34,11 @@ class EngineRouter:
             derived["OPENAI_BASE_URL"] = base_url
         if api_key:
             derived["OPENAI_API_KEY"] = api_key
+            # OpenCode's OpenRouter provider loader expects this env var.
+            derived["OPENROUTER_API_KEY"] = api_key
         if model:
             derived["OPENAI_MODEL"] = model
+            derived["OPENROUTER_MODEL"] = model
 
         # User-provided env overrides derived defaults.
         derived.update(user_env)

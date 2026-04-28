@@ -49,7 +49,7 @@ def _extract_response(raw: str) -> str:
         except Exception:
             continue
         if isinstance(payload, dict):
-            for key in ("text", "message", "content", "response", "output"):
+            for key in ("result", "text", "message", "content", "response", "output", "summary"):
                 value = payload.get(key)
                 if isinstance(value, str) and value.strip():
                     last_text = value.strip()
@@ -94,35 +94,49 @@ def main() -> int:
     prompt = _safe_text(payload.get("prompt"))
     workspace_root = _safe_text(payload.get("workspace_root")) or str(Path.cwd())
     model = _safe_text(os.getenv("OPENAI_MODEL"))
+    base_url = _safe_text(os.getenv("OPENAI_BASE_URL"))
+
+    model_for_cli = model
+    if model and "openrouter.ai" in base_url.lower() and not model.lower().startswith("openrouter/"):
+        # OpenCode expects provider/model format; OpenRouter model ids are usually bare slugs.
+        model_for_cli = f"openrouter/{model}"
+
+    def _run_once(selected_model: str | None) -> subprocess.CompletedProcess[str]:
+        cmd = [
+            opencode_bin,
+            "run",
+            prompt,
+            "--format",
+            "json",
+            "--dir",
+            workspace_root,
+            "--dangerously-skip-permissions",
+        ]
+        if selected_model:
+            cmd.extend(["--model", selected_model])
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=workspace_root,
+        )
 
     opencode_bin = shutil.which("opencode") or shutil.which("opencode.cmd") or "opencode.cmd"
-
-    cmd = [
-        opencode_bin,
-        "run",
-        prompt,
-        "--format",
-        "json",
-        "--dir",
-        workspace_root,
-        "--dangerously-skip-permissions",
-    ]
-    if model:
-        cmd.extend(["--model", model])
-
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=workspace_root,
-    )
+    proc = _run_once(model_for_cli or None)
 
     stdout_text = proc.stdout or ""
     stderr_text = proc.stderr or ""
     success = proc.returncode == 0
     stream_error = _stream_has_error(stdout_text)
+    if stream_error and "model not found" in stream_error.lower():
+        # Retry once without forcing model; OpenCode can use provider defaults.
+        proc = _run_once(None)
+        stdout_text = proc.stdout or ""
+        stderr_text = proc.stderr or ""
+        success = proc.returncode == 0
+        stream_error = _stream_has_error(stdout_text)
     if stream_error:
         success = False
 
