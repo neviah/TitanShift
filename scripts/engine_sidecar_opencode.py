@@ -162,12 +162,16 @@ def main() -> int:
     if stream_error:
         success = False
 
+    extracted_response = _extract_response(stdout_text)
+    if not success and stream_error:
+        extracted_response = stream_error
+
     result = {
         "success": success,
         "engine": "opencode",
         "model": "opencode",
         "provider_model": model or None,
-        "response": _extract_response(stdout_text),
+        "response": extracted_response,
         "used_tools": _collect_tool_names(stdout_text),
         "created_paths": [],
         "updated_paths": [],
