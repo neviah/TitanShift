@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 import uuid
@@ -26,8 +26,8 @@ class FixPlan:
     recommended_hypothesis: str
     risk_level: str
     requires_user_approval: bool
-    actions: list[FixAction] = field(default_factory=list)
-    notes: str = ""
+    actions: list[FixAction]
+    notes: str
 
 
 @dataclass(slots=True)
@@ -43,29 +43,11 @@ class EmergencyAnalysis:
 
 
 class EmergencyModule:
-    """No-op stub. Error recovery is now handled by the sidecar engines."""
+    """Rule-based failure diagnosis for runtime and skill execution issues."""
 
     async def on_failure(self, event: dict[str, Any]) -> list[Diagnosis]:
-        return []
+        return self._diagnose(event)
 
-    async def analyze_failure(self, event: dict[str, Any]) -> EmergencyAnalysis:
-        failure_id = str(event.get("failure_id") or f"failure-{uuid.uuid4().hex[:12]}")
-        fix_plan = FixPlan(
-            failure_id=failure_id,
-            recommended_hypothesis="n/a",
-            risk_level="low",
-            requires_user_approval=False,
-        )
-        return EmergencyAnalysis(
-            failure_id=failure_id,
-            source=str(event.get("source", "unknown")),
-            error=str(event.get("error", "")),
-            diagnoses=[],
-            selected_hypothesis="n/a",
-            consensus=[],
-            fix_plan=fix_plan,
-            generated_at=datetime.now(timezone.utc).isoformat(),
-        )
     async def analyze_failure(self, event: dict[str, Any]) -> EmergencyAnalysis:
         failure_id = str(event.get("failure_id") or f"failure-{uuid.uuid4().hex[:12]}")
         source = str(event.get("source", "unknown"))

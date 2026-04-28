@@ -21,7 +21,10 @@ from harness.runtime.config import ConfigManager
 from harness.scheduler.module import ScheduledJob, Scheduler
 from harness.runtime.types import Task
 from harness.skills.registry import SkillDefinition
-from harness.state_machine.reactive import ReactiveStateMachine
+try:
+    from harness.state_machine.reactive import ReactiveStateMachine
+except ImportError:
+    ReactiveStateMachine = None  # type: ignore[assignment,misc]
 from harness.tools.definitions import ToolDefinition
 from harness.tools.registry import ApprovalStore, PermissionPolicy, PermissionRule, ToolRegistry
 

@@ -1,0 +1,1 @@
+"""Emergency module package."""

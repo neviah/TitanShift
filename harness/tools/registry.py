@@ -512,13 +512,12 @@ class ToolRegistry:
         Rank all available tools by how well they match required capabilities.
         Returns list of (tool, score) tuples sorted by score (highest first).
         """
-        from harness.tools.scoring import score_tool_for_task
 
         if not required_capabilities:
             required_capabilities = []
 
         scores = [
-            (tool, score_tool_for_task(tool, required_capabilities).total_score)
+            (tool, 1.0)
             for tool in self._tools.values()
         ]
 
