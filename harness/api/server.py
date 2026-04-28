@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
 from harness.api.audit import render_audit_text, run_audit
+from harness.engine.preflight import engines_health_payload
 from harness.memory.graph.migration import (
     export_from_neo4j,
     import_to_neo4j,
@@ -319,6 +320,14 @@ def create_app(workspace_root: Path) -> FastAPI:
         auto_tick_enabled = bool(runtime.config.get("scheduler.auto_tick_enabled", True))
         if os.getenv("PYTEST_CURRENT_TEST"):
             auto_tick_enabled = False
+        engine_status = engines_health_payload(runtime.config)
+        for mode in ("lightning", "superpowered"):
+            details = engine_status.get(mode, {}) if isinstance(engine_status, dict) else {}
+            configured = bool(details.get("configured", False))
+            binary_found = bool(details.get("binary_found", False))
+            wrapper_exists = bool(details.get("wrapper_exists", False))
+            health_status = "healthy" if configured and binary_found and wrapper_exists else "degraded"
+            runtime.health.set(f"engine:{mode}", health_status, details if isinstance(details, dict) else {})
         if not auto_tick_enabled:
             return
         _scheduler_loop_stop.clear()
@@ -328,6 +337,8 @@ def create_app(workspace_root: Path) -> FastAPI:
     async def _shutdown_scheduler_loop() -> None:
         nonlocal _scheduler_loop_task
         _scheduler_loop_stop.set()
+        runtime.health.set("engine:lightning", "stopped", {"reason": "api shutdown"})
+        runtime.health.set("engine:superpowered", "stopped", {"reason": "api shutdown"})
         if _scheduler_loop_task is None:
             return
         try:
@@ -2771,57 +2782,7 @@ def create_app(workspace_root: Path) -> FastAPI:
 
     @app.get("/engines/health", dependencies=[Depends(require_read_api_key)])
     async def engines_health() -> dict[str, Any]:
-        def _normalize_command(raw: Any) -> list[str]:
-            if isinstance(raw, list):
-                return [str(part).strip() for part in raw if str(part).strip()]
-            if isinstance(raw, str) and raw.strip():
-                return [part for part in shlex.split(raw) if part.strip()]
-            return []
-
-        def _command_health(mode: str) -> dict[str, Any]:
-            command = _normalize_command(runtime.config.get(f"engine.sidecar.{mode}.command", []))
-            if not command:
-                return {
-                    "configured": False,
-                    "command": [],
-                    "binary": None,
-                    "binary_found": False,
-                    "wrapper_exists": False,
-                }
-
-            binary = command[0]
-            binary_found = bool(shutil.which(binary) or shutil.which(f"{binary}.cmd"))
-            wrapper_exists = True
-            if len(command) > 1 and command[1].endswith(".py"):
-                wrapper_path = Path(command[1])
-                if not wrapper_path.is_absolute():
-                    wrapper_path = runtime.config.workspace_root / wrapper_path
-                wrapper_exists = wrapper_path.exists()
-
-            return {
-                "configured": True,
-                "command": command,
-                "binary": binary,
-                "binary_found": binary_found,
-                "wrapper_exists": wrapper_exists,
-            }
-
-        has_api_key = bool(str(runtime.config.get("model.openai_compatible.api_key", "") or "").strip())
-        has_base_url = bool(str(runtime.config.get("model.openai_compatible.base_url", "") or "").strip())
-        has_model = bool(str(runtime.config.get("model.openai_compatible.model", "") or "").strip())
-
-        return {
-            "ok": True,
-            "engine_use_sidecar": bool(runtime.config.get("engine.use_sidecar", False)),
-            "disable_legacy_skills": bool(runtime.config.get("engine.disable_legacy_skills", False)),
-            "lightning": _command_health("lightning"),
-            "superpowered": _command_health("superpowered"),
-            "auth_config": {
-                "has_api_key": has_api_key,
-                "has_base_url": has_base_url,
-                "has_model": has_model,
-            },
-        }
+        return engines_health_payload(runtime.config)
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(

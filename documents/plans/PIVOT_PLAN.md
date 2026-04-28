@@ -12,6 +12,8 @@
 - Completed: Sidecar wrapper scripts added for non-interactive JSON in/out execution
 - Completed: Runtime auth/provider alignment fixed while keeping existing API key
 - Completed: Both workflow modes validated through `/chat` sidecar path (lightning + superpowered)
+- Updated: Phase 3 is currently implemented via wrapper-based OpenClaude CLI execution instead of a direct gRPC client
+- In progress: Phase 4 process management now targets preflight checks + runtime engine health for the wrapper architecture
 
 ---
 
@@ -164,6 +166,8 @@ Sidecar Processes (managed by start.bat / process manager):
 
 ### Phase 3 — Build OpenClaude Adapter (Superpowered Mode)
 
+Current implementation note: this phase has been satisfied with a wrapper-based sidecar adapter (`scripts/engine_sidecar_openclaude.py`) that invokes OpenClaude non-interactively and returns normalized JSON to the backend. A direct gRPC adapter remains optional future work if we later want persistent sessions, richer streaming granularity, or explicit permission-loop control.
+
 1. Install `grpcio` and `grpcio-tools`: `pip install grpcio grpcio-tools`
 2. Download `src/proto/openclaude.proto` from openclaude repo
 3. Generate Python stubs: `python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. openclaude.proto`
@@ -179,6 +183,8 @@ Sidecar Processes (managed by start.bat / process manager):
 6. Test end-to-end: create superpowered task → openclaude runs → files created → streams to UI
 
 ### Phase 4 — Process Management
+
+Current implementation note: because the live integration is wrapper-based rather than long-lived daemon sidecars, Phase 4 focuses on startup preflight, runtime readiness reporting, and launcher safety checks. Persistent opencode/openclaude server processes may still be added later if we move from wrapper execution to HTTP/gRPC session services.
 
 1. Update `start.bat` to launch opencode and openclaude sidecars on startup
 2. Add health check endpoints for both sidecars in FastAPI
