@@ -1,7 +1,6 @@
 import type { NavTab } from '../../types/nav'
 import { ChatView } from '../../views/ChatView'
 import { FileView } from '../../views/FileView'
-import { SkillsView } from '../../views/SkillsView'
 import { SettingsView } from '../../views/SettingsView'
 import { KeyManagementView } from '../../views/KeyManagementView'
 import { SchedulerView } from '../../views/SchedulerView'
@@ -24,7 +23,6 @@ export function CenterPane({ activeTab, selectedFilePath }: CenterPaneProps) {
         <div className={activeTab === 'chat' ? styles.viewWrapper : styles.viewHidden}>
           <ChatView />
         </div>
-        {activeTab === 'skills' && <SkillsView />}
         {activeTab === 'settings' && <SettingsView />}
         {activeTab === 'keys' && <KeyManagementView />}
         {activeTab === 'tasks' && <TasksView />}

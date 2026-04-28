@@ -3,7 +3,6 @@ import {
   ListTodo,
   Clock,
   FolderOpen,
-  Zap,
   Wrench,
   Brain,
   ScrollText,
@@ -34,7 +33,6 @@ import {
   deleteSchedulerTaskStack,
   fetchArtifacts,
   fetchLogs,
-  fetchMarketList,
   fetchMemorySummary,
   fetchRoleTemplates,
   fetchSchedulerJobs,
@@ -91,7 +89,6 @@ function countdownLabel(nextRunAt?: string | null): string {
   return `${mm}m ${ss}s`
 }
 
-const ACTIVE_SKILLS_KEY = 'titanshift-active-skills-by-workspace-v1'
 const ACTIVE_TOOLS_KEY = 'titanshift-active-tools-by-workspace-v1'
 const RUN_TASK_FROM_QUEUE_EVENT = 'titanshift:run-task-from-queue'
 
@@ -101,7 +98,6 @@ const TABS: { id: NavTab; label: string; Icon: React.FC<{ size?: number }> }[] =
   { id: 'tasks',     label: 'Tasks',     Icon: ListTodo },
   { id: 'scheduler', label: 'Scheduler', Icon: Clock },
   { id: 'files',     label: 'Files',     Icon: FolderOpen },
-  { id: 'skills',    label: 'Skills',    Icon: Zap },
   { id: 'tools',     label: 'Tools',     Icon: Wrench },
   { id: 'memory',    label: 'Memory',    Icon: Brain },
   { id: 'logs',      label: 'Logs',      Icon: ScrollText },
@@ -118,7 +114,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const { workspaces, currentWorkspaceId, currentWorkspaceName, currentWorkspacePath, selectWorkspace, openWorkspaceFolder } = useWorkspace()
   const [taskScope, setTaskScope] = useState<TaskScope>('workspace')
   const { data: taskData, refresh: refreshTasks } = usePolling(() => fetchTasks(taskScope), { interval: 8000 })
-  const { data: skillsData } = usePolling(fetchMarketList, { interval: 30000 })
   const { data: treeData, refresh: refreshTree } = usePolling(fetchWorkspaceTree, { interval: 8000 })
   const { data: toolsData } = usePolling(fetchTools, { interval: 30000 })
   const { data: memoryData } = usePolling(fetchMemorySummary, { interval: 30000 })
@@ -136,13 +131,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
   const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({})
   const [schedulerBusyId, setSchedulerBusyId] = useState<string | null>(null)
-  const [activeSkillsByWorkspace, setActiveSkillsByWorkspace] = useState<Record<string, Record<string, boolean>>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(ACTIVE_SKILLS_KEY) ?? '{}') as Record<string, Record<string, boolean>>
-    } catch {
-      return {}
-    }
-  })
   const [activeToolsByWorkspace, setActiveToolsByWorkspace] = useState<Record<string, Record<string, boolean>>>(() => {
     try {
       return JSON.parse(localStorage.getItem(ACTIVE_TOOLS_KEY) ?? '{}') as Record<string, Record<string, boolean>>
@@ -153,7 +141,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
 
   const totalTaskCount = taskData?.length ?? 0
   const tasks = (taskData ?? []).slice(0, 12)
-  const installedSkills = (skillsData ?? []).filter((s) => s.installed).slice(0, 12)
   const recentSessions = useMemo(
     () => sessions.filter((s) => !s.archived).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
     [sessions],
@@ -162,7 +149,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     () => sessions.filter((s) => s.archived).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12),
     [sessions],
   )
-  const activeSkills = activeSkillsByWorkspace[currentWorkspaceId] ?? {}
   const activeTools = activeToolsByWorkspace[currentWorkspaceId] ?? {}
   const roleTemplates: RoleTemplate[] = roleTemplatesData ?? []
   const schedulerJobs: SchedulerJob[] = schedulerJobsData ?? []
@@ -184,13 +170,12 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     if (activeTab === 'chat') return { title: 'Conversation Anchor', subtitle: `${recentSessions.length} active threads`, hint: currentWorkspaceName }
     if (activeTab === 'tasks') return { title: 'Task Queue', subtitle: `${totalTaskCount} tracked tasks (${taskScope === 'workspace' ? 'this workspace' : 'all workspaces'})`, hint: latestTask?.status ?? 'idle' }
     if (activeTab === 'files') return { title: 'File Anchor', subtitle: `${treeData?.length ?? 0} root nodes`, hint: currentWorkspaceName }
-    if (activeTab === 'skills') return { title: 'Skill Anchor', subtitle: `${installedSkills.length} installed`, hint: currentWorkspaceName }
     if (activeTab === 'tools') return { title: 'Tool Anchor', subtitle: `${(toolsData ?? []).length} discovered`, hint: currentWorkspaceName }
     if (activeTab === 'memory') return { title: 'Memory Anchor', subtitle: `${memoryData?.working_entries ?? 0} working entries`, hint: 'runtime memory summary' }
     if (activeTab === 'logs') return { title: 'Log Anchor', subtitle: `${logsData?.items?.length ?? 0} recent events`, hint: 'live telemetry feed' }
     if (activeTab === 'scheduler') return { title: 'Scheduler Anchor', subtitle: 'Job timeline and heartbeat', hint: 'scheduler panel' }
     return { title: 'Settings Anchor', subtitle: 'Runtime and provider controls', hint: 'configuration' }
-  }, [activeTab, workspaces.length, currentWorkspaceName, recentSessions.length, totalTaskCount, taskScope, latestTask?.status, treeData?.length, installedSkills.length, toolsData, memoryData?.working_entries, logsData?.items?.length])
+  }, [activeTab, workspaces.length, currentWorkspaceName, recentSessions.length, totalTaskCount, taskScope, latestTask?.status, treeData?.length, toolsData, memoryData?.working_entries, logsData?.items?.length])
 
   async function setArtifactApproval(artifactType: 'spec' | 'plan', approve: boolean) {
     const busyKey = `${artifactType}:${approve ? 'approve' : 'revoke'}`
@@ -206,10 +191,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
       setArtifactBusy(null)
     }
   }
-  useEffect(() => {
-    localStorage.setItem(ACTIVE_SKILLS_KEY, JSON.stringify(activeSkillsByWorkspace))
-  }, [activeSkillsByWorkspace])
-
   useEffect(() => {
     localStorage.setItem(ACTIVE_TOOLS_KEY, JSON.stringify(activeToolsByWorkspace))
   }, [activeToolsByWorkspace])
@@ -348,16 +329,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
     setSelectedTaskId(null)
     setSelectedTask(null)
     await refreshTasks()
-  }
-
-  function toggleSkillActive(skillId: string) {
-    setActiveSkillsByWorkspace((prev) => ({
-      ...prev,
-      [currentWorkspaceId]: {
-        ...(prev[currentWorkspaceId] ?? {}),
-        [skillId]: !(prev[currentWorkspaceId]?.[skillId] ?? false),
-      },
-    }))
   }
 
   function toggleToolActive(toolName: string) {
@@ -757,22 +728,6 @@ export function LeftPane({ activeTab, onTabChange, onOpenFile, selectedFilePath 
                 ))}
               </div>
             )}
-          </div>
-        )}
-
-        {activeTab === 'skills' && (
-          <div className={styles.list}>
-            <p className={styles.hint}>Installed skills</p>
-            <p className={styles.hint}>Active in workspace: {currentWorkspaceName}</p>
-            {installedSkills.length === 0 && <p className={styles.empty}>No installed skills yet.</p>}
-            {installedSkills.map((skill) => (
-              <button key={skill.id} className={styles.itemRow} onClick={() => toggleSkillActive(skill.id)} title={`Toggle active for ${currentWorkspaceName}`}>
-                <span className={styles.rowTitle}>{skill.name}</span>
-                <span className="badge badge-ok">installed</span>
-                <span className={`badge ${activeSkills[skill.id] ? 'badge-ok' : 'badge-dim'}`}>{activeSkills[skill.id] ? 'active' : 'inactive'}</span>
-              </button>
-            ))}
-            <p className={styles.hint}>Marketplace is shown in the center pane.</p>
           </div>
         )}
 

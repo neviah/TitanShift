@@ -54,54 +54,6 @@ export interface GraphifyResponse {
   node_ids: string[]
 }
 
-// ---- Skills Market ----
-
-export interface SkillMarketItem {
-  id: string
-  name: string
-  description: string
-  version: string
-  mode: string
-  domain: string
-  required_tools: string[]
-  dependencies: string[]
-  installable: boolean
-  installed: boolean
-  missing_tools: string[]
-  tags: string[]
-}
-
-export interface MarketRemoteStatus {
-  synced_at: string | null
-  source: string | null
-  pulled_count: number
-  index_hash: string
-  signing_version: string | null
-}
-
-export interface UiMarketOverviewResponse {
-  total_listed: number
-  installed_count: number
-  installable_count: number
-  non_installable_count: number
-  remote_status: MarketRemoteStatus | null
-  recent_events: Record<string, unknown>[]
-}
-
-// ---- Skills List ----
-
-export interface SkillDefinition {
-  id: string
-  name: string
-  description: string
-  mode: string
-  domain: string
-  required_tools: string[]
-  dependencies: string[]
-  prompt_template?: string
-  tags: string[]
-}
-
 // ---- Tools ----
 
 export interface ToolDefinition {
@@ -200,45 +152,6 @@ export interface ChatResponse {
   estimated_total_tokens: number | null
   task_template_id?: string | null
   task_id?: string | null
-}
-
-export interface RuntimeSkillSummary {
-  skill_id: string
-  description: string
-  mode: string
-  domain: string
-  version: string
-  tags: string[]
-  required_tools: string[]
-  ranking_score?: number
-}
-
-export interface SkillRepoIntakeResponse {
-  ok: boolean
-  repo_url: string
-  repo_name: string
-  classification: string
-  recommended_artifact: string
-  confidence: number
-  trust_policy?: string
-  trust_passed?: boolean
-  trust_reason?: string | null
-  installed_skill_id?: string | null
-  generated_tool_ids?: string[]
-  generated_adapters?: Array<Record<string, unknown>>
-  intake_manifest?: Record<string, unknown>
-  process_log: string[]
-  notes: string[]
-}
-
-export interface SkillRepoIntakeUninstallResponse {
-  ok: boolean
-  skill_id: string
-  uninstalled: boolean
-  removed_tool_ids: string[]
-  removed_manifest: boolean
-  stopped_services: string[]
-  warnings: string[]
 }
 
 export interface RoleTemplate {

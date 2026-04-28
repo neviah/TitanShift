@@ -1,8 +1,6 @@
 import type {
   UiIngestionOverviewResponse,
-  UiMarketOverviewResponse,
   HealthResponse,
-  SkillMarketItem,
   ChatRequest,
   ChatResponse,
   TaskSummary,
@@ -24,9 +22,6 @@ import type {
   ArtifactApproveResponse,
   WorkflowMetrics,
   TaskSearchResponse,
-  RuntimeSkillSummary,
-  SkillRepoIntakeResponse,
-  SkillRepoIntakeUninstallResponse,
   TaskCancelResponse,
   TaskRollbackResponse,
   ApiKeyStatusResponse,
@@ -150,16 +145,6 @@ export function normalizeApiError(error: unknown): string {
   return String(error)
 }
 
-function deriveSkillName(skillId: string): string {
-  const cleaned = skillId.trim()
-  if (!cleaned) return 'Untitled skill'
-  return cleaned
-    .replace(/[-_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
 async function request<T>(path: string, init?: RequestInit, authScope: AuthScope = 'read'): Promise<T> {
   const apiKey = getStoredApiKey(authScope)
   let res: Response
@@ -202,10 +187,6 @@ export function fetchIngestionOverview(): Promise<UiIngestionOverviewResponse> {
   return request('/ui/ingestion/overview')
 }
 
-export function fetchMarketOverview(): Promise<UiMarketOverviewResponse> {
-  return request('/ui/market/overview')
-}
-
 // ---- Graphify Ingestion ----
 
 export function graphifyIngest(body: GraphifyRequest): Promise<GraphifyResponse> {
@@ -231,85 +212,6 @@ export function updateConfig(key: string, value: unknown): Promise<unknown> {
   return request('/config', {
     method: 'POST',
     body: JSON.stringify({ key, value }),
-  }, 'admin')
-}
-
-// ---- Market ----
-
-export function fetchMarketList(): Promise<SkillMarketItem[]> {
-  return request<Array<Record<string, unknown>>>('/skills/market').then((rows) => (
-    rows.map((row) => {
-      const skillId = String(row.skill_id ?? row.id ?? '').trim()
-      const name = String(row.name ?? '').trim() || deriveSkillName(skillId)
-      return {
-        id: skillId,
-        name,
-        description: String(row.description ?? ''),
-        version: String(row.version ?? '0.1.0'),
-        mode: String(row.mode ?? 'prompt'),
-        domain: String(row.domain ?? 'general'),
-        required_tools: Array.isArray(row.required_tools) ? row.required_tools.map(String) : [],
-        dependencies: Array.isArray(row.dependencies) ? row.dependencies.map(String) : [],
-        installable: Boolean(row.installable),
-        installed: Boolean(row.installed),
-        missing_tools: Array.isArray(row.missing_tools) ? row.missing_tools.map(String) : [],
-        tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
-      } satisfies SkillMarketItem
-    })
-  ))
-}
-
-export function fetchRuntimeSkills(): Promise<RuntimeSkillSummary[]> {
-  return request<Array<Record<string, unknown>>>('/skills').then((rows) => (
-    rows.map((row) => ({
-      skill_id: String(row.skill_id ?? ''),
-      description: String(row.description ?? ''),
-      mode: String(row.mode ?? 'prompt'),
-      domain: String(row.domain ?? 'general'),
-      version: String(row.version ?? '0.1.0'),
-      tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
-      required_tools: Array.isArray(row.required_tools) ? row.required_tools.map(String) : [],
-      ranking_score: typeof row.ranking_score === 'number' ? row.ranking_score : undefined,
-    } satisfies RuntimeSkillSummary))
-  ))
-}
-
-export function installSkill(skillId: string): Promise<unknown> {
-  return request('/skills/market/install', {
-    method: 'POST',
-    body: JSON.stringify({ skill_id: skillId }),
-  }, 'admin')
-}
-
-export function uninstallSkill(skillId: string): Promise<unknown> {
-  return request('/skills/market/uninstall', {
-    method: 'POST',
-    body: JSON.stringify({ skill_id: skillId }),
-  }, 'admin')
-}
-
-export function syncRemoteMarket(source: string): Promise<unknown> {
-  return request('/skills/market/remote/sync', {
-    method: 'POST',
-    body: JSON.stringify({ source, force: true }),
-  }, 'admin')
-}
-
-export function intakeSkillRepo(
-  repo_url: string,
-  auto_install = true,
-  trust_policy = 'github_only',
-): Promise<SkillRepoIntakeResponse> {
-  return request('/skills/repo-intake', {
-    method: 'POST',
-    body: JSON.stringify({ repo_url, auto_install, trust_policy }),
-  }, 'admin')
-}
-
-export function uninstallRepoIntakeSkill(skill_id: string): Promise<SkillRepoIntakeUninstallResponse> {
-  return request('/skills/repo-intake/uninstall', {
-    method: 'POST',
-    body: JSON.stringify({ skill_id }),
   }, 'admin')
 }
 

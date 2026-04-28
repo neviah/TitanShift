@@ -38,7 +38,7 @@ function Shell() {
     setActiveLeftSection(section)
 
     // Some tabs intentionally own the center pane.
-    if (section === 'settings' || section === 'skills' || section === 'scheduler' || section === 'keys') {
+    if (section === 'settings' || section === 'scheduler' || section === 'keys') {
       setActiveTab(section)
       return
     }

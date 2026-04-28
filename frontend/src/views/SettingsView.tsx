@@ -3,7 +3,6 @@ import { fetchConfig, normalizeApiError, updateConfig } from '../api/client'
 import { useSchedulerTask } from '../contexts/SchedulerTaskContext'
 import styles from './SettingsView.module.css'
 import { Save, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
-import { MarketOverview } from './dashboard/MarketOverview'
 import { IngestionOverview } from './dashboard/IngestionOverview'
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -367,7 +366,6 @@ export function SettingsView() {
           {/* ── System Overview ── */}
           <Section title="System Overview">
             <div className={styles.overviewGrid}>
-              <MarketOverview />
               <IngestionOverview />
             </div>
           </Section>

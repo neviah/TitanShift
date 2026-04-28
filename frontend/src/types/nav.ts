@@ -4,7 +4,6 @@ export type NavTab =
   | 'tasks'
   | 'scheduler'
   | 'files'
-  | 'skills'
   | 'tools'
   | 'memory'
   | 'logs'
@@ -14,7 +13,6 @@ export type NavTab =
 export type RightTab =
   | 'run'
   | 'agent'
-  | 'skills'
   | 'tools'
   | 'memory'
   | 'logs'

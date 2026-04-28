@@ -2,7 +2,6 @@ import { useState } from 'react'
 import {
   Activity,
   Bot,
-  Zap,
   Wrench,
   Brain,
   ScrollText,
@@ -13,7 +12,6 @@ import type { RightTab } from '../../types/nav'
 import { AgentTab } from './right/AgentTab'
 import { CurrentRunTab } from './right/CurrentRunTab'
 import { HealthTab } from './right/HealthTab'
-import { SkillsTab } from './right/SkillsTab'
 import { ToolsTab } from './right/ToolsTab'
 import { MemoryTab } from './right/MemoryTab'
 import { LogsTab } from './right/LogsTab'
@@ -21,7 +19,6 @@ import { LogsTab } from './right/LogsTab'
 const TABS: { id: RightTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: 'run',    label: 'Run',    Icon: Activity },
   { id: 'agent',  label: 'Agent',  Icon: Bot },
-  { id: 'skills', label: 'Skills', Icon: Zap },
   { id: 'tools',  label: 'Tools',  Icon: Wrench },
   { id: 'memory', label: 'Memory', Icon: Brain },
   { id: 'logs',   label: 'Logs',   Icon: ScrollText },
@@ -50,7 +47,6 @@ export function RightPane() {
       <div className={styles.body}>
         {active === 'run' && <CurrentRunTab />}
         {active === 'agent' && <AgentTab />}
-        {active === 'skills' && <SkillsTab />}
         {active === 'tools' && <ToolsTab />}
         {active === 'memory' && <MemoryTab />}
         {active === 'logs' && <LogsTab />}
