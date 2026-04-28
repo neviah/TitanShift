@@ -83,6 +83,8 @@ def auth_probe(config: ConfigManager) -> dict[str, bool]:
         "has_api_key": bool(str(config.get("model.openai_compatible.api_key", "") or "").strip()),
         "has_base_url": bool(str(config.get("model.openai_compatible.base_url", "") or "").strip()),
         "has_model": bool(str(config.get("model.openai_compatible.model", "") or "").strip()),
+        "has_lightning_model": bool(str(config.get("model.lightning_model", "") or "").strip()),
+        "has_superpowered_model": bool(str(config.get("model.superpowered_model", "") or "").strip()),
     }
 
 

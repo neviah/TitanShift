@@ -4376,6 +4376,8 @@ def create_app(workspace_root: Path) -> FastAPI:
         return {
             "model.default_backend": runtime.config.get("model.default_backend"),
             "model.allow_cloud_adapters": runtime.config.get("model.allow_cloud_adapters"),
+            "model.lightning_model": runtime.config.get("model.lightning_model"),
+            "model.superpowered_model": runtime.config.get("model.superpowered_model"),
             "model.lmstudio.base_url": runtime.config.get("model.lmstudio.base_url"),
             "model.lmstudio.model": runtime.config.get("model.lmstudio.model"),
             "model.lmstudio.timeout_s": runtime.config.get("model.lmstudio.timeout_s"),

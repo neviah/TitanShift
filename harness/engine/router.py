@@ -17,13 +17,18 @@ class EngineRouter:
     def sidecar_enabled(self) -> bool:
         return bool(self.config.get("engine.use_sidecar", False))
 
-    def _shared_env(self) -> dict[str, str]:
+    def _shared_env(self, workflow_mode: str) -> dict[str, str]:
         raw = self.config.get("engine.sidecar.shared_env", {})
         user_env = {str(k): str(v) for k, v in raw.items() if str(k).strip()} if isinstance(raw, dict) else {}
 
         base_url = str(self.config.get("model.openai_compatible.base_url", "") or "").strip()
         api_key = str(self.config.get("model.openai_compatible.api_key", "") or "").strip()
-        model = str(self.config.get("model.openai_compatible.model", "") or "").strip()
+        shared_model = str(self.config.get("model.openai_compatible.model", "") or "").strip()
+        if workflow_mode == "superpowered":
+            mode_model = str(self.config.get("model.superpowered_model", "") or "").strip()
+        else:
+            mode_model = str(self.config.get("model.lightning_model", "") or "").strip()
+        model = mode_model or shared_model
 
         derived: dict[str, str] = {
             # openclaude expects this for OpenAI-compatible routing.
@@ -55,7 +60,7 @@ class EngineRouter:
             engine_name=engine_name,
             command=command,
             timeout_s=timeout_s,
-            shared_env=self._shared_env(),
+            shared_env=self._shared_env(workflow_mode),
         )
 
     async def run_task(self, task: Task, *, workflow_mode: str, workspace_root: Path) -> SidecarExecutionResult:

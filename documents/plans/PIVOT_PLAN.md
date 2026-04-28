@@ -14,6 +14,7 @@
 - Completed: Both workflow modes validated through `/chat` sidecar path (lightning + superpowered)
 - Updated: Phase 3 is currently implemented via wrapper-based OpenClaude CLI execution instead of a direct gRPC client
 - In progress: Phase 4 process management now targets preflight checks + runtime engine health for the wrapper architecture
+- In progress: Phase 5 settings integration now includes per-mode model keys for Lightning and Superpowered
 
 ---
 

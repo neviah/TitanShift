@@ -286,6 +286,7 @@ def run_init(workspace_root: Path, force: bool = False) -> None:  # noqa: PLR091
     lmstudio_url = "http://127.0.0.1:1234/v1"
     lmstudio_model = ""
     openai_url = ""
+    openai_model = ""
     openai_key_env = "OPENAI_API_KEY"
 
     if backend == "lmstudio":
@@ -295,6 +296,7 @@ def run_init(workspace_root: Path, force: bool = False) -> None:  # noqa: PLR091
     elif backend == "openai_compatible":
         print()
         openai_url = _ask("  API base URL", "https://api.openai.com/v1")
+        openai_model = _ask("  Default model id", "openai/gpt-4o-mini")
         openai_key_env = _ask("  API key env var", "OPENAI_API_KEY")
 
     # ── 2. Workflow mode ─────────────────────────────────────────────────────
@@ -338,6 +340,8 @@ def run_init(workspace_root: Path, force: bool = False) -> None:  # noqa: PLR091
         "model": {
             "default_backend": backend,
             "allow_cloud_adapters": allow_cloud,
+            "lightning_model": "",
+            "superpowered_model": "",
         },
         "memory": {
             "semantic_backend": "sqlite",
@@ -361,6 +365,7 @@ def run_init(workspace_root: Path, force: bool = False) -> None:  # noqa: PLR091
     elif backend == "openai_compatible":
         cfg["model"]["openai_compatible"] = {
             "base_url": openai_url,
+            "model": openai_model,
             "api_key_env": openai_key_env,
             "timeout_s": 120,
             "max_tokens": 4096,

@@ -17,6 +17,8 @@ const BACKENDS = [
 interface ConfigState {
   'model.default_backend': string
   'model.allow_cloud_adapters'?: boolean
+  'model.lightning_model'?: string
+  'model.superpowered_model'?: string
   'model.lmstudio.base_url'?: string
   'model.lmstudio.model'?: string
   'model.lmstudio.timeout_s'?: number
@@ -199,6 +201,30 @@ export function SettingsView() {
                     placeholder="openai/gpt-4o-mini"
                   />
                 </Field>
+
+                <Field label="Lightning model override">
+                  <input
+                    type="text"
+                    className={styles.textInput}
+                    value={String(config['model.lightning_model'] ?? '')}
+                    onChange={(e) => patchLocal('model.lightning_model', e.target.value)}
+                    placeholder="blank = use Provider model id"
+                  />
+                </Field>
+
+                <Field label="Superpowered model override">
+                  <input
+                    type="text"
+                    className={styles.textInput}
+                    value={String(config['model.superpowered_model'] ?? '')}
+                    onChange={(e) => patchLocal('model.superpowered_model', e.target.value)}
+                    placeholder="blank = use Provider model id"
+                  />
+                </Field>
+
+                <p className={styles.fieldHint}>
+                  Leave either override blank to fall back to the shared provider model. Use this to run cheaper Lightning tasks and stronger Superpowered tasks on different models.
+                </p>
 
                 <Field label="Provider API key">
                   <input

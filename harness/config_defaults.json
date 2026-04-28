@@ -58,6 +58,8 @@
   "model": {
     "default_backend": "local_stub",
     "allow_cloud_adapters": true,
+    "lightning_model": "",
+    "superpowered_model": "",
     "lmstudio": {
       "base_url": "http://127.0.0.1:1234/v1",
       "model": "local-model",
