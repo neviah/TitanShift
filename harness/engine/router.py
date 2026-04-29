@@ -46,6 +46,10 @@ class EngineRouter:
             derived["OPENAI_MODEL"] = model
             derived["OPENROUTER_MODEL"] = model
 
+        browse_backend = str(self.config.get("tools.web_browse_backend", "playwright") or "").strip().lower()
+        if browse_backend in {"playwright", "obscura", "auto"}:
+            derived["TITANSHIFT_WEB_BROWSE_BACKEND"] = browse_backend
+
         # Keep model selection explicit by default to avoid costly unintended provider defaults.
         derived["OPENCODE_ALLOW_MODEL_FALLBACK"] = "1" if allow_model_fallback else "0"
 

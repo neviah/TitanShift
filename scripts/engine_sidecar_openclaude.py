@@ -66,11 +66,31 @@ def main() -> int:
 
     prompt = _safe_text(payload.get("prompt"))
     workspace_root = _safe_text(payload.get("workspace_root")) or str(Path.cwd())
+    preferred_web_backend = _safe_text(os.getenv("TITANSHIFT_WEB_BROWSE_BACKEND")).lower() or "playwright"
 
     provider = _safe_text(os.getenv("OPENCLAUDE_PROVIDER"))
     model = _safe_text(os.getenv("OPENAI_MODEL") or os.getenv("OPENCLAUDE_MODEL"))
 
     openclaude_bin = shutil.which("openclaude") or shutil.which("openclaude.cmd") or "openclaude.cmd"
+
+    execution_contract = (
+        "You are executing within TitanShift. "
+        "If the user asks to create or edit files, you MUST perform the file operations in the workspace and then report what changed. "
+        "Do not stop at advice-only responses when concrete file edits were requested."
+    )
+    web_hint = ""
+    if preferred_web_backend == "obscura":
+        web_hint = (
+            " Preferred web backend: obscura. For web retrieval tasks, prefer running obscura CLI commands from shell "
+            "(for example `obscura fetch <url> --dump text`) before other browsing approaches."
+        )
+    elif preferred_web_backend == "auto":
+        web_hint = (
+            " Preferred web backend: auto. For web retrieval, try Playwright/browser-based retrieval first; "
+            "if blocked or incomplete, fallback to obscura CLI (`obscura fetch <url> --dump text`) when available."
+        )
+
+    effective_prompt = f"{execution_contract}{web_hint}\n\nUser request:\n{prompt}" if prompt else execution_contract
 
     cmd = [
         openclaude_bin,
@@ -85,7 +105,7 @@ def main() -> int:
         cmd.extend(["--provider", provider])
     if model:
         cmd.extend(["--model", model])
-    cmd.append(prompt)
+    cmd.append(effective_prompt)
 
     proc = subprocess.run(
         cmd,

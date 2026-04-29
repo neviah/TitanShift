@@ -2971,10 +2971,10 @@ def create_app(workspace_root: Path) -> FastAPI:
 
         async def _event_generator():
             try:
-                if requested_mode == "superpowered":
+                if requested_mode == "superpowered" or runtime.orchestrator.state_machine is None:
                     # Superpowered streaming must execute through the orchestrator so plan/review
                     # phases, role subagents, and mode-specific safeguards are honored.
-                    yield f"data: {json.dumps({'type': 'start', 'task_id': task.id, 'mode': 'superpowered'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'start', 'task_id': task.id, 'mode': requested_mode or 'lightning'})}\n\n"
 
                     stream_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
                     hook_labels: list[str] = []
@@ -3123,7 +3123,7 @@ def create_app(workspace_root: Path) -> FastAPI:
                         "response": result.output.get("response", result.error or ""),
                         "model": result.output.get("model", "unknown"),
                         "mode": result.output.get("mode", "reactive"),
-                        "workflow_mode": result.output.get("workflow_mode", "superpowered"),
+                        "workflow_mode": result.output.get("workflow_mode", requested_mode or "lightning"),
                         "used_tools": result.output.get("used_tools", []),
                         "created_paths": result.output.get("created_paths", []),
                         "updated_paths": result.output.get("updated_paths", []),
@@ -3767,6 +3767,7 @@ def create_app(workspace_root: Path) -> FastAPI:
             ),
             "tools.deny_all_by_default": runtime.config.get("tools.deny_all_by_default"),
             "tools.allow_network": runtime.config.get("tools.allow_network"),
+            "tools.web_browse_backend": runtime.config.get("tools.web_browse_backend"),
         }
 
     @app.post("/config", response_model=ConfigUpdateResponse, dependencies=[Depends(require_admin_api_key)])
