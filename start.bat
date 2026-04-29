@@ -22,6 +22,9 @@ if errorlevel 1 (
 	exit /b 1
 )
 
+set "OBSCURA_LOCAL_DIR=%~dp0.tools\obscura"
+if exist "%OBSCURA_LOCAL_DIR%\obscura.exe" set "PATH=%OBSCURA_LOCAL_DIR%;%PATH%"
+
 where opencode >nul 2>nul
 if errorlevel 1 (
 	echo [error] opencode is not installed. Run: npm install -g opencode-ai@latest
@@ -38,20 +41,27 @@ if errorlevel 1 (
 
 where obscura >nul 2>nul
 if errorlevel 1 (
-	echo [warning] obscura is not installed. To use Obscura as web browser backend, run:
-	echo           npm install -g obscura
-	echo           OR download from: https://github.com/h4ckf0r0day/obscura/releases
-	echo           (Playwright will be used as fallback)
-	echo.
+	echo [warning] obscura is not installed. Attempting automatic install from GitHub release...
+	powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install_obscura.ps1" -InstallDir "%OBSCURA_LOCAL_DIR%"
+	if exist "%OBSCURA_LOCAL_DIR%\obscura.exe" set "PATH=%OBSCURA_LOCAL_DIR%;%PATH%"
+	where obscura >nul 2>nul
+	if errorlevel 1 (
+		echo [warning] obscura install failed or command unavailable.
+		echo           Run setup-obscura.bat from repo root, or install manually from:
+		echo           https://github.com/h4ckf0r0day/obscura/releases
+		echo           ^(Playwright will be used as fallback^)
+		echo.
+	) else (
+		echo [ok] obscura installed automatically.
+	)
 )
 
 for /f "delims=" %%i in ('opencode --version') do set OPENCODE_VERSION=%%i
 for /f "delims=" %%i in ('openclaude --version') do set OPENCLAUDE_VERSION=%%i
 
 where obscura >nul 2>nul
-if errorlevel 0 (
-	for /f "delims=" %%i in ('obscura --version') do set OBSCURA_VERSION=%%i
-	echo [ok] obscura: %OBSCURA_VERSION%
+if not errorlevel 1 (
+	for /f "delims=" %%i in ('where obscura') do echo [ok] obscura: detected at %%i
 )
 
 echo [ok] opencode: %OPENCODE_VERSION%

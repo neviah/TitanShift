@@ -5,28 +5,32 @@ echo  Installing Obscura browser backend...
 echo ============================================
 echo.
 
-where npm >nul 2>nul
+set "OBSCURA_LOCAL_DIR=%~dp0.tools\obscura"
+
+echo [1/2] Downloading latest Obscura Windows release...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install_obscura.ps1" -InstallDir "%OBSCURA_LOCAL_DIR%"
+
 if errorlevel 1 (
-	echo [error] npm is not installed or not on PATH.
-	echo Please install Node.js first: https://nodejs.org/
+	echo [error] Failed to download/install Obscura from GitHub releases.
+	echo Please install manually from: https://github.com/h4ckf0r0day/obscura/releases
 	pause
 	exit /b 1
 )
 
-echo [1/1] Installing obscura globally via npm...
-call npm install -g obscura
-
-if errorlevel 1 (
-	echo [error] Failed to install obscura. Check your npm installation and permissions.
-	pause
-	exit /b 1
-)
+echo [2/2] Verifying installation...
+if exist "%OBSCURA_LOCAL_DIR%\obscura.exe" set "PATH=%OBSCURA_LOCAL_DIR%;%PATH%"
 
 echo.
 echo [ok] Obscura installed successfully!
 where obscura >nul 2>nul
-if errorlevel 0 (
-	for /f "delims=" %%i in ('obscura --version') do echo Version: %%i
+if not errorlevel 1 (
+	for /f "delims=" %%i in ('where obscura') do echo Path: %%i
+	for /f "delims=" %%i in ('obscura --help ^| findstr /b /c:"Obscura"') do echo Info: %%i
+)
+if errorlevel 1 (
+	echo [warning] obscura.exe was installed but is not on current PATH.
+	echo Add this directory to PATH or keep using start.bat which auto-adds it:
+	echo %OBSCURA_LOCAL_DIR%
 )
 
 echo.
