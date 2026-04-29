@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -7,6 +8,8 @@ from pathlib import Path
 import re
 import shlex
 import hashlib
+import shutil
+import subprocess
 from html import escape
 from datetime import datetime, timezone
 from typing import Any
@@ -4196,72 +4199,162 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
     )
 
     async def web_browse_handler(args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            from playwright.async_api import async_playwright  # type: ignore[import]
-        except ImportError:
-            return {"ok": False, "error": "playwright is not installed. Run: pip install playwright && playwright install chromium"}
-
         url = str(args.get("url") or "").strip()
         if not url.startswith(("http://", "https://")):
             return {"ok": False, "error": "url must start with http:// or https://"}
+
+        backend = str(args.get("backend") or "").strip().lower() or "playwright"
+        if backend not in {"playwright", "obscura", "auto"}:
+            return {"ok": False, "error": "backend must be one of: playwright, obscura, auto"}
 
         selector = str(args.get("selector") or "").strip() or None
         wait_for = str(args.get("wait_for") or "load")
         timeout_ms = int(args.get("timeout_ms", 30000))
         max_chars = int(args.get("max_chars", 12000))
         screenshot = bool(args.get("screenshot", False))
+        stealth = bool(args.get("stealth", False))
 
-        screenshot_path: str | None = None
-        try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=True)
-                page = await browser.new_page(
-                    user_agent=(
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/124.0.0.0 Safari/537.36"
-                    )
-                )
+        async def _run_playwright() -> dict[str, Any]:
+            try:
+                from playwright.async_api import async_playwright  # type: ignore[import]
+            except ImportError:
+                return {"ok": False, "error": "playwright is not installed. Run: pip install playwright && playwright install chromium", "backend": "playwright"}
 
-                target_url = url
-                try:
-                    await page.goto(target_url, wait_until=wait_for, timeout=timeout_ms)
-                except Exception as first_exc:
-                    # Reddit sometimes blocks strict headless access; retry with old.reddit.com.
-                    if "reddit.com" in url and "old.reddit.com" not in url:
-                        fallback_url = (
-                            url.replace("://www.reddit.com", "://old.reddit.com")
-                            .replace("://reddit.com", "://old.reddit.com")
+            screenshot_path: str | None = None
+            try:
+                async with async_playwright() as pw:
+                    browser = await pw.chromium.launch(headless=True)
+                    page = await browser.new_page(
+                        user_agent=(
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0.0.0 Safari/537.36"
                         )
-                        await page.goto(fallback_url, wait_until="domcontentloaded", timeout=timeout_ms)
-                        target_url = fallback_url
-                    else:
-                        raise first_exc
+                    )
 
-                if selector:
-                    await page.wait_for_selector(selector, timeout=timeout_ms)
+                    target_url = url
+                    try:
+                        await page.goto(target_url, wait_until=wait_for, timeout=timeout_ms)
+                    except Exception as first_exc:
+                        # Reddit sometimes blocks strict headless access; retry with old.reddit.com.
+                        if "reddit.com" in url and "old.reddit.com" not in url:
+                            fallback_url = (
+                                url.replace("://www.reddit.com", "://old.reddit.com")
+                                .replace("://reddit.com", "://old.reddit.com")
+                            )
+                            await page.goto(fallback_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                            target_url = fallback_url
+                        else:
+                            raise first_exc
 
-                if screenshot:
-                    import tempfile
-                    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                    screenshot_path = tmp.name
-                    tmp.close()
-                    await page.screenshot(path=screenshot_path, full_page=False)
+                    if selector:
+                        await page.wait_for_selector(selector, timeout=timeout_ms)
 
-                content = await page.inner_text("body")
-                content = re.sub(r"\s+", " ", content).strip()
-                final_url = page.url or target_url
-                await browser.close()
-        except Exception as exc:
-            return {"ok": False, "error": str(exc), "url": url}
+                    if screenshot:
+                        import tempfile
+                        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                        screenshot_path = tmp.name
+                        tmp.close()
+                        await page.screenshot(path=screenshot_path, full_page=False)
 
+                    content = await page.inner_text("body")
+                    content = re.sub(r"\s+", " ", content).strip()
+                    final_url = page.url or target_url
+                    await browser.close()
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "url": url, "backend": "playwright"}
+
+            return {
+                "ok": True,
+                "url": url,
+                "final_url": final_url,
+                "content": content[:max_chars],
+                "truncated": len(content) > max_chars,
+                "screenshot_path": screenshot_path,
+                "backend": "playwright",
+            }
+
+        async def _run_obscura() -> dict[str, Any]:
+            obscura_bin = shutil.which("obscura") or shutil.which("obscura.exe")
+            if not obscura_bin:
+                return {
+                    "ok": False,
+                    "error": "obscura CLI not found. Install from https://github.com/h4ckf0r0day/obscura/releases",
+                    "backend": "obscura",
+                }
+
+            wait_map = {
+                "networkidle": "networkidle0",
+                "networkidle0": "networkidle0",
+                "domcontentloaded": "domcontentloaded",
+                "load": "load",
+            }
+            wait_until = wait_map.get(wait_for.lower(), "load")
+
+            cmd = [obscura_bin, "fetch", url, "--dump", "text", "--wait-until", wait_until, "--quiet"]
+            if selector:
+                cmd.extend(["--selector", selector])
+            if stealth:
+                cmd.append("--stealth")
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(execution.default_cwd),
+                )
+                stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=max(5.0, timeout_ms / 1000.0))
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return {"ok": False, "error": "obscura fetch timed out", "url": url, "backend": "obscura"}
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "url": url, "backend": "obscura"}
+
+            stdout_text = stdout_b.decode("utf-8", errors="replace").strip()
+            stderr_text = stderr_b.decode("utf-8", errors="replace").strip()
+            if proc.returncode != 0:
+                return {
+                    "ok": False,
+                    "error": stderr_text or f"obscura exited with code {proc.returncode}",
+                    "url": url,
+                    "backend": "obscura",
+                }
+
+            content = re.sub(r"\s+", " ", stdout_text).strip()
+            return {
+                "ok": True,
+                "url": url,
+                "final_url": url,
+                "content": content[:max_chars],
+                "truncated": len(content) > max_chars,
+                "screenshot_path": None,
+                "backend": "obscura",
+                "stderr": stderr_text[:2000] if stderr_text else "",
+            }
+
+        if backend == "obscura":
+            return await _run_obscura()
+        if backend == "playwright":
+            return await _run_playwright()
+
+        # auto mode: prefer Playwright for compatibility, fallback to Obscura on failure.
+        first = await _run_playwright()
+        if first.get("ok"):
+            return first
+        second = await _run_obscura()
+        if second.get("ok"):
+            return {
+                **second,
+                "fallback_from": "playwright",
+                "fallback_error": first.get("error"),
+            }
         return {
-            "ok": True,
+            "ok": False,
+            "error": f"Playwright failed: {first.get('error')} | Obscura failed: {second.get('error')}",
             "url": url,
-            "final_url": final_url,
-            "content": content[:max_chars],
-            "truncated": len(content) > max_chars,
-            "screenshot_path": screenshot_path,
+            "backend": "auto",
         }
 
     tools.register_tool(
@@ -4284,6 +4377,8 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
                     "timeout_ms": {"type": "integer", "description": "Navigation timeout in milliseconds (default 30000)"},
                     "max_chars": {"type": "integer", "description": "Maximum characters of page text to return (default 12000)"},
                     "screenshot": {"type": "boolean", "description": "Whether to capture a PNG screenshot (default false)"},
+                    "backend": {"type": "string", "description": "Browser backend: playwright (default), obscura, or auto"},
+                    "stealth": {"type": "boolean", "description": "Enable Obscura stealth mode when backend is obscura or auto fallback"},
                 },
                 "required": ["url"],
             },

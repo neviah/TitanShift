@@ -36,7 +36,6 @@ export function ChatView() {
   const [workflowPanelOpen, setWorkflowPanelOpen] = useState(true)
   const [artifactDockOpen, setArtifactDockOpen] = useState(false)
   const [artifactBusy, setArtifactBusy] = useState(false)
-  const [liveRun, setLiveRun] = useState(false)
   const [timelineOpen, setTimelineOpen] = useState(true)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
@@ -61,7 +60,7 @@ export function ChatView() {
   }, [messages])
 
   const canSend = useMemo(() => input.trim().length > 0 && !sending && !cancelling, [input, sending, cancelling])
-  const streamEnabled = useMemo(() => liveRun || workflowMode === 'superpowered', [liveRun, workflowMode])
+  const streamEnabled = true
   const streamRunning = streamState.status === 'connecting' || streamState.status === 'streaming'
   const planTaskCount = useMemo(
     () => planTasksText.split('\n').map((line) => line.trim()).filter(Boolean).length,
@@ -189,11 +188,26 @@ export function ChatView() {
 
     // ── Live Run (streaming) path ────────────────────────────────────────────
     if (streamEnabled) {
+      const parsedPlanTasks = workflowMode === 'superpowered'
+        ? planTasksText
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((title) => ({ title }))
+        : []
+
       const requestBody: Record<string, unknown> = {
         prompt: text,
         ...(priorMessages.length > 0 ? { history: priorMessages } : {}),
         ...(preferredBackend ? { model_backend: preferredBackend } : {}),
         workflow_mode: workflowMode,
+        ...(workflowMode === 'superpowered'
+          ? {
+              spec_approved: specApproved,
+              plan_approved: planApproved,
+              ...(parsedPlanTasks.length > 0 ? { plan_tasks: parsedPlanTasks } : {}),
+            }
+          : {}),
       }
       try {
         await startStream(requestBody)
@@ -472,15 +486,6 @@ export function ChatView() {
           </button>
         </div>
         <div className={styles.workflowBarActions}>
-          <label className={styles.toggleLabel} title="Use streaming /chat/stream endpoint and show live timeline">
-            <input
-              type="checkbox"
-              checked={liveRun}
-              onChange={(e) => setLiveRun(e.target.checked)}
-              disabled={sending || workflowMode === 'superpowered'}
-            />
-            {workflowMode === 'superpowered' ? 'Live Run (forced for Superpowered)' : 'Live Run'}
-          </label>
           <span className={`badge ${workflowPhase === 'error' ? 'badge-error' : workflowPhase === 'approval' ? 'badge-warn' : 'badge-ok'}`}>
             {workflowPhase}
           </span>
