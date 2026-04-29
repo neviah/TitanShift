@@ -29,6 +29,7 @@ interface ChatSessionsContextValue {
 }
 
 const STORAGE_KEY = 'titanshift-chat-sessions-v1'
+const MAX_SESSIONS_PER_WORKSPACE = 40
 
 interface WorkspaceChatState {
   sessions: ChatSession[]
@@ -83,6 +84,32 @@ function makeSession(partial?: Partial<ChatSession>): ChatSession {
   }
 }
 
+function pruneSessions(sessions: ChatSession[], keepSessionId?: string): ChatSession[] {
+  const sorted = [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  if (sorted.length <= MAX_SESSIONS_PER_WORKSPACE) {
+    return sorted
+  }
+
+  const kept: ChatSession[] = []
+  let preservedKeep = false
+  for (const session of sorted) {
+    if (kept.length < MAX_SESSIONS_PER_WORKSPACE) {
+      kept.push(session)
+      if (keepSessionId && session.id === keepSessionId) {
+        preservedKeep = true
+      }
+      continue
+    }
+    if (keepSessionId && !preservedKeep && session.id === keepSessionId) {
+      kept[kept.length - 1] = session
+      preservedKeep = true
+      break
+    }
+  }
+
+  return kept.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
 function createWorkspaceState(): WorkspaceChatState {
   const initial = makeSession()
   return { sessions: [initial], currentSessionId: initial.id }
@@ -105,7 +132,10 @@ function loadInitialState(): ChatStoreState {
           const currentSessionId = sessions.some((s) => s.id === state?.currentSessionId)
             ? String(state.currentSessionId)
             : sessions[0].id
-          byWorkspace[workspaceId] = { sessions, currentSessionId }
+          byWorkspace[workspaceId] = {
+            sessions: pruneSessions(sessions, currentSessionId),
+            currentSessionId,
+          }
         }
         if (Object.keys(byWorkspace).length > 0) {
           return { byWorkspace }
@@ -119,7 +149,14 @@ function loadInitialState(): ChatStoreState {
       const currentSessionId = sessions.some((s) => s.id === legacy?.currentSessionId)
         ? String(legacy?.currentSessionId)
         : sessions[0].id
-      return { byWorkspace: { default: { sessions, currentSessionId } } }
+      return {
+        byWorkspace: {
+          default: {
+            sessions: pruneSessions(sessions, currentSessionId),
+            currentSessionId,
+          },
+        },
+      }
     }
   } catch {
     // ignore invalid persisted state
@@ -196,7 +233,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         byWorkspace: {
           ...prev.byWorkspace,
           [workspaceScopeKey]: {
-            sessions: [next, ...state.sessions],
+            sessions: pruneSessions([next, ...state.sessions], next.id),
             currentSessionId: next.id,
           },
         },
@@ -242,7 +279,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
           ...prev.byWorkspace,
           [workspaceScopeKey]: {
             currentSessionId: state.currentSessionId,
-            sessions: updated,
+            sessions: pruneSessions(updated, state.currentSessionId),
           },
         },
       }
