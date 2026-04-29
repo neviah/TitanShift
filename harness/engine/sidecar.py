@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +55,52 @@ class SidecarProcessAdapter:
             return [part for part in shlex.split(raw) if part.strip()]
         return []
 
+    @staticmethod
+    def _extract_prompt_paths(prompt: str) -> list[str]:
+        """Extract likely workspace file paths from a natural-language prompt."""
+        if not prompt:
+            return []
+        # Keep this conservative: only capture file-like tokens with an extension.
+        pattern = re.compile(r"(?<![\w/.-])([A-Za-z0-9_./-]+\.[A-Za-z0-9_+-]+)(?![\w/.-])")
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in pattern.findall(prompt):
+            candidate = raw.strip().strip("'\"").replace("\\", "/")
+            if not candidate or candidate.lower().startswith(("http://", "https://")):
+                continue
+            if ".." in candidate:
+                continue
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            out.append(candidate)
+        return out[:12]
+
+    @staticmethod
+    def _hash_file(path: Path) -> str | None:
+        if not path.exists() or not path.is_file():
+            return None
+        hasher = hashlib.sha256()
+        with path.open("rb") as fh:
+            while True:
+                chunk = fh.read(65536)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    @classmethod
+    def _snapshot_targets(cls, cwd: Path, rel_paths: list[str]) -> dict[str, str | None]:
+        snapshot: dict[str, str | None] = {}
+        for rel_path in rel_paths:
+            target = (cwd / rel_path).resolve()
+            try:
+                target.relative_to(cwd.resolve())
+            except Exception:
+                continue
+            snapshot[str(rel_path).replace("\\", "/")] = cls._hash_file(target)
+        return snapshot
+
     async def run(self, *, payload: dict[str, Any], cwd: Path) -> SidecarExecutionResult:
         if not self.command:
             return SidecarExecutionResult(
@@ -70,6 +118,10 @@ class SidecarProcessAdapter:
         env = os.environ.copy()
         env.update({str(k): str(v) for k, v in self.shared_env.items()})
         payload_bytes = json.dumps(payload, ensure_ascii=True, default=str).encode("utf-8")
+
+        prompt_text = str(payload.get("prompt") or "")
+        candidate_paths = self._extract_prompt_paths(prompt_text)
+        before_snapshot = self._snapshot_targets(cwd, candidate_paths)
 
         process = await asyncio.create_subprocess_exec(
             *self.command,
@@ -151,6 +203,23 @@ class SidecarProcessAdapter:
 
         artifacts_raw = parsed.get("artifacts")
         artifacts = [item for item in artifacts_raw if isinstance(item, dict)] if isinstance(artifacts_raw, list) else []
+
+        # Sidecar CLIs may omit structured file evidence. Infer it from prompt-targeted files.
+        inferred_created: list[str] = []
+        inferred_updated: list[str] = []
+        if before_snapshot:
+            after_snapshot = self._snapshot_targets(cwd, list(before_snapshot.keys()))
+            for rel_path, before_hash in before_snapshot.items():
+                after_hash = after_snapshot.get(rel_path)
+                if before_hash is None and after_hash is not None:
+                    inferred_created.append(rel_path)
+                elif before_hash is not None and after_hash is not None and before_hash != after_hash:
+                    inferred_updated.append(rel_path)
+
+        if inferred_created:
+            created_paths = list(dict.fromkeys([*created_paths, *inferred_created]))
+        if inferred_updated:
+            updated_paths = list(dict.fromkeys([*updated_paths, *inferred_updated]))
 
         return SidecarExecutionResult(
             success=success_flag,

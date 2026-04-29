@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -98,7 +99,8 @@ def _stderr_has_error(raw: str) -> str | None:
         "rate limit",
     )
     if any(marker in lowered for marker in critical_markers):
-        return raw.strip()[-2000:]
+        cleaned = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", raw)
+        return cleaned.strip()[-2000:]
     return None
 
 
@@ -126,6 +128,23 @@ def _stream_has_error(raw: str) -> str | None:
     return None
 
 
+_FILE_INTENT_RE = re.compile(
+    r"(append|create|update|edit|write|open\s+up|inside\s+that)" \
+    r".*\b([A-Za-z0-9_./-]+\.[A-Za-z0-9_+-]+)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _with_file_execution_contract(prompt: str) -> str:
+    if not prompt or not _FILE_INTENT_RE.search(prompt):
+        return prompt
+    contract = (
+        "Execution contract: You must actually perform the requested file operation in the workspace. "
+        "Do not only describe what you would do. After editing, verify by reading the target file and return a concise completion summary."
+    )
+    return f"{prompt}\n\n{contract}"
+
+
 def main() -> int:
     raw_input = sys.stdin.read()
     try:
@@ -135,7 +154,7 @@ def main() -> int:
     except Exception:
         payload = {}
 
-    prompt = _safe_text(payload.get("prompt"))
+    prompt = _with_file_execution_contract(_safe_text(payload.get("prompt")))
     workspace_root = _safe_text(payload.get("workspace_root")) or str(Path.cwd())
     model = _safe_text(os.getenv("OPENAI_MODEL"))
     base_url = _safe_text(os.getenv("OPENAI_BASE_URL"))
@@ -148,8 +167,31 @@ def main() -> int:
 
     model_for_cli = model
     if model and "openrouter.ai" in base_url.lower() and not model.lower().startswith("openrouter/"):
-        # OpenCode expects provider/model format; OpenRouter model ids are usually bare slugs.
-        model_for_cli = f"openrouter/{model}"
+        slash_count = model.count("/")
+        if slash_count == 1:
+            # OpenCode expects provider/model format. Convert "author/model" -> "openrouter/author/model".
+            model_for_cli = f"openrouter/{model}"
+        elif slash_count == 0:
+            error_message = (
+                "Invalid OpenRouter model id. Expected 'author/model' (for example: "
+                "'nvidia/nemotron-3-super-120b-a12b:free' or 'qwen/qwen3.5-flash-02-23')."
+            )
+            result = {
+                "success": False,
+                "engine": "opencode",
+                "model": "opencode",
+                "provider_model": model,
+                "response": error_message,
+                "used_tools": [],
+                "created_paths": [],
+                "updated_paths": [],
+                "artifacts": [],
+                "error": error_message,
+                "stderr": "",
+                "raw_output": "",
+            }
+            sys.stdout.write(json.dumps(result, ensure_ascii=True))
+            return 0
 
     def _run_once(selected_model: str | None) -> subprocess.CompletedProcess[str]:
         cmd = [
@@ -197,7 +239,7 @@ def main() -> int:
 
     extracted_response = _extract_response(stdout_text)
     if not success and stream_error:
-        extracted_response = stream_error
+        extracted_response = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", stream_error)
     if not success and not stream_error and stderr_error:
         extracted_response = stderr_error
 

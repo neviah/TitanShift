@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -55,6 +56,46 @@ def _collect_tool_names(parsed: dict[str, Any]) -> list[str]:
     return out
 
 
+_FILE_INTENT_RE = re.compile(
+    r"(append|create|update|edit|write|open\s+up|inside\s+that)" \
+    r".*\b([A-Za-z0-9_./-]+\.[A-Za-z0-9_+-]+)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _with_file_execution_contract(prompt: str) -> str:
+    """For explicit file-mutation prompts, force execution-first behavior."""
+    if not prompt or not _FILE_INTENT_RE.search(prompt):
+        return prompt
+    contract = (
+        "Execution contract: You must actually perform the requested file operation in the workspace. "
+        "Do not only describe what you would do. After editing, verify by reading the target file and return a concise completion summary."
+    )
+    return f"{prompt}\n\n{contract}"
+
+
+def _parse_json_output(stdout_text: str) -> dict[str, Any]:
+    if not stdout_text.strip():
+        return {}
+    try:
+        loaded = json.loads(stdout_text)
+        if isinstance(loaded, dict):
+            return loaded
+    except Exception:
+        pass
+    for line in reversed(stdout_text.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            loaded = json.loads(line)
+            if isinstance(loaded, dict):
+                return loaded
+        except Exception:
+            continue
+    return {}
+
+
 def main() -> int:
     raw_input = sys.stdin.read()
     try:
@@ -72,7 +113,7 @@ def main() -> int:
 
     openclaude_bin = shutil.which("openclaude") or shutil.which("openclaude.cmd") or "openclaude.cmd"
 
-    effective_prompt = prompt
+    effective_prompt = _with_file_execution_contract(prompt)
 
     cmd = [
         openclaude_bin,
@@ -89,27 +130,40 @@ def main() -> int:
         cmd.extend(["--model", model])
     cmd.append(effective_prompt)
 
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=workspace_root,
-    )
+    timeout_s = int(_safe_text(os.getenv("OPENCLAUDE_TIMEOUT_S")) or "300")
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=workspace_root,
+            timeout=max(30, timeout_s),
+        )
+    except subprocess.TimeoutExpired:
+        result = {
+            "success": False,
+            "engine": "openclaude",
+            "model": "openclaude",
+            "provider_model": model or None,
+            "response": f"openclaude timed out after {max(30, timeout_s)}s",
+            "used_tools": [],
+            "created_paths": [],
+            "updated_paths": [],
+            "artifacts": [],
+            "error": f"openclaude timed out after {max(30, timeout_s)}s",
+            "stderr": "",
+            "raw_output": "",
+        }
+        sys.stdout.write(json.dumps(result, ensure_ascii=True))
+        return 0
 
     stdout_text = proc.stdout or ""
     stderr_text = proc.stderr or ""
     success = proc.returncode == 0
 
-    parsed: dict[str, Any] = {}
-    if stdout_text.strip():
-        try:
-            loaded = json.loads(stdout_text)
-            if isinstance(loaded, dict):
-                parsed = loaded
-        except Exception:
-            parsed = {}
+    parsed: dict[str, Any] = _parse_json_output(stdout_text)
 
     result = {
         "success": success,
