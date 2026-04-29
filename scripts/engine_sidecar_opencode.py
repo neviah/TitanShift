@@ -156,6 +156,7 @@ def main() -> int:
             opencode_bin,
             "run",
             prompt,
+            "--pure",
             "--format",
             "json",
             "--dir",
