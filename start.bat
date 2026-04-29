@@ -36,8 +36,23 @@ if errorlevel 1 (
 	exit /b 1
 )
 
+where obscura >nul 2>nul
+if errorlevel 1 (
+	echo [warning] obscura is not installed. To use Obscura as web browser backend, run:
+	echo           npm install -g obscura
+	echo           OR download from: https://github.com/h4ckf0r0day/obscura/releases
+	echo           (Playwright will be used as fallback)
+	echo.
+)
+
 for /f "delims=" %%i in ('opencode --version') do set OPENCODE_VERSION=%%i
 for /f "delims=" %%i in ('openclaude --version') do set OPENCLAUDE_VERSION=%%i
+
+where obscura >nul 2>nul
+if errorlevel 0 (
+	for /f "delims=" %%i in ('obscura --version') do set OBSCURA_VERSION=%%i
+	echo [ok] obscura: %OBSCURA_VERSION%
+)
 
 echo [ok] opencode: %OPENCODE_VERSION%
 echo [ok] openclaude: %OPENCLAUDE_VERSION%

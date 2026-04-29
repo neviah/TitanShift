@@ -375,7 +375,7 @@ export function SettingsView() {
               </select>
             </Field>
             <p className={styles.fieldHint}>
-              Playwright is bundled. Obscura must be installed separately: <code>npm install -g obscura</code> or download from <a href="https://github.com/h4ckf0r0day/obscura/releases" target="_blank" rel="noopener noreferrer">GitHub</a>.
+              Playwright is bundled and always available. To use Obscura: run <code>setup-obscura.bat</code> in the project root, or manually install <code>npm install -g obscura</code>. Download from <a href="https://github.com/h4ckf0r0day/obscura/releases" target="_blank" rel="noopener noreferrer">GitHub releases</a>.
             </p>
           </Section>
 
