@@ -39,6 +39,16 @@ def _collect_tool_names(raw: str) -> list[str]:
 
 
 def _extract_response(raw: str) -> str:
+    try:
+        loaded = json.loads(raw)
+        if isinstance(loaded, dict):
+            for key in ("response", "result", "text", "message", "content", "output", "summary"):
+                value = loaded.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    except Exception:
+        pass
+
     chunks: list[str] = []
     last_text = ""
     for line in raw.splitlines():
@@ -72,6 +82,24 @@ def _extract_response(raw: str) -> str:
     if last_text:
         return last_text.strip()
     return raw.strip()[-8000:]
+
+
+def _stderr_has_error(raw: str) -> str | None:
+    if not raw:
+        return None
+    lowered = raw.lower()
+    critical_markers = (
+        "no endpoints found",
+        "model not found",
+        "provider not found",
+        "authentication failed",
+        "unauthorized",
+        "invalid api key",
+        "rate limit",
+    )
+    if any(marker in lowered for marker in critical_markers):
+        return raw.strip()[-2000:]
+    return None
 
 
 def _stream_has_error(raw: str) -> str | None:
@@ -152,6 +180,7 @@ def main() -> int:
     stderr_text = proc.stderr or ""
     success = proc.returncode == 0
     stream_error = _stream_has_error(stdout_text)
+    stderr_error = _stderr_has_error(stderr_text)
     if stream_error and "model not found" in stream_error.lower() and allow_model_fallback:
         # Optional: retry without forcing model when explicitly enabled.
         proc = _run_once(None)
@@ -159,12 +188,17 @@ def main() -> int:
         stderr_text = proc.stderr or ""
         success = proc.returncode == 0
         stream_error = _stream_has_error(stdout_text)
+        stderr_error = _stderr_has_error(stderr_text)
     if stream_error:
+        success = False
+    if stderr_error:
         success = False
 
     extracted_response = _extract_response(stdout_text)
     if not success and stream_error:
         extracted_response = stream_error
+    if not success and not stream_error and stderr_error:
+        extracted_response = stderr_error
 
     result = {
         "success": success,
@@ -176,7 +210,7 @@ def main() -> int:
         "created_paths": [],
         "updated_paths": [],
         "artifacts": [],
-        "error": None if success else (stream_error or _safe_text(stderr_text) or f"opencode exited with code {proc.returncode}"),
+        "error": None if success else (stream_error or stderr_error or _safe_text(stderr_text) or f"opencode exited with code {proc.returncode}"),
         "stderr": stderr_text[-8000:],
         "raw_output": stdout_text[-16000:],
     }

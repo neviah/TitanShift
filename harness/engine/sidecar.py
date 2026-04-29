@@ -100,18 +100,42 @@ class SidecarProcessAdapter:
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
 
-        parsed: dict[str, Any] = {}
-        if stdout_text:
+        def _parse_json_dict(raw: str) -> dict[str, Any]:
+            if not raw:
+                return {}
             try:
-                loaded = json.loads(stdout_text)
+                loaded = json.loads(raw)
                 if isinstance(loaded, dict):
-                    parsed = loaded
+                    return loaded
             except Exception:
-                parsed = {}
+                pass
 
-        response_text = str(parsed.get("response") or parsed.get("text") or stdout_text)
+            # Some sidecars/loggers prepend lines before the final JSON payload.
+            for line in reversed(raw.splitlines()):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    loaded = json.loads(line)
+                    if isinstance(loaded, dict):
+                        return loaded
+                except Exception:
+                    continue
+            return {}
+
+        parsed: dict[str, Any] = _parse_json_dict(stdout_text)
+
+        response_text = ""
+        for key in ("response", "text", "message", "content"):
+            value = parsed.get(key)
+            if isinstance(value, str) and value.strip():
+                response_text = value.strip()
+                break
+        if not response_text:
+            response_text = stdout_text
         success_flag = bool(parsed.get("success", process.returncode == 0))
-        error_text = str(parsed.get("error") or "").strip() or None
+        error_value = parsed.get("error")
+        error_text = error_value.strip() if isinstance(error_value, str) else None
 
         if not success_flag and error_text is None and stderr_text:
             error_text = stderr_text[:2000]
