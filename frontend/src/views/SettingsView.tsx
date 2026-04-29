@@ -33,6 +33,7 @@ interface ConfigState {
   'execution.max_concurrent_runs'?: number
   'tools.allow_network': boolean
   'tools.deny_all_by_default': boolean
+  'tools.web_browse_backend'?: string
   'state_machine.default_budget.max_steps': number
   'state_machine.default_budget.max_tokens': number
   [key: string]: unknown
@@ -361,6 +362,21 @@ export function SettingsView() {
                 onChange={(v) => patchLocal('tools.allow_network', v)}
               />
             </Field>
+
+            <Field label="Web browser backend">
+              <select
+                className={styles.select}
+                value={String(config['tools.web_browse_backend'] ?? 'playwright')}
+                onChange={(e) => patchLocal('tools.web_browse_backend', e.target.value)}
+              >
+                <option value="playwright">Playwright (Chromium headless, default)</option>
+                <option value="auto">Auto (tries Playwright first, fallback to Obscura)</option>
+                <option value="obscura">Obscura (requires CLI installed)</option>
+              </select>
+            </Field>
+            <p className={styles.fieldHint}>
+              Playwright is bundled. Obscura must be installed separately: <code>npm install -g obscura</code> or download from <a href="https://github.com/h4ckf0r0day/obscura/releases" target="_blank" rel="noopener noreferrer">GitHub</a>.
+            </p>
           </Section>
 
           {/* ── System Overview ── */}

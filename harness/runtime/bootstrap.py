@@ -83,7 +83,7 @@ def build_runtime(workspace_root: Path) -> RuntimeContext:
     )
     health.set("execution", "healthy")
 
-    register_builtin_tools(tools, execution)
+    register_builtin_tools(tools, execution, cfg)
 
     sidecar_enabled = bool(cfg.get("engine.use_sidecar", False))
     disable_legacy_skills = bool(cfg.get("engine.disable_legacy_skills", sidecar_enabled))

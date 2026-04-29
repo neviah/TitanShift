@@ -21,11 +21,12 @@ from harness.artifacts.backends import ArtifactBackendRegistry
 from harness.artifacts.backends import ArtifactRenderRequest
 from harness.artifacts.backends import ArtifactRenderResult
 from harness.execution.runner import ExecutionDeniedError, ExecutionModule
+from harness.runtime.config import ConfigManager
 from harness.tools.definitions import ToolDefinition
 from harness.tools.registry import ToolRegistry
 
 
-def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> None:
+def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule, config: ConfigManager | None = None) -> None:
     artifact_backends = ArtifactBackendRegistry()
 
     def _resolve_workspace_path(raw_path: str) -> Path:
@@ -4203,7 +4204,12 @@ def register_builtin_tools(tools: ToolRegistry, execution: ExecutionModule) -> N
         if not url.startswith(("http://", "https://")):
             return {"ok": False, "error": "url must start with http:// or https://"}
 
-        backend = str(args.get("backend") or "").strip().lower() or "playwright"
+        # If backend is not explicitly provided, use config-based default
+        backend = str(args.get("backend") or "").strip().lower()
+        if not backend and config is not None:
+            backend = str(config.get("tools.web_browse_backend", "playwright")).strip().lower()
+        if not backend:
+            backend = "playwright"
         if backend not in {"playwright", "obscura", "auto"}:
             return {"ok": False, "error": "backend must be one of: playwright, obscura, auto"}
 

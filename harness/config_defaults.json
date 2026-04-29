@@ -94,6 +94,7 @@
   "tools": {
     "deny_all_by_default": true,
     "allow_network": false,
+    "web_browse_backend": "playwright",
     "allowed_paths": [
       "."
     ],
